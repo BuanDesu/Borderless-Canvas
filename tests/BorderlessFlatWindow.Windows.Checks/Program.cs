@@ -48,6 +48,7 @@ internal static class Program
         DisplayChecks.Run(normal, Check);
         LifecycleChecks.Run(Check);
         RecoveryChecks.Run(Check);
+        OffscreenChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {
             normal.Hide();

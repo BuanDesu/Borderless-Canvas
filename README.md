@@ -4,7 +4,7 @@
 
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
-当前推进到 **M2 / T04 恢复基础**：M1 的身份、坐标和事件地图已实现，新增写前恢复日志、实例标记、正常退出恢复与独立 Recovery EXE。常规 GUI 仍为观察模式，真实接管和平移待 T05/T06，全局输入与 DWM 预览随后接入；[原型交付检查](docs/prototype-plan.md)保留持续目标的完整范围。
+当前推进到 **M2 / T05 离屏策略**：已有只读事件地图与独立恢复，已完成有界停放/区域裁剪对照，确认离屏 DWM 可能冻结。常规 GUI 仍为观察模式，T06 接入真实画布平移；[原型交付检查](docs/prototype-plan.md)保留持续目标完整范围。新增 Probe 交互测试程序可验证自己的窗口、预览和恢复。
 
 ## 快速开始
 
@@ -27,6 +27,9 @@ Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作
 
 # 独立检查上次会话的恢复日志；去掉 -Inspect 才会恢复已验证窗口
 .\scripts\recover.ps1 -Configuration Release -Inspect
+
+# 运行自己的测试窗口，验证停放、预览、恢复与原生输入
+dotnet run --project tests/BorderlessFlatWindow.Probe --configuration Release
 ```
 
 也可以直接用 SDK：
@@ -88,6 +91,7 @@ docs/
 - [开发路线图](docs/roadmap.md)：从 M0 骨架到真实桌面接管的顺序。
 - [验收与验证记录](docs/acceptance.md)：模型检查、UI 冒烟检查和后续桌面验收。
 - [技术选型记录](docs/adr/0001-native-windows-foundation.md)：为什么选择 .NET/WinForms/Win32。
+- [离屏策略决策](docs/adr/0002-bounded-offscreen-parking.md)：有界停放、DWM 旧帧/裁剪空白与支持边界。
 - [早期可行性调研](windows-canvas-feasibility.zh-CN.md)：包含已不在首版范围内的应用窗口缩放研究，作为历史资料保留。
 
 `tests/BorderlessFlatWindow.Checks` 是控制台检查程序，不是 VSTest 项目；请用 `scripts/check.ps1`，不能以 `dotnet test` 的退出结果代替运行模型检查。

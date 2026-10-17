@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T04 已实现验证，待各自 PR 合并后勾选；T04 已通过正常退出和跨进程强制结束恢复演练。下一步 T05 离屏策略实验，再接入 T06 真实平移。持续目标为[可试用原型](docs/prototype-plan.md)，T04 基础仍须在实际接管后复验。负坐标与 100% DPI 基线由模型检查覆盖，本机为 150% DPI。完成条件以[需求规格](windows-spatial-canvas-requirements.zh-CN.md)和[验收文档](docs/acceptance.md)为准。
+当前状态：T01–T05 已实现/记录，待各自 PR 合并后勾选。T05 决定使用有界停放：真实 DWM 可视实验已确认离屏旧帧与裁剪空白；任务栏 hover 和真实多屏未验收，支持边界见 [ADR 0002](docs/adr/0002-bounded-offscreen-parking.md)。下一步 T06 接管、真实平移和焦点跟随。持续目标为[可试用原型](docs/prototype-plan.md)，基础恢复仍须接管后复验。
 
 ## 已完成：M0 基础项目
 
