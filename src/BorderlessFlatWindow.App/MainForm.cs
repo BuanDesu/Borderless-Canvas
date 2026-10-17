@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using BorderlessFlatWindow.Application;
+using BorderlessFlatWindow.Application.Discovery;
 using BorderlessFlatWindow.Application.Ports;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
@@ -12,6 +13,10 @@ internal sealed class MainForm : Form
     private readonly IDesktopWindowCatalog catalog;
     private readonly CanvasPreviewControl preview;
     private readonly ToolStripStatusLabel cameraStatus = new();
+    private readonly Label catalogSummary = new() { AutoSize = true, Margin = new Padding(12, 9, 0, 0) };
+    private readonly CheckBox showExcluded = new() { Text = "显示被排除的窗口", AutoSize = true, Margin = new Padding(10, 8, 0, 0) };
+    private WindowCatalogSnapshot? snapshot;
+    private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
     private readonly ListView windowList = new()
     {
         Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
@@ -35,7 +40,6 @@ internal sealed class MainForm : Form
         preview.WindowChosen += id => Navigate(() => workspace.FocusWindow(id));
         preview.CameraPanRequested += delta => Navigate(() => workspace.PanBy(delta));
 
-        var tabs = new TabControl { Dock = DockStyle.Fill };
         var canvasTab = new TabPage("空间模型预览");
         var catalogTab = new TabPage("Windows 窗口候选（只读）");
         tabs.TabPages.Add(canvasTab);
@@ -61,18 +65,24 @@ internal sealed class MainForm : Form
         };
         canvasTab.Controls.Add(hint);
 
-        windowList.Columns.Add("标题", 450);
-        windowList.Columns.Add("窗口类", 230);
-        windowList.Columns.Add("进程 ID", 100);
+        windowList.Columns.Add("标题", 230);
+        windowList.Columns.Add("准入结果", 260);
+        windowList.Columns.Add("进程 ID", 85);
+        windowList.Columns.Add("所属窗口", 105);
+        windowList.Columns.Add("模型 ID", 110);
+        windowList.Columns.Add("窗口类", 210);
         catalogTab.Controls.Add(windowList);
-        var refresh = new Button { Text = "刷新候选列表（只读）", Dock = DockStyle.Top, Height = 42 };
+        var catalogActions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(6) };
+        var refresh = new Button { Text = "检查窗口（只读）", AutoSize = true };
         refresh.Click += (_, _) => RefreshCatalog();
-        catalogTab.Controls.Add(refresh);
+        showExcluded.CheckedChanged += (_, _) => RenderSnapshot();
+        catalogActions.Controls.AddRange([refresh, showExcluded, catalogSummary]);
+        catalogTab.Controls.Add(catalogActions);
 
         var intro = new Label
         {
             Dock = DockStyle.Top, Height = 96, Padding = new Padding(14),
-            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\n项目骨架：仅模型预览和只读枚举；真实窗口接管尚未接入。"
+            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM1：窗口身份与准入检查。查看检查页了解纳入或排除原因；尚未移动真实窗口。"
         };
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
@@ -104,16 +114,47 @@ internal sealed class MainForm : Form
 
     private void RefreshCatalog()
     {
+        try
+        {
+            snapshot = catalog.Inspect();
+            RenderSnapshot();
+        }
+        catch (Win32Exception exception)
+        {
+            catalogSummary.Text = $"读取失败 {exception.NativeErrorCode}；保留上次结果。";
+        }
+    }
+
+    internal void PrepareCatalogSmoke()
+    {
+        tabs.SelectedIndex = 1;
+        showExcluded.Checked = true;
+        RefreshCatalog();
+    }
+
+    private void RenderSnapshot()
+    {
+        if (snapshot is null) return;
+        var selected = windowList.SelectedItems.Count == 0 ? null : windowList.SelectedItems[0].Tag as Guid?;
         windowList.BeginUpdate();
         try
         {
             windowList.Items.Clear();
-            foreach (var window in catalog.GetWindows())
-                windowList.Items.Add(new ListViewItem([window.Title, window.ClassName, window.ProcessId.ToString()]));
-        }
-        catch (Win32Exception exception)
-        {
-            cameraStatus.Text = $"窗口候选读取失败：{exception.NativeErrorCode}。可稍后重新刷新。";
+            foreach (var entry in snapshot.Entries.Where(entry => showExcluded.Checked || entry.Admission.IsAdmitted)
+                .OrderByDescending(entry => entry.Admission.IsAdmitted)
+                .ThenByDescending(entry => entry.Observation.IsVisible))
+            {
+                var window = entry.Observation;
+                var item = new ListViewItem([
+                    string.IsNullOrEmpty(window.Title) ? "（无标题）" : window.Title,
+                    entry.Admission.Description, window.ProcessId.ToString(),
+                    window.OwnerHandle == 0 ? "—" : $"0x{window.OwnerHandle:X}",
+                    entry.Id?.ToString("N")[..8] ?? "—", window.ClassName
+                ]) { Tag = entry.Id, ForeColor = entry.Admission.IsAdmitted ? SystemColors.WindowText : SystemColors.GrayText };
+                item.Selected = entry.Id is not null && entry.Id == selected;
+                windowList.Items.Add(item);
+            }
+            catalogSummary.Text = $"可纳入 {snapshot.AdmittedWindows.Count} / 扫描 {snapshot.Entries.Count} · {snapshot.CapturedAt.ToLocalTime():HH:mm:ss}";
         }
         finally
         {
@@ -123,6 +164,7 @@ internal sealed class MainForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (tabs.SelectedIndex != 0) return base.ProcessCmdKey(ref msg, keyData);
         switch (keyData)
         {
             case Keys.Home:
