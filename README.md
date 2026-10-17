@@ -1,5 +1,7 @@
 # Borderless Flat Window
 
+[GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [开发任务](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
+
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
 当前为 **M0 项目骨架**。可运行程序提供四个示例窗口的空间模型预览，以及只读的 Windows 窗口候选列表。真实窗口移动、全局输入、DWM 缩略图和恢复日志尚未接入。
