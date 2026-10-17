@@ -1,0 +1,22 @@
+name: 缺陷报告
+description: 记录可复现的窗口管理问题
+title: "[缺陷] "
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: Windows build、版本、屏幕数量、分辨率、刷新率、DPI、应用版本。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤、预期与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: recovery
+    attributes:
+      label: 窗口是否可找回
+      description: 描述恢复入口的结果；分享日志前删除窗口标题等私密信息。

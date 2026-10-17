@@ -1,0 +1,30 @@
+name: 开发任务
+description: 记录有明确范围和验收条件的实现任务
+title: "[任务] "
+body:
+  - type: textarea
+    id: scope
+    attributes:
+      label: 目标与范围
+      description: 描述用户行为或技术问题，并写明不包含的工作。
+    validations:
+      required: true
+  - type: input
+    id: traceability
+    attributes:
+      label: 里程碑、优先级和需求编号
+      placeholder: M2 / P0 / FR-01、FR-03
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 依赖
+      description: 关联前置 Issue，并说明需要先完成什么。
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 完成条件与验证
+      description: 用复选框列出行为、边界、失败恢复与验证证据。
+    validations:
+      required: true

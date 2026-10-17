@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BorderlessFlatWindow.Core/BorderlessFlatWindow.Core.csproj" />
+    <Project Path="src/BorderlessFlatWindow.Application/BorderlessFlatWindow.Application.csproj" />
+    <Project Path="src/BorderlessFlatWindow.Windows/BorderlessFlatWindow.Windows.csproj" />
+    <Project Path="src/BorderlessFlatWindow.App/BorderlessFlatWindow.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BorderlessFlatWindow.Checks/BorderlessFlatWindow.Checks.csproj" />
+  </Folder>
+</Solution>
