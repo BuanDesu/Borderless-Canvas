@@ -6,6 +6,22 @@ namespace BorderlessFlatWindow.Windows.Interop;
 
 internal static class NativeMethods
 {
+    internal delegate void WinEventCallback(nint hook, uint eventId, nint window, int objectId, int childId, uint threadId, uint time);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern nint SetWinEventHook(uint eventMin, uint eventMax, nint module, WinEventCallback callback,
+        uint processId, uint threadId, uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWinEvent(nint hook);
+
+    [DllImport("user32.dll")]
+    internal static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    internal static extern nint GetAncestor(nint window, uint flags);
+
     internal delegate bool MonitorEnumCallback(nint monitor, nint dc, nint rectangle, nint parameter);
 
     [DllImport("user32.dll", SetLastError = true)]

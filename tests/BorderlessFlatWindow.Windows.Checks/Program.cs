@@ -43,6 +43,7 @@ internal static class Program
             Require(changed.Observation.Bounds?.Position.X == normal.Left, "Physical bounds do not match.");
         });
         DisplayChecks.Run(normal, Check);
+        LifecycleChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {
             normal.Hide();

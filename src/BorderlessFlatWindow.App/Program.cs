@@ -8,8 +8,9 @@ internal static class Program
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        using var form = new MainForm(new DesktopWindowCatalog());
-        if (args.Contains("--smoke-check", StringComparer.Ordinal))
+        var smoke = args.Contains("--smoke-check", StringComparer.Ordinal);
+        using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke);
+        if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.
             form.Opacity = 0;
@@ -29,13 +30,20 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "display-smoke.png"));
+            form.PrepareLiveSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "live-map-smoke.png"));
             var inspection = new DesktopWindowCatalog().Inspect();
+            var tracking = form.GetTrackingDiagnostics();
             File.WriteAllText(Path.Combine(output, "shell-smoke.json"),
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
                     os = Environment.OSVersion.VersionString,
                     candidateCount = inspection.AdmittedWindows.Count,
                     inspectedCount = inspection.Entries.Count,
+                    liveMapWindowCount = tracking.WindowCount,
+                    winEventWatching = tracking.Watching,
                     reasons = inspection.Entries.GroupBy(entry => entry.Admission.Reason.ToString())
                         .ToDictionary(group => group.Key, group => group.Count()),
                     sampleWindows = 4,

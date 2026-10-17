@@ -25,7 +25,8 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
 
     private static WindowObservation ReadWindow(nint handle, VirtualDesktopQuery desktops)
     {
-        if (!NativeMethods.IsWindow(handle)) return new() { Handle = handle };
+        if (!NativeMethods.IsWindow(handle) || NativeMethods.GetAncestor(handle, 2) != handle)
+            return new() { Handle = handle }; // Only top-level windows; child events cannot grow the catalog.
         NativeMethods.GetWindowThreadProcessId(handle, out var processId);
         var created = ReadCreationTime(processId);
         var title = new StringBuilder(4096);
@@ -63,6 +64,15 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
             IsToolWindow = (extendedStyle & 0x80) != 0, IsMinimized = minimized,
             IsCloaked = cloaked, IsOnCurrentDesktop = currentDesktop
         };
+    }
+
+    internal WindowObservation ReadWindow(nint handle)
+    {
+        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+            throw new InvalidOperationException("Window inspection requires an STA thread.");
+        using var pixels = new PhysicalPixelScope();
+        using var desktops = new VirtualDesktopQuery();
+        return ReadWindow(handle, desktops);
     }
 
     private static long? ReadCreationTime(uint processId)
