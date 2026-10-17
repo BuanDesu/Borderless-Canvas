@@ -4,7 +4,7 @@
 
 版本：0.2，作为当前产品需求基线。本文区分用户核心需求、首版设计选择和待验证边界。
 
-当前进度为 M1 / T01：已有逻辑模型、示例地图、窗口稳定身份及带排除原因的只读检查；真实应用窗口接管尚未实现。早期缩放调研保留在 `windows-canvas-feasibility.zh-CN.md`，其中的应用内容缩放不属于本版范围。架构、路线图和验收记录分别见 `docs/architecture.md`、`docs/roadmap.md` 和 `docs/acceptance.md`。
+当前进度为 M1 / T02：已有逻辑模型、示例地图、窗口稳定身份、带排除原因的只读检查，以及显示器工作区、DPI 诊断和物理坐标范围检查；真实应用窗口接管尚未实现。负坐标与 100% DPI 基线已有模型验证，本机 150% DPI 只读实测范围见 `docs/display-coordinates.md`。早期缩放调研保留在 `windows-canvas-feasibility.zh-CN.md`，其中的应用内容缩放不属于本版范围。架构、路线图和验收记录分别见 `docs/architecture.md`、`docs/roadmap.md` 和 `docs/acceptance.md`。
 
 ## 核心目标
 

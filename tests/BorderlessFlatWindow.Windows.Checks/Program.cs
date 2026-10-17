@@ -42,6 +42,7 @@ internal static class Program
             Require(changed.Id == first.Id && changed.Observation.Title == normal.Text, "Title update replaced identity.");
             Require(changed.Observation.Bounds?.Position.X == normal.Left, "Physical bounds do not match.");
         });
+        DisplayChecks.Run(normal, Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {
             normal.Hide();

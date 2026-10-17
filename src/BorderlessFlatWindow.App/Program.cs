@@ -25,6 +25,10 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "catalog-smoke.png"));
+            form.PrepareDisplaySmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "display-smoke.png"));
             var inspection = new DesktopWindowCatalog().Inspect();
             File.WriteAllText(Path.Combine(output, "shell-smoke.json"),
                 System.Text.Json.JsonSerializer.Serialize(new
