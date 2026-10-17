@@ -6,6 +6,38 @@ namespace BorderlessFlatWindow.Windows.Interop;
 
 internal static class NativeMethods
 {
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetWindowPlacement(nint window, ref NativeWindowPlacement placement);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetWindowPlacement(nint window, in NativeWindowPlacement placement);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetPropW(nint window, string name, nint value);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern nint GetPropW(nint window, string name);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern nint RemovePropW(nint window, string name);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativePoint { internal int X; internal int Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeWindowPlacement
+    {
+        internal uint Length;
+        internal uint Flags;
+        internal uint ShowCommand;
+        internal NativePoint MinPosition;
+        internal NativePoint MaxPosition;
+        internal NativeRect NormalPosition;
+    }
+
     internal delegate void WinEventCallback(nint hook, uint eventId, nint window, int objectId, int childId, uint threadId, uint time);
 
     [DllImport("user32.dll", SetLastError = true)]

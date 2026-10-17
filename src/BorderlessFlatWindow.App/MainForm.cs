@@ -28,12 +28,13 @@ internal sealed class MainForm : Form
     private WindowCatalogSnapshot? snapshot;
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
     private readonly DisplayDiagnosticsControl displays;
+    private readonly RecoveryDiagnosticsControl recovery;
     private readonly ListView windowList = new()
     {
         Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
     };
 
-    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false)
+    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null)
     {
         this.catalog = catalog;
         this.showWithoutActivation = showWithoutActivation;
@@ -86,6 +87,10 @@ internal sealed class MainForm : Form
         liveActions.Controls.AddRange([fit, home, reconcile]);
         liveTab.Controls.Add(liveActions);
         tabs.TabPages.Add(liveTab);
+        var recoveryTab = new TabPage("恢复日志");
+        recovery = new(journalPath) { Dock = DockStyle.Fill };
+        recoveryTab.Controls.Add(recovery);
+        tabs.TabPages.Add(recoveryTab);
         canvasTab.Controls.Add(preview);
 
         var navigation = new FlowLayoutPanel
@@ -124,7 +129,7 @@ internal sealed class MainForm : Form
         var intro = new Label
         {
             Dock = DockStyle.Top, Height = 96, Padding = new Padding(14),
-            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM1：窗口事件同步与真实空间地图。当前仅观察，尚未移动真实窗口。"
+            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM2：恢复基础已接入。常规模式仅观察，真实窗口接管尚未开放。"
         };
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
@@ -133,6 +138,7 @@ internal sealed class MainForm : Form
         Controls.Add(status);
         UpdateCameraStatus();
         displays.RefreshDisplays();
+        if (recovery.RefreshJournal() > 0 && !showWithoutActivation) tabs.SelectedIndex = 4;
     }
 
     private static CanvasWindow Sample(string title, double x, double y, double width, double height) =>
@@ -242,6 +248,12 @@ internal sealed class MainForm : Form
 
     internal (int WindowCount, bool Watching) GetTrackingDiagnostics() =>
         (liveWorkspace.Windows.Count, listener?.IsRunning == true);
+
+    internal void PrepareRecoverySmoke()
+    {
+        tabs.SelectedIndex = 4;
+        recovery.RefreshJournal();
+    }
 
     private void RenderSnapshot()
     {

@@ -6,8 +6,11 @@ namespace BorderlessFlatWindow.Windows.Checks;
 internal static class Program
 {
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
+        var storage = StorageChecks.Run();
+        if (args.Contains("--storage-only", StringComparer.Ordinal) || storage != 0) return storage;
         ApplicationConfiguration.Initialize();
         // These fixtures are transparent and never activate. Only their own state is changed.
         using var normal = new Fixture { Text = "BFW native fixture", Bounds = new(100, 100, 400, 300) };
@@ -44,6 +47,7 @@ internal static class Program
         });
         DisplayChecks.Run(normal, Check);
         LifecycleChecks.Run(Check);
+        RecoveryChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {
             normal.Hide();

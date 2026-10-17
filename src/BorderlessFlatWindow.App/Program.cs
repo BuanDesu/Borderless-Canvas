@@ -9,7 +9,10 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         var smoke = args.Contains("--smoke-check", StringComparer.Ordinal);
-        using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke);
+        var journalIndex = Array.IndexOf(args, "--journal");
+        if (journalIndex >= 0 && journalIndex + 1 >= args.Length) return 1;
+        var journalPath = journalIndex < 0 ? null : args[journalIndex + 1];
+        using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath);
         if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.
@@ -34,6 +37,10 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "live-map-smoke.png"));
+            form.PrepareRecoverySmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "recovery-smoke.png"));
             var inspection = new DesktopWindowCatalog().Inspect();
             var tracking = form.GetTrackingDiagnostics();
             File.WriteAllText(Path.Combine(output, "shell-smoke.json"),
