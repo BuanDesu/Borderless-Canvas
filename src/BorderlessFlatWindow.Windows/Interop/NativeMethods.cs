@@ -6,6 +6,26 @@ namespace BorderlessFlatWindow.Windows.Interop;
 
 internal static class NativeMethods
 {
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern nint BeginDeferWindowPos(int count);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern nint DeferWindowPos(nint batch, nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EndDeferWindowPos(nint batch);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(nint window);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
+    internal static extern nint SendMessageTimeout(nint window, uint message, nuint wParam, nint lParam,
+        uint flags, uint timeout, out nuint result);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);

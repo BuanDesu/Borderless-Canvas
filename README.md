@@ -4,7 +4,7 @@
 
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
-当前推进到 **M2 / T05 离屏策略**：已有只读事件地图与独立恢复，已完成有界停放/区域裁剪对照，确认离屏 DWM 可能冻结。常规 GUI 仍为观察模式，T06 接入真实画布平移；[原型交付检查](docs/prototype-plan.md)保留持续目标完整范围。新增 Probe 交互测试程序可验证自己的窗口、预览和恢复。
+当前推进到 **M2 / T06 真实画布管理**：可勾选单屏普通窗口，登记恢复日志后整体平移，聚焦远处窗口，返回原点/上一视角，暂停或退出恢复原位。已验证自己的跨进程窗口与故障恢复；全局手势、独立总览和标签持久化继续按[原型交付检查](docs/prototype-plan.md)推进。操作与支持范围见[真实画布管理](docs/managed-canvas.md)。
 
 ## 快速开始
 
@@ -16,13 +16,13 @@ Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作
 # 编译整个解决方案
 .\scripts\build.ps1
 
-# 执行模型与日志文件检查；加 -SmokeUi 可渲染五个页面
+# 执行模型与日志文件检查；加 -SmokeUi 可渲染六个页面
 .\scripts\check.ps1 -SmokeUi
 
 # 在具备交互桌面的 Windows 上检查透明原生测试窗口
 .\scripts\check.ps1 -Configuration Release -SmokeUi -NativeChecks
 
-# 启动桌面预览程序
+# 启动桌面画布程序
 .\scripts\run.ps1
 
 # 独立检查上次会话的恢复日志；去掉 -Inspect 才会恢复已验证窗口
@@ -44,6 +44,9 @@ dotnet run --project src/BorderlessFlatWindow.App
 
 ## 当前可以操作什么
 
+- 在“窗口画布”勾选普通窗口，点击“开始 / 恢复画布”；只接管勾选项。
+- 用该页的箭头或地图内滚轮平移真实窗口，Shift＋滚轮横移；点击空间卡片定位目标。Home/Backspace 在该页返回原点/上一视角。
+- “暂停并恢复原位”与正常关闭恢复接管前位置；同一选择再次开始会保留本次进程的世界布局和相机。启动发现旧日志时先处理恢复。
 - 在“空间模型预览”中点击矩形，将模型相机定位到该窗口。
 - 使用箭头按钮或滚轮移动相机；Shift＋滚轮横移。
 - Home 返回原点；Backspace 返回上一视角。预览中的虚线是视口，十字是原点。
@@ -55,7 +58,7 @@ dotnet run --project src/BorderlessFlatWindow.App
 - 在“真实空间地图（只读）”观察实际位置和大小，金框标记前台窗口；可适配全部窗口。点击/滚轮仅改变地图预览相机，真实窗口保持原位。地图比例在当前视图中固定，窗口移动时不会自动重排。
 - 在“恢复日志”检查待处理记录，或启动独立恢复程序。恢复仅操作已有日志且当前身份/实例标记匹配的窗口；损坏日志和失败项目保留，详细命令见[恢复说明](docs/recovery.md)。
 
-常规地图操作保持用户窗口原位；恢复入口会恢复旧会话已验证窗口。当前接管入口尚未开放。示例模型页每次绘制会适配范围，真实地图保持当前比例；总览搜索、书签 UI 和键盘选择等继续按里程碑推进。
+“窗口画布”会移动已登记的真实窗口；另两个模型/只读地图页面只改变预览。当前仅开放 DPI 已知的单显示器普通窗口，最大化、全屏和置顶需先退出对应状态；关联弹窗、关闭或移动失败会暂停并恢复。全局导航手势、总览搜索、书签 UI 和键盘选择仍待后续阶段。
 
 ## 目录
 
@@ -64,8 +67,8 @@ BorderlessFlatWindow.slnx
 src/
   BorderlessFlatWindow.Core/          # 纯几何、相机、总览投影与领域记录
   BorderlessFlatWindow.Application/   # 画布会话、导航历史、位置书签、平台端口
-  BorderlessFlatWindow.Windows/       # Win32 只读窗口枚举；后续接入移动与预览
-  BorderlessFlatWindow.App/           # WinForms 入口与模型预览
+  BorderlessFlatWindow.Windows/       # Win32 发现、事件、受保护移动、恢复和预览
+  BorderlessFlatWindow.App/           # WinForms 管理入口、空间地图与诊断
   BorderlessFlatWindow.Recovery/      # 独立控制台恢复入口，不依赖 GUI 启动
 tests/
   BorderlessFlatWindow.Checks/        # 无第三方依赖的可执行模型检查
@@ -87,6 +90,7 @@ docs/
 - [显示器与坐标边界](docs/display-coordinates.md)：T02 坐标契约、DPI 读取、越界检查与实测范围。
 - [事件同步与真实地图](docs/window-lifecycle.md)：T03 批次、销毁失效、重入、移动回调协议与验证。
 - [恢复日志与独立入口](docs/recovery.md)：T04 登记协议、崩溃恢复、命令、验证与边界。
+- [真实画布管理](docs/managed-canvas.md)：T06 接管、连续平移、聚焦、暂停恢复与实测范围。
 - [可试用原型交付检查](docs/prototype-plan.md)：持续目标的实际功能与验收边界。
 - [开发路线图](docs/roadmap.md)：从 M0 骨架到真实桌面接管的顺序。
 - [验收与验证记录](docs/acceptance.md)：模型检查、UI 冒烟检查和后续桌面验收。

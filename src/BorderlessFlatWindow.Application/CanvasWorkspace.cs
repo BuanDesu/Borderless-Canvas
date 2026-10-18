@@ -29,6 +29,22 @@ public sealed class CanvasWorkspace
 
     public void SetViewportSize(SizeD size) => Camera = new(Camera.Position, size);
 
+    public void ResetWindowsAndNavigation()
+    {
+        windows.Clear(); history.Clear(); Camera = Camera.At(PointD.Zero);
+    }
+
+    public void SetCameraPosition(PointD position) => Camera = Camera.At(position);
+
+    public void RecordNavigationOrigin(PointD origin)
+    {
+        if (origin == Camera.Position) return;
+        history.Add(origin);
+        if (history.Count > HistoryLimit) history.RemoveAt(0);
+    }
+
+    public PointD? PreviousView => history.Count == 0 ? null : history[^1];
+
     public void NavigateTo(PointD position)
     {
         if (position == Camera.Position)

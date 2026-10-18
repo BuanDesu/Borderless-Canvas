@@ -68,13 +68,6 @@ public sealed class WindowsRecoveryWindowPort : IRecoveryWindowPort
         if (guard is not null) return guard;
         using var pixels = new PhysicalPixelScope();
         var saved = entry.Original.Placement;
-        if (SamePlacement(ReadPlacement(entry.Identity.Handle), saved))
-        {
-            guard = Verify(entry, markerName);
-            if (guard is not null) return guard;
-            RemoveMarker(entry, markerName);
-            return new(entry.Id, RecoveryOutcome.Restored, "Original placement already present; ownership released.");
-        }
         var placement = new NativeMethods.NativeWindowPlacement
         {
             Length = (uint)Marshal.SizeOf<NativeMethods.NativeWindowPlacement>(), Flags = saved.Flags | 4,
@@ -87,6 +80,9 @@ public sealed class WindowsRecoveryWindowPort : IRecoveryWindowPort
         if (guard is not null) return guard;
         if (!NativeMethods.SetWindowPlacement(entry.Identity.Handle, in placement))
             return new(entry.Id, RecoveryOutcome.Failed, $"SetWindowPlacement failed: {Marshal.GetLastPInvokeError()}.");
+        // Always queue a restore, even when current bounds already match: older asynchronous moves may still be pending.
+        if (NativeMethods.SendMessageTimeout(entry.Identity.Handle, 0, 0, 0, 1 | 2 | 0x20, 150, out _) == 0)
+            return new(entry.Id, RecoveryOutcome.Failed, "Target did not respond; a restore was queued and the journal is retained.");
         var timeout = Stopwatch.StartNew();
         do
         {

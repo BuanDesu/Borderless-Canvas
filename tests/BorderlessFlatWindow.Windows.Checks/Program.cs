@@ -9,6 +9,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
+        if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();
         var storage = StorageChecks.Run();
         if (args.Contains("--storage-only", StringComparer.Ordinal) || storage != 0) return storage;
         ApplicationConfiguration.Initialize();
@@ -49,6 +50,7 @@ internal static class Program
         LifecycleChecks.Run(Check);
         RecoveryChecks.Run(Check);
         OffscreenChecks.Run(Check);
+        ManagedCanvasChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {
             normal.Hide();

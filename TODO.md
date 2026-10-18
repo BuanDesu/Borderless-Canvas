@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T05 已实现/记录，待各自 PR 合并后勾选。T05 决定使用有界停放：真实 DWM 可视实验已确认离屏旧帧与裁剪空白；任务栏 hover 和真实多屏未验收，支持边界见 [ADR 0002](docs/adr/0002-bounded-offscreen-parking.md)。下一步 T06 接管、真实平移和焦点跟随。持续目标为[可试用原型](docs/prototype-plan.md)，基础恢复仍须接管后复验。
+当前状态：T01–T06 已实现/记录，待各自 PR 合并后勾选。T06 已接入真实平移、整体聚焦、原点/上一视角、暂停恢复及故障协调，见[管理说明](docs/managed-canvas.md)。下一步 T07 全局导航手势，再完成总览与标签。任务栏实际点击/hover、普通第三方应用和真实多屏仍未完成验收；持续目标为[可试用原型](docs/prototype-plan.md)。
 
 ## 已完成：M0 基础项目
 
