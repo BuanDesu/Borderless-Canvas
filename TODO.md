@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T09 核心实现/记录已推进，待各自验证与 PR 合并后勾选。T08 总览选择及 T09 画面刷新、开关、搜索与离屏标题降级已用真实自有窗口验证，见[总览说明](docs/spatial-overview.md)和[预览说明](docs/overview-previews.md)。153 模型、6 文件、45 原生检查通过。下一步 T10 标签持久化及 FR-02 运行中新窗口接入。实际 Shift/双键组合、任务栏点击/hover、普通第三方应用和真实多屏仍未完成验收；持续目标为[可试用原型](docs/prototype-plan.md)。
+当前状态：T01–T10 核心实现/记录已推进，待各自验证与 PR 合并后勾选。T10 标签 UI、真实跳转、重启保留及损坏降级已验证，见[标签说明](docs/location-bookmarks.md)。168 模型、14 文件（6 恢复 + 8 标签）、46 原生检查通过。下一步 FR-02 运行中新窗口接入和可试用原型验收。实际 Shift/双键组合、任务栏点击/hover、普通第三方应用和真实多屏仍未完成验收；持续目标为[可试用原型](docs/prototype-plan.md)。
 
 ## 已完成：M0 基础项目
 

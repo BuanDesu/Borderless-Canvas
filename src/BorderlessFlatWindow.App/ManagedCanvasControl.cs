@@ -10,6 +10,7 @@ using BorderlessFlatWindow.Application.Recovery;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows;
 using BorderlessFlatWindow.Windows.Recovery;
+using BorderlessFlatWindow.Application.Bookmarks;
 
 namespace BorderlessFlatWindow.App;
 
@@ -17,6 +18,7 @@ internal sealed class ManagedCanvasControl : UserControl
 {
     private readonly ITrackedDesktopWindowCatalog catalog;
     private readonly string journalPath;
+    private readonly BookmarkLibrary bookmarks;
     private readonly CheckedListBox candidates = new() { Dock = DockStyle.Fill, CheckOnClick = true, HorizontalScrollbar = true };
     private readonly Panel map = new() { Dock = DockStyle.Fill };
     private readonly Label status = new() { Dock = DockStyle.Bottom, Height = 112, Padding = new(10) };
@@ -48,9 +50,13 @@ internal sealed class ManagedCanvasControl : UserControl
     { public override string ToString() => Label; }
     internal event Action? StatusChanged;
     internal event Action? RecoveryRequested;
+    internal event Action? BookmarksRequested;
+    internal PointD BookmarkPosition => session?.Workspace.Camera.Position ?? PointD.Zero;
+    internal bool CanJumpToBookmark => session?.IsRunning == true && !reading && !session.IsBusy && overview is null;
 
-    internal ManagedCanvasControl(ITrackedDesktopWindowCatalog catalog, string? journalPath)
+    internal ManagedCanvasControl(ITrackedDesktopWindowCatalog catalog, string? journalPath, BookmarkLibrary bookmarks)
     {
+        this.bookmarks = bookmarks;
         this.catalog = catalog; this.journalPath = journalPath ?? JsonRecoveryJournalStore.DefaultPath;
         var selector = new Panel { Dock = DockStyle.Left, Width = 270, Padding = new(6) };
         selector.Controls.Add(candidates);
@@ -67,6 +73,7 @@ internal sealed class ManagedCanvasControl : UserControl
         Add(toolbar, "刷新窗口", RefreshCandidates);
         Add(toolbar, "恢复日志", () => RecoveryRequested?.Invoke());
         Add(toolbar, "空间总览（Ctrl+Alt+O）", RequestOverview);
+        Add(toolbar, "位置标签…", () => BookmarksRequested?.Invoke());
         Add(toolbar, "进入导航（Esc 退出）", () => globalInput?.Toggle());
         navigationShortcut.Items.AddRange([NavigationHotkey.Default,
             new NavigationHotkey(3, 0x4E, "Ctrl+Alt+N"), new NavigationHotkey(3, 0x4D, "Ctrl+Alt+M")]);
@@ -249,7 +256,7 @@ internal sealed class ManagedCanvasControl : UserControl
         if (session?.IsRunning == true) Pause("显示配置已变化，已暂停恢复；请重新选择窗口开始。");
         session?.Dispose(); layout = current;
         session = new(() => new RecoverySession(new JsonRecoveryJournalStore(journalPath), new WindowsRecoveryWindowPort()),
-            new NativeWindowMotionPort(), current);
+            new NativeWindowMotionPort(), current, bookmarks.Collection);
         gestures = new(() => session.Workspace.Camera.Position,
             (position, now) => session.Navigate(position, now, recordHistory: false), session.Workspace.RecordNavigationOrigin);
         gestures.Options = inputOptions;
@@ -371,6 +378,17 @@ internal sealed class ManagedCanvasControl : UserControl
     }
     internal (bool Running, int Count, PointD Camera) Diagnostics() =>
         (session?.IsRunning == true, session?.Workspace.Windows.Count ?? 0, session?.Workspace.Camera.Position ?? PointD.Zero);
+    internal void EndNavigationForEditing()
+    { gestures?.End(DateTimeOffset.UtcNow); globalInput?.Exit(); hud?.Hide(); }
+    internal string GoToBookmark(Guid id)
+    {
+        if (!CanJumpToBookmark) return "请先在窗口画布页开始管理，再跳转位置标签。";
+        var bookmark = bookmarks.Collection.Items.FirstOrDefault(entry => entry.Id == id);
+        if (bookmark is null) return "标签已不存在。";
+        var accepted = false;
+        Act(() => accepted = session!.GoToBookmark(id, DateTimeOffset.UtcNow));
+        return accepted ? $"已请求移至“{bookmark.Name}” ({bookmark.CameraPosition.X:G12}, {bookmark.CameraPosition.Y:G12})；窗口布局保持。" : notice ?? session!.Message;
+    }
     internal bool ProcessNavigationKey(Keys key) => key switch
     {
         Keys.Home => Key(() => session?.Home(DateTimeOffset.UtcNow)),

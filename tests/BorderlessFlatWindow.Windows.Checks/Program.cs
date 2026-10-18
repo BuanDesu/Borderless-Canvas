@@ -11,6 +11,8 @@ internal static class Program
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
         if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();
         var storage = StorageChecks.Run();
+        var bookmarkStorage = BookmarkStorageChecks.Run();
+        if (bookmarkStorage != 0) return bookmarkStorage;
         if (args.Contains("--storage-only", StringComparer.Ordinal) || storage != 0) return storage;
         ApplicationConfiguration.Initialize();
         // These fixtures are transparent and never activate. Only their own state is changed.

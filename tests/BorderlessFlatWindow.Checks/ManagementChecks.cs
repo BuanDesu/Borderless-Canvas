@@ -24,6 +24,7 @@ internal static class ManagementChecks
         yield return ("Closed targets are skipped while surviving managed windows recover", Closed);
         yield return ("Closing a group of managed targets removes every paused-layout ghost", ClosedGroup);
         yield return ("A hide-before-destroy event sequence removes paused ghosts without moving survivors", HiddenThenClosed);
+        yield return ("Managed label jumps translate the whole camera and preserve window layout and navigation history", BookmarkJump);
         yield return ("Pause/resume preserves the logical layout, camera and bookmarks", Resume);
         yield return ("Beginning management cannot silently recover an inherited journal", Inherited);
         yield return ("Unsupported native state and multiscreen configuration cannot start management", Unsupported);
@@ -239,6 +240,17 @@ internal static class ManagementChecks
         h.Native.Remove(42); h.Tick();
         Require(h.Session.Workspace.Windows.SequenceEqual(new[] { survivor }) && h.Session.Workspace.Camera == camera
             && h.Batches == batches && h.Restorations == restores, "Paused destroy left a ghost or moved another window.");
+    }
+    private static void BookmarkJump()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.Navigate(new(-3000, 2200), Now); h.Tick();
+        var entry = h.Session.Workspace.AddBookmark("同名位置"); var windows = h.Session.Workspace.Windows.ToArray();
+        h.Session.Home(Now); h.Tick();
+        Require(h.Session.GoToBookmark(entry.Id, Now), "Managed label jump refused."); h.Tick();
+        Require(h.Session.Workspace.Camera.Position == entry.CameraPosition && h.Session.Workspace.Windows.SequenceEqual(windows)
+            && h.Session.Back(Now), "Label jump changed layout or lost history."); h.Tick();
+        Require(h.Session.Workspace.Camera.Position == PointD.Zero && !h.Session.GoToBookmark(Guid.NewGuid(), Now), "Back or missing label changed the view.");
+        h.Session.Pause(); Require(!h.Session.GoToBookmark(entry.Id, Now), "Paused label jump moved native windows.");
     }
     private static void Inherited()
     {
