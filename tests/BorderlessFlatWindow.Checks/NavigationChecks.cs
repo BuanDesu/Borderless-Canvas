@@ -1,0 +1,182 @@
+using BorderlessFlatWindow.Application;
+using BorderlessFlatWindow.Application.Navigation;
+using BorderlessFlatWindow.Core.Geometry;
+
+internal static class NavigationChecks
+{
+    internal static IEnumerable<(string Name, Action Run)> Cases()
+    {
+        yield return ("Navigation gate leaves ordinary application input untouched", PassThrough);
+        yield return ("Navigation cannot start with a physical or swallowed button held", HeldEntry);
+        yield return ("Navigation swallows complete left/right pairs and wheel input", Suppression);
+        yield return ("Exiting navigation still drains swallowed button releases", ReleaseAfterExit);
+        yield return ("Two-button navigation queues chord movement while keeping the system pointer live", DragGate);
+        yield return ("Wheel navigation combines a burst into one history origin", WheelBurst);
+        yield return ("Separate wheel bursts retain separate history even before a timer tick", WheelGap);
+        yield return ("Shift wheel and horizontal wheel use the expected horizontal directions", Horizontal);
+        yield return ("Left-then-right drag grabs the world and records one history entry", Drag);
+        yield return ("Right-then-left drag has the same navigation semantics", ReverseDrag);
+        yield return ("Single button or a stationary chord creates no navigation history", NoOp);
+        yield return ("Wheel then drag ends the first gesture before beginning the next", WheelThenDrag);
+        yield return ("Wheel during a chord cannot compete with drag movement", IgnoreWheelDuringDrag);
+        yield return ("Many pointer moves coalesce into one native request per frame", Coalescing);
+        yield return ("Escape flushes a final accepted delta and ends one history entry", Escape);
+        yield return ("Fault cancellation discards queued deltas but keeps accepted history", Cancel);
+        yield return ("Refused navigation discards the pending delta without retrying forever", Rejection);
+        yield return ("Disabled navigation axes pass their wheel input to applications", AxisOptions);
+        yield return ("Disabled chord navigation passes ordinary buttons without queueing", DragOptions);
+        yield return ("Configured wheel distance scales full and partial notches", WheelDistance);
+        yield return ("Invalid wheel distance is rejected before capturing input", InvalidDistance);
+    }
+    private static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch;
+    private sealed class Harness
+    {
+        internal readonly CanvasWorkspace Workspace = new(new(1920, 1080));
+        internal readonly NavigationGestureSession Gesture;
+        internal int Requests, Records;
+        internal bool Reject;
+        internal Harness() => Gesture = new(() => Workspace.Camera.Position,
+            (target, _) => { Requests++; if (Reject) return false; Workspace.SetCameraPosition(target); return true; },
+            origin => { if (origin != Workspace.Camera.Position) Records++; Workspace.RecordNavigationOrigin(origin); });
+        internal void Send(NavigationInputKind kind, double x = 0, double y = 0, int wheel = 0, bool shift = false, int at = 0) =>
+            Gesture.Accept(new(kind, new(x, y), wheel, shift), Now.AddMilliseconds(at));
+        internal void Tick(int at = 0) => Gesture.Tick(Now.AddMilliseconds(at));
+    }
+    private static void PassThrough()
+    {
+        var gate = new NavigationInputGate();
+        foreach (var kind in Enum.GetValues<NavigationInputKind>()) Require(gate.Route(kind) == (false, false), "Inactive input intercepted.");
+    }
+    private static void HeldEntry()
+    {
+        var gate = new NavigationInputGate(); Require(!gate.TryEnter(true), "Entered while physical button held.");
+        gate.TryEnter(false); gate.Route(NavigationInputKind.LeftDown); gate.Exit();
+        Require(!gate.TryEnter(false), "Entered while a suppressed release is pending.");
+        gate.Route(NavigationInputKind.LeftUp); Require(gate.TryEnter(false), "Could not enter after release.");
+    }
+    private static void Suppression()
+    {
+        var gate = new NavigationInputGate(); gate.TryEnter(false);
+        foreach (var kind in new[] { NavigationInputKind.LeftDown, NavigationInputKind.LeftUp, NavigationInputKind.RightDown,
+            NavigationInputKind.RightUp, NavigationInputKind.Wheel, NavigationInputKind.HorizontalWheel })
+            Require(gate.Route(kind) == (true, true), "Navigation leaked a click or wheel.");
+        Require(!gate.HasHeldButtons, "Completed pair left a held button.");
+    }
+    private static void ReleaseAfterExit()
+    {
+        var gate = new NavigationInputGate(); gate.TryEnter(false);
+        gate.Route(NavigationInputKind.LeftDown); gate.Route(NavigationInputKind.RightDown); gate.Exit();
+        Require(gate.Route(NavigationInputKind.LeftUp) == (true, false) && gate.Route(NavigationInputKind.RightUp) == (true, false)
+            && gate.Route(NavigationInputKind.RightUp) == (false, false), "Release leaked or a later normal click was swallowed.");
+    }
+    private static void DragGate()
+    {
+        var gate = new NavigationInputGate(); gate.TryEnter(false); gate.Route(NavigationInputKind.RightDown);
+        Require(gate.Route(NavigationInputKind.Move) == (false, false), "Single button moved camera.");
+        gate.Route(NavigationInputKind.LeftDown); Require(gate.Route(NavigationInputKind.Move) == (false, true), "Chord delta was lost or the system pointer was blocked.");
+        gate.Route(NavigationInputKind.RightUp); Require(gate.Route(NavigationInputKind.Move) == (false, false), "Released chord still drags.");
+    }
+    private static void WheelBurst()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.Wheel, wheel: -120); h.Tick();
+        h.Send(NavigationInputKind.Wheel, wheel: -120, at: 100); h.Tick(100); h.Tick(351);
+        Require(h.Workspace.Camera.Position == new PointD(0, 240) && h.Records == 1, "Burst history fragmented.");
+        h.Workspace.ReturnToPreviousView(); Require(h.Workspace.Camera.Position == PointD.Zero, "Back did not undo the whole burst.");
+    }
+    private static void WheelGap()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.Wheel, wheel: -120); h.Send(NavigationInputKind.Wheel, wheel: -120, at: 300); h.Tick(600);
+        Require(h.Records == 2, "Distinct bursts collapsed."); h.Workspace.ReturnToPreviousView();
+        Require(h.Workspace.Camera.Position == new PointD(0, 120), "Second origin incorrect.");
+    }
+    private static void Horizontal()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.Wheel, wheel: -120, shift: true); h.Send(NavigationInputKind.HorizontalWheel, wheel: 120); h.Tick(300);
+        Require(h.Workspace.Camera.Position == new PointD(240, 0) && h.Records == 1, "Horizontal direction or grouping incorrect.");
+    }
+    private static void Chord(Harness h, bool reverse = false)
+    {
+        h.Send(reverse ? NavigationInputKind.RightDown : NavigationInputKind.LeftDown, 400, 300);
+        h.Send(reverse ? NavigationInputKind.LeftDown : NavigationInputKind.RightDown, 400, 300);
+    }
+    private static void Drag() => DragCore(false);
+    private static void ReverseDrag() => DragCore(true);
+    private static void DragCore(bool reverse)
+    {
+        var h = new Harness(); Chord(h, reverse); h.Send(NavigationInputKind.Move, 600, 400); h.Tick();
+        h.Send(NavigationInputKind.Move, 700, 500); h.Send(NavigationInputKind.RightUp, 700, 500);
+        Require(h.Workspace.Camera.Position == new PointD(-300, -200) && h.Records == 1, "Drag direction/history wrong.");
+    }
+    private static void NoOp()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.LeftDown); h.Send(NavigationInputKind.LeftUp);
+        Chord(h); h.Send(NavigationInputKind.LeftUp); h.Tick(300);
+        Require(h.Requests == 0 && h.Records == 0, "Empty gesture moved camera or recorded history.");
+    }
+    private static void WheelThenDrag()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.Wheel, wheel: -120); Chord(h); h.Send(NavigationInputKind.Move, 500, 300);
+        h.Send(NavigationInputKind.LeftUp); Require(h.Records == 2 && h.Workspace.Camera.Position == new PointD(-100, 120), "Gesture boundary was lost.");
+    }
+    private static void IgnoreWheelDuringDrag()
+    {
+        var h = new Harness(); Chord(h); h.Send(NavigationInputKind.Wheel, wheel: -120); h.Send(NavigationInputKind.Move, 500, 300); h.Send(NavigationInputKind.LeftUp);
+        Require(h.Workspace.Camera.Position == new PointD(-100, 0), "Wheel competed with drag.");
+    }
+    private static void Coalescing()
+    {
+        var h = new Harness(); Chord(h);
+        for (var i = 0; i < 200; i++) h.Send(NavigationInputKind.Move, 401 + i, 301 + i);
+        Require(h.Requests == 0, "Native movement happened in input processing."); h.Tick(); h.Send(NavigationInputKind.LeftUp);
+        Require(h.Requests == 1 && h.Records == 1 && h.Workspace.Camera.Position == new PointD(-200, -200), "Moves were not coalesced.");
+    }
+    private static void Escape()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.Wheel, wheel: -120); h.Send(NavigationInputKind.Exit);
+        Require(!h.Gesture.HasGesture && h.Workspace.Camera.Position == new PointD(0, 120) && h.Records == 1, "Exit lost final movement or history.");
+    }
+    private static void Cancel()
+    {
+        var h = new Harness(); h.Send(NavigationInputKind.Wheel, wheel: -120); h.Tick(); h.Send(NavigationInputKind.Wheel, wheel: -120);
+        h.Gesture.Cancel(); h.Tick(500);
+        Require(h.Workspace.Camera.Position == new PointD(0, 120) && h.Requests == 1 && h.Records == 1, "Cancel applied stale input or lost accepted history.");
+    }
+    private static void Rejection()
+    {
+        var h = new Harness { Reject = true }; h.Send(NavigationInputKind.Wheel, wheel: -120); h.Tick(); h.Tick(500);
+        Require(h.Requests == 1 && h.Records == 0 && !h.Gesture.HasGesture && h.Workspace.Camera.Position == PointD.Zero, "Rejected move retried or recorded false history.");
+    }
+    private static void AxisOptions()
+    {
+        var gate = new NavigationInputGate { Options = new(verticalWheel: false) }; gate.TryEnter(false);
+        Require(gate.Route(NavigationInputKind.Wheel) == (false, false) && gate.Route(NavigationInputKind.Wheel, shift: true) == (true, true), "Disabled vertical axis intercepted input.");
+        gate.Options = new(horizontalWheel: false);
+        Require(gate.Route(NavigationInputKind.Wheel, shift: true) == (false, false) && gate.Route(NavigationInputKind.HorizontalWheel) == (false, false), "Disabled horizontal axis intercepted input.");
+        var h = new Harness(); h.Gesture.Options = new(verticalWheel: false); h.Send(NavigationInputKind.Wheel, wheel: -120); h.Tick(500);
+        Require(h.Requests == 0 && h.Records == 0, "Disabled local axis still moved camera.");
+    }
+    private static void DragOptions()
+    {
+        var gate = new NavigationInputGate { Options = new(twoButtonDrag: false) }; gate.TryEnter(false);
+        foreach (var kind in new[] { NavigationInputKind.LeftDown, NavigationInputKind.RightDown, NavigationInputKind.Move, NavigationInputKind.LeftUp, NavigationInputKind.RightUp })
+            Require(gate.Route(kind) == (false, false), "Disabled chord intercepted application input.");
+        var h = new Harness(); h.Gesture.Options = new(twoButtonDrag: false); Chord(h); h.Send(NavigationInputKind.Move, 500, 300); h.Tick();
+        Require(h.Requests == 0, "Disabled chord still moved camera.");
+    }
+    private static void WheelDistance()
+    {
+        var h = new Harness(); h.Gesture.Options = new(wheelDistance: 240);
+        h.Send(NavigationInputKind.Wheel, wheel: -120); h.Send(NavigationInputKind.Wheel, wheel: -60); h.Tick(300);
+        Require(h.Workspace.Camera.Position == new PointD(0, 360) && h.Records == 1, "Wheel sensitivity lost partial notches or fragmented history.");
+    }
+    private static void InvalidDistance()
+    {
+        foreach (var value in new[] { -1, 0, 29, 601, int.MaxValue })
+        {
+            try { _ = new NavigationInputOptions(wheelDistance: value); }
+            catch (ArgumentOutOfRangeException) { continue; }
+            throw new InvalidOperationException("Invalid wheel distance accepted.");
+        }
+    }
+    private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+}

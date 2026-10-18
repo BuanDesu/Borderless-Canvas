@@ -51,6 +51,7 @@ internal static class Program
         RecoveryChecks.Run(Check);
         OffscreenChecks.Run(Check);
         ManagedCanvasChecks.Run(Check);
+        NavigationInputChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {
             normal.Hide();

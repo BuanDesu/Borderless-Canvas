@@ -13,6 +13,7 @@ internal static class ManagementChecks
         yield return ("Managed home/back restore camera views rather than gathering windows", Navigation);
         yield return ("Focus activates only after native placement is observed", Focus);
         yield return ("Activation denial keeps the located layout and reports a usable fallback", ActivationDenied);
+        yield return ("A new navigation gesture cancels an older pending activation", SupersededFocus);
         yield return ("Shell relocation before parked foreground activation preserves world geometry", ShellActivation);
         yield return ("External drag/resize updates only that window in world space", ExternalDrag);
         yield return ("Intermediate queued movement callbacks cannot corrupt world geometry", Queued);
@@ -138,6 +139,14 @@ internal static class ManagementChecks
     {
         using var h = new Harness { AllowActivation = false }; h.Begin(); h.Session.Focus(h.Session.Workspace.Windows[0].Id, Now); h.Tick();
         Require(h.Session.IsRunning && h.Activations == 1 && h.Session.Message.Contains("未允许"), "Activation denial lost usable layout or claimed success.");
+    }
+    private static void SupersededFocus()
+    {
+        using var h = new Harness(); h.Begin(); h.Delayed = true;
+        h.Session.Focus(h.Session.Workspace.Windows[0].Id, Now);
+        h.Session.Pan(new(120, 0), Now);
+        h.Apply(h.Pending.Last()); h.Tick();
+        Require(h.Session.IsRunning && !h.Session.HasPending && h.Activations == 0, "Superseded focus stole activation during pan.");
     }
     private static void ExternalDrag()
     {
