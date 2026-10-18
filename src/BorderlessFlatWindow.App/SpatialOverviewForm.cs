@@ -2,11 +2,14 @@ using System.Drawing.Drawing2D;
 using BorderlessFlatWindow.Application.Overview;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Application.Discovery;
+using BorderlessFlatWindow.Windows;
 
 namespace BorderlessFlatWindow.App;
 
 internal sealed class SpatialOverviewForm : Form
 {
+    internal sealed record PreviewSource(Guid Id, NativeWindowIdentity Identity, bool FullyOnscreen);
     private readonly SpatialOverviewSession model;
     private readonly TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "搜索窗口标题；保持原有空间位置", Margin = new(12) };
     private readonly Label summary = new() { Dock = DockStyle.Bottom, Height = 96, Padding = new(12) };
@@ -15,6 +18,12 @@ internal sealed class SpatialOverviewForm : Form
     private readonly bool showWithoutActivation;
     private bool canConfirm = true;
     private string? managementNotice;
+    private readonly CheckBox showPreviews = new() { Text = "窗口预览（可能停帧）", AutoSize = true, Checked = true };
+    private IReadOnlyDictionary<Guid, PreviewSource> previewSources = new Dictionary<Guid, PreviewSource>();
+    private OverviewPreviewSession? previews;
+    private Control? previewHost;
+    private nint previewDestination;
+    private bool closing, refreshingPreviews;
     internal CanvasWindow? ConfirmedTarget { get; private set; }
 
     internal SpatialOverviewForm(IEnumerable<CanvasWindow> windows, Camera2D camera, Rectangle bounds, Guid? selected = null, bool showWithoutActivation = false)
@@ -25,16 +34,18 @@ internal sealed class SpatialOverviewForm : Form
         Bounds = bounds; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
         Font = new Font("Microsoft YaHei UI", 11); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
         map = new(model) { Dock = DockStyle.Fill };
+        map.GeometryChanged += RefreshPreviews;
         map.ConfirmRequested += ConfirmSelection;
         var heading = new Label { Dock = DockStyle.Top, Height = 54, Padding = new(16), Text = "空间总览  ·  方向键选择  ·  单击 / Enter 确认  ·  Esc 取消" };
         var searchContainer = new Panel { Dock = DockStyle.Top, Height = 56, Padding = new(16, 8, 16, 8) };
         searchContainer.Controls.Add(search);
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 52, Padding = new(12, 4, 12, 4) };
-        var fit = new Button { Text = "适配全部（F5）", AutoSize = true };
+        var fit = new Button { Text = "适配 / 重试（F5）", AutoSize = true };
         var cancel = new Button { Text = "取消（Esc）", AutoSize = true };
         confirm.Click += (_, _) => ConfirmSelection(); cancel.Click += (_, _) => CancelOverview();
-        fit.Click += (_, _) => { map.Refit(); RefreshSelection(); };
-        toolbar.Controls.AddRange([confirm, fit, cancel]);
+        fit.Click += (_, _) => { previews?.RetryFailed(); map.Refit(); RefreshSelection(); };
+        showPreviews.CheckedChanged += (_, _) => RefreshSelection();
+        toolbar.Controls.AddRange([confirm, fit, cancel, showPreviews]);
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
         Controls.Add(map); Controls.Add(summary); Controls.Add(toolbar); Controls.Add(searchContainer); Controls.Add(heading);
         RefreshSelection();
@@ -42,8 +53,10 @@ internal sealed class SpatialOverviewForm : Form
     protected override bool ShowWithoutActivation => showWithoutActivation;
     protected override void OnShown(EventArgs e)
     {
-        base.OnShown(e); map.Refit(); if (!showWithoutActivation) search.Focus();
+        base.OnShown(e); map.Refit(); RefreshPreviews(); if (!showWithoutActivation) search.Focus();
     }
+    internal void SetPreviewSources(IEnumerable<PreviewSource> sources)
+    { previewSources = sources.ToDictionary(source => source.Id); RefreshPreviews(); }
     internal void UpdateWindows(IEnumerable<CanvasWindow> windows, bool running, string message)
     {
         if (IsDisposed || model.Status != OverviewStatus.Open) return;
@@ -59,6 +72,38 @@ internal sealed class SpatialOverviewForm : Form
         summary.Text = $"匹配 {model.Matches.Count} / {model.Windows.Count}  ·  已选：{selected?.Title ?? "无匹配窗口"}\n"
             + (managementNotice ?? $"确认前视角保持 ({model.StartCamera.Position.X:0}, {model.StartCamera.Position.Y:0})；Tab 可轮选重叠窗口，Ctrl+F 搜索。");
         map.Invalidate();
+        RefreshPreviews();
+    }
+    private void RefreshPreviews()
+    {
+        if (closing || refreshingPreviews || IsDisposed || !Visible || !IsHandleCreated || !map.IsHandleCreated) return;
+        refreshingPreviews = true;
+        try { RefreshPreviewsCore(); }
+        finally { refreshingPreviews = false; }
+    }
+    private void RefreshPreviewsCore()
+    {
+        var host = TopLevelControl;
+        if (host is null || !host.IsHandleCreated) return;
+        if (!ReferenceEquals(previewHost, host) || previewDestination != host.Handle)
+        {
+            ReleasePreviews(); previewHost = host; previewDestination = host.Handle;
+            host.HandleDestroyed += PreviewHostDestroyed;
+            previews = new(new DwmOverviewPreviewPort(previewDestination));
+        }
+        var current = previews!;
+        current.Synchronize(map.PreviewCards(previewSources, host), model.SelectedId, showPreviews.Checked && canConfirm);
+        if (closing || !ReferenceEquals(previews, current)) return;
+        map.PreviewStates = current.States;
+        map.Invalidate();
+    }
+    private void PreviewHostDestroyed(object? sender, EventArgs e) => ReleasePreviews();
+    private void ReleasePreviews()
+    {
+        previews?.Dispose(); previews = null;
+        if (previewHost is not null) previewHost.HandleDestroyed -= PreviewHostDestroyed;
+        previewHost = null; previewDestination = 0;
+        map.PreviewStates = new Dictionary<Guid, PreviewState>();
     }
     private void ConfirmSelection()
     {
@@ -70,8 +115,11 @@ internal sealed class SpatialOverviewForm : Form
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (ConfirmedTarget is null) model.Cancel();
+        closing = true; ReleasePreviews();
         base.OnFormClosing(e);
     }
+    protected override void Dispose(bool disposing)
+    { if (disposing) { closing = true; ReleasePreviews(); } base.Dispose(disposing); }
     protected override bool ProcessCmdKey(ref Message message, Keys keys)
         => HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
     internal bool HandleCommand(Keys keys)
@@ -87,7 +135,7 @@ internal sealed class SpatialOverviewForm : Form
             case Keys.Tab: model.Cycle(1); break;
             case Keys.Shift | Keys.Tab: model.Cycle(-1); break;
             case Keys.Control | Keys.F: search.Focus(); search.SelectAll(); return true;
-            case Keys.F5: map.Refit(); break;
+            case Keys.F5: previews?.RetryFailed(); map.Refit(); break;
             default: return false;
         }
         RefreshSelection(); return true;
@@ -97,11 +145,15 @@ internal sealed class SpatialOverviewForm : Form
     private sealed class OverviewMap(SpatialOverviewSession model) : Control
     {
         internal event Action? ConfirmRequested;
+        internal event Action? GeometryChanged;
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        internal IReadOnlyDictionary<Guid, PreviewState> PreviewStates { get; set; } = new Dictionary<Guid, PreviewState>();
         protected override void OnCreateControl() { base.OnCreateControl(); DoubleBuffered = true; ResizeRedraw = true; AccessibleName = "空间地图"; }
         internal void Refit()
         {
             if (Width > 128 && Height > 128) model.Refit(new(Width, Height));
             Invalidate();
+            GeometryChanged?.Invoke();
         }
         protected override void OnResize(EventArgs e) { base.OnResize(e); Refit(); }
         protected override void OnMouseDown(MouseEventArgs e)
@@ -116,6 +168,45 @@ internal sealed class SpatialOverviewForm : Form
             var right = Math.Min(Width, rectangle.Right); var bottom = Math.Min(Height, rectangle.Bottom);
             return right <= left || bottom <= top ? null : new RectangleF((float)left, (float)top, (float)(right - left), (float)(bottom - top));
         }
+        internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, PreviewSource> sources, Control host)
+        {
+            var rectangles = model.Windows.ToDictionary(window => window.Id, window => model.Projection.ToMap(window.Bounds));
+            var origin = model.Projection.ToMap(PointD.Zero);
+            foreach (var window in model.Windows)
+            {
+                var rect = rectangles[window.Id];
+                var matched = model.IsMatch(window.Id);
+                sources.TryGetValue(window.Id, out var source);
+                PreviewState? fallback = !matched ? PreviewState.Unmatched : source is null ? PreviewState.Unavailable
+                    : !source.FullyOnscreen ? PreviewState.Offscreen : null;
+                PixelRect? content = null;
+                if (rect.Position.X < 0 || rect.Position.Y < 0 || rect.Right > Width || rect.Bottom > Height
+                    || rect.Size.Width < 110 || rect.Size.Height < 110) fallback ??= PreviewState.TooSmall;
+                else
+                {
+                    var body = Rectangle.FromLTRB((int)Math.Ceiling(rect.Position.X) + 4, (int)Math.Ceiling(rect.Position.Y) + 32,
+                        (int)Math.Floor(rect.Right) - 4, (int)Math.Floor(rect.Bottom) - 28);
+                    if (rectangles.Any(other => other.Key != window.Id && other.Value.Position.X < body.Right && other.Value.Right > body.Left
+                        && other.Value.Position.Y < body.Bottom && other.Value.Bottom > body.Top)
+                        || (origin.X + 8 > body.Left && origin.X - 8 < body.Right && origin.Y + 8 > body.Top && origin.Y - 8 < body.Bottom))
+                        fallback ??= PreviewState.Overlap;
+                    var point = host.PointToClient(PointToScreen(body.Location));
+                    content = new(point.X, point.Y, point.X + body.Width, point.Y + body.Height);
+                }
+                yield return new(window.Id, source?.Identity, content, fallback);
+            }
+        }
+        private string PreviewLabel(Guid id) => PreviewStates.GetValueOrDefault(id, PreviewState.Unavailable) switch
+        {
+            PreviewState.Preview => "应用画面 · 可能停帧",
+            PreviewState.Disabled => "预览关闭 · 标题视图",
+            PreviewState.Offscreen => "离屏 / 屏幕边缘 · 标题视图",
+            PreviewState.Unmatched => "不匹配 · 标题视图",
+            PreviewState.Overlap => "重叠区域 · 标题视图",
+            PreviewState.TooSmall => "卡片过小 · 标题视图",
+            PreviewState.Capacity => "预览数量限制 · 标题视图",
+            _ => "预览不可用 · 标题视图"
+        };
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); e.Graphics.Clear(Color.FromArgb(20, 25, 35)); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -127,8 +218,17 @@ internal sealed class SpatialOverviewForm : Form
                 using var border = new Pen(selected ? Color.Gold : matched ? Color.FromArgb(102, 150, 181) : Color.FromArgb(48, 58, 70), selected ? 3 : 1);
                 e.Graphics.FillRectangle(fill, rect); e.Graphics.DrawRectangle(border, rect.X, rect.Y, Math.Max(1, rect.Width), Math.Max(1, rect.Height));
                 if (rect.Width > 50 && rect.Height > 24)
-                    TextRenderer.DrawText(e.Graphics, window.Title + (rect.Height > 75 ? "\n标题视图 · 可定位" : ""), Font, Rectangle.Round(rect),
+                {
+                    var title = Rectangle.Round(rect); title.Height = Math.Min(title.Height, 30);
+                    TextRenderer.DrawText(e.Graphics, window.Title, Font, title,
                         matched ? Color.White : Color.FromArgb(90, 100, 110), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                    if (rect.Height > 75)
+                    {
+                        var footer = Rectangle.Round(rect); footer.Y = footer.Bottom - 26; footer.Height = 26;
+                        TextRenderer.DrawText(e.Graphics, PreviewLabel(window.Id), Font, footer,
+                            matched ? Color.LightGray : Color.FromArgb(90, 100, 110), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                    }
+                }
             }
             if (VisibleRect(model.StartCamera.Bounds) is { } view)
             {

@@ -180,11 +180,13 @@ public sealed class ManagedCanvasSession : IDisposable
 
     public void Observe(WindowCatalogSnapshot snapshot, nint foreground, DateTimeOffset now)
     {
-        if (!IsRunning || busy) return;
+        if (busy || disposed) return;
         busy = true;
         try
         {
             var byHandle = snapshot.Entries.ToDictionary(entry => entry.Observation.Handle);
+            // Closing often emits hide first. That pauses management before the later destroy event.
+            if (!IsRunning) { PruneClosed(byHandle); return; }
             foreach (var entry in snapshot.Entries)
             {
                 var observation = entry.Observation;
@@ -219,12 +221,7 @@ public sealed class ManagedCanvasSession : IDisposable
                     || entry.Observation.Identity != state.Identity || !entry.Admission.IsAdmitted
                     || entry.Observation.IsMaximized || entry.Observation.IsTopMost)
                 {
-                    foreach (var candidate in managed.Values.ToArray())
-                    {
-                        if (!byHandle.TryGetValue(candidate.Identity.Handle, out var current) || !current.Observation.IsAlive
-                            || current.Observation.Identity is { } identity && identity != candidate.Identity)
-                        { Workspace.RemoveWindow(candidate.Id); managed.Remove(candidate.Id); }
-                    }
+                    PruneClosed(byHandle);
                     PauseInternal("受管理窗口关闭、身份或状态改变，已暂停恢复。"); return;
                 }
                 var bounds = entry.Observation.Bounds!.Value;
@@ -254,6 +251,17 @@ public sealed class ManagedCanvasSession : IDisposable
         }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"同步失败：{exception.Message}"); }
         finally { busy = false; }
+    }
+
+    private void PruneClosed(IReadOnlyDictionary<nint, InspectedWindow> entries)
+    {
+        foreach (var candidate in managed.Values.ToArray())
+        {
+            if (entries.TryGetValue(candidate.Identity.Handle, out var current) && current.Observation.IsAlive
+                && (current.Observation.Identity is null || current.Observation.Identity == candidate.Identity)) continue;
+            Workspace.RemoveWindow(candidate.Id); managed.Remove(candidate.Id);
+            if (ActiveWindowId == candidate.Id) ActiveWindowId = null;
+        }
     }
 
     private void CompleteActivation()

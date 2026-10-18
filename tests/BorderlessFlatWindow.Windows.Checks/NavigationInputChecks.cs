@@ -8,6 +8,18 @@ internal static class NavigationInputChecks
     {
         check("Dedicated navigation input starts inactive and never activates a desktop window", Inactive);
         check("Global hotkey conflicts are visible and disposal releases the registration", ConflictAndRelease);
+        check("Closing overview clears its navigation suspension message and wakes the UI", OverviewState);
+    }
+    private static void OverviewState()
+    {
+        var wakes = 0; var foreground = WindowEventListener.ForegroundWindow;
+        using var input = new GlobalNavigationInput(() => Interlocked.Increment(ref wakes));
+        input.SetOverviewOpen(true); Wait(() => input.State.Message.Contains("总览中"));
+        input.Drain(); // A UI frame acknowledges the coalesced wake before the next state change.
+        var before = Volatile.Read(ref wakes);
+        input.SetOverviewOpen(false); Wait(() => input.State.Message.Contains("总览已关闭") && Volatile.Read(ref wakes) > before);
+        Require(!input.State.Active && Volatile.Read(ref wakes) > before && foreground == WindowEventListener.ForegroundWindow,
+            "Overview closure retained stale state or changed foreground.");
     }
     private static void Inactive()
     {

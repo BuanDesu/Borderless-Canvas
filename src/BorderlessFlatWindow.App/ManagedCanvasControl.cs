@@ -165,6 +165,15 @@ internal sealed class ManagedCanvasControl : UserControl
         gestures?.End(DateTimeOffset.UtcNow); overviewRequested = true;
         globalInput?.SetOverviewOpen(true); ScheduleOverview();
     }
+    private IEnumerable<SpatialOverviewForm.PreviewSource> OverviewPreviewSources()
+    {
+        if (lastSnapshot is null || layout is null) return [];
+        var managedIds = OverviewWindows().Select(window => window.Id).ToHashSet();
+        return lastSnapshot.Entries.Where(entry => entry.Id is { } id && managedIds.Contains(id) && entry.Observation.Identity is not null)
+            .Select(entry => new SpatialOverviewForm.PreviewSource(entry.Id!.Value, entry.Observation.Identity!.Value,
+                entry.Observation.Bounds is { } bounds && bounds.Position.X >= layout.Primary.WorkArea.Left && bounds.Position.Y >= layout.Primary.WorkArea.Top
+                && bounds.Right <= layout.Primary.WorkArea.Right && bounds.Bottom <= layout.Primary.WorkArea.Bottom)).ToArray();
+    }
     private void ScheduleOverview()
     {
         if (!overviewRequested || overviewScheduled || openingOverview || reading || session?.IsBusy == true || session?.HasPending == true || IsDisposed) return;
@@ -190,6 +199,7 @@ internal sealed class ManagedCanvasControl : UserControl
             var dialog = new SpatialOverviewForm(OverviewWindows(), managed.Workspace.Camera,
                 new(area.Left, area.Top, area.Width, area.Height), managed.ActiveWindowId);
             overview = dialog; var retainedFocus = focus;
+            dialog.SetPreviewSources(OverviewPreviewSources());
             host.PresentOverview(dialog, () => FinishOverview(dialog, managed, retainedFocus));
             handedOff = true; focus = null;
         }
@@ -347,6 +357,7 @@ internal sealed class ManagedCanvasControl : UserControl
         { inputAvailable = running; globalInput.SetAvailable(running); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
+        overview?.SetPreviewSources(OverviewPreviewSources());
         candidates.Enabled = !running; start.Enabled = !running;
         pause.Enabled = running;
         if (running && session!.HasPending) verify.Start(); else verify.Stop();
