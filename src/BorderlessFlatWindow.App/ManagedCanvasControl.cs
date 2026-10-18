@@ -108,7 +108,8 @@ internal sealed class ManagedCanvasControl : UserControl
         if (reading || session?.IsBusy == true) { globalInput?.Heartbeat(); return; }
         var events = globalInput?.Drain() ?? [];
         navigationState = globalInput?.State;
-        if (navigationState is not null) navigationStatus.Text = navigationState.Message;
+        if (navigationState is not null) navigationStatus.Text = navigationState.Registered ? navigationState.Message
+            : $"快捷键 {navigationState.Hotkey.Label} 未注册：{navigationState.Message}";
         if (events.Any(item => item.Input.Kind == NavigationInputKind.Fault))
         {
             gestures?.Cancel(); Pause("导航输入异常或响应超时，已暂停恢复。"); return;

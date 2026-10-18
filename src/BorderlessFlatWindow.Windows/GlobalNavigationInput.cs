@@ -137,8 +137,8 @@ public sealed class GlobalNavigationInput : IDisposable
     private void ToggleCore()
     {
         if (gate.Active) { Leave("已退出导航；应用恢复正常鼠标交互。"); return; }
-        if (!available) { Publish(false, State.Registered, State.Hotkey, "请先勾选窗口并开始画布管理。"); return; }
         if (!State.Registered) return;
+        if (!available) { Publish(false, State.Registered, State.Hotkey, "请先勾选窗口并开始画布管理。"); return; }
         var held = (GetAsyncKeyState(1) & 0x8000) != 0 || (GetAsyncKeyState(2) & 0x8000) != 0;
         if (held || gate.HasHeldButtons)
         { Publish(false, true, State.Hotkey, "请先松开鼠标左右键，再进入导航。"); return; }
@@ -159,7 +159,7 @@ public sealed class GlobalNavigationInput : IDisposable
         var active = gate.Active; gate.Exit();
         if (escapeRegistered) ReleaseModeKeys();
         if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
-        Publish(false, State.Registered, State.Hotkey, message);
+        Publish(false, State.Registered, State.Hotkey, State.Registered ? message : State.Message);
     }
     private void ReleaseModeKeys()
     {
