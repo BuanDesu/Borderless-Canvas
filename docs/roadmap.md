@@ -8,12 +8,12 @@
 | M1 只读桌面映射 | T01–T03 已实现验证，PR 待合并 | 窗口准入规则、稳定身份、显示器工作区、事件监听、只读空间地图 | 自身/桌面/任务栏/其他虚拟桌面不被误纳入；创建关闭与拖动可跟踪 |
 | M2 原生画布平移 | T04–T07 核心已实现，组合手势/应用及任务栏路径继续验收 | 恢复日志、单屏管理、全局导航、手势历史、原点与焦点 | 接管失败可恢复；同位移、尺寸不变；从任务栏激活离屏窗口可找回 |
 | M3 空间总览与标签 | T08–T10 核心和自有窗口/重启实测完成，PR 待合并 | 空间总览、搜索/方向选择、预览生命周期与标题降级、动态标签持久化 | 地图位置正确；Esc 不改变工作视角；目标关闭/预览失败不阻断导航；标签重启保留 |
-| M4 兼容与打包 | 未开始 | 多屏混合 DPI、拔插恢复、常用应用矩阵、性能分析、托盘与发布包 | 验收矩阵通过；无窗口遗失；记录版本和可复现性能数据 |
+| M4 兼容与打包 | 原型集成中，完整矩阵未完成 | FR-02 新窗接入、常用应用与任务栏验收、试用产物；后续多屏、性能、托盘及正式发布 | 验收矩阵通过；无窗口遗失；记录版本和可复现性能数据 |
 
 ## 下一步任务
 
 1. M3 证据见[总览说明](spatial-overview.md)、[预览说明](overview-previews.md)和[标签说明](location-bookmarks.md)；进入可试用原型集成验收。
-2. 补齐 FR-02 运行中加入新窗口、优先当前视口附近空位且不移动既有世界布局；继续使用写前登记和失败恢复。
+2. FR-02 已实现运行中加入新窗、视口附近空位和原布局保留，五窗主 GUI 强杀/重启/独立恢复已通过；见[接入说明](runtime-window-admission.md)。
 3. 延续 T07 的物理 Shift/双键组合与输入异常整体验收，当前证据见[导航说明](global-navigation.md)。
 4. 延续 T06 的真实普通应用兼容验证及任务栏实际激活，当前证据见[管理说明](managed-canvas.md)。
 5. 按[原型交付检查](prototype-plan.md)完成实际交互、恢复演练和试用产物。
@@ -25,4 +25,5 @@
 - M1：[T01 / #1](https://github.com/BuanDesu/Borderless-Flat-Window/issues/1)、[T02 / #2](https://github.com/BuanDesu/Borderless-Flat-Window/issues/2)、[T03 / #3](https://github.com/BuanDesu/Borderless-Flat-Window/issues/3)
 - M2：[T04 / #4](https://github.com/BuanDesu/Borderless-Flat-Window/issues/4)、[T05 / #5](https://github.com/BuanDesu/Borderless-Flat-Window/issues/5)、[T06 / #6](https://github.com/BuanDesu/Borderless-Flat-Window/issues/6)、[T07 / #7](https://github.com/BuanDesu/Borderless-Flat-Window/issues/7)
 - M3：[T08 / #8](https://github.com/BuanDesu/Borderless-Flat-Window/issues/8)、[T09 / #9](https://github.com/BuanDesu/Borderless-Flat-Window/issues/9)、[T10 / #10](https://github.com/BuanDesu/Borderless-Flat-Window/issues/10)
+- 原型集成：[FR-02 / #24](https://github.com/BuanDesu/Borderless-Flat-Window/issues/24)
 - M4：[T11 / #11](https://github.com/BuanDesu/Borderless-Flat-Window/issues/11)、[T12 / #12](https://github.com/BuanDesu/Borderless-Flat-Window/issues/12)、[T13 / #13](https://github.com/BuanDesu/Borderless-Flat-Window/issues/13)

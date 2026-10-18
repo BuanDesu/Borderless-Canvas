@@ -14,7 +14,7 @@ using BorderlessFlatWindow.Application.Bookmarks;
 
 namespace BorderlessFlatWindow.App;
 
-internal sealed class ManagedCanvasControl : UserControl
+internal sealed partial class ManagedCanvasControl : UserControl
 {
     private readonly ITrackedDesktopWindowCatalog catalog;
     private readonly string journalPath;
@@ -46,7 +46,7 @@ internal sealed class ManagedCanvasControl : UserControl
     private CanvasPreviewControl? preview;
     private bool reading;
     private string? notice;
-    private sealed record Candidate(Guid Id, string Label, bool Supported)
+    private sealed record Candidate(Guid Id, string Label, bool Supported, bool Managed)
     { public override string ToString() => Label; }
     internal event Action? StatusChanged;
     internal event Action? RecoveryRequested;
@@ -60,9 +60,10 @@ internal sealed class ManagedCanvasControl : UserControl
         this.catalog = catalog; this.journalPath = journalPath ?? JsonRecoveryJournalStore.DefaultPath;
         var selector = new Panel { Dock = DockStyle.Left, Width = 270, Padding = new(6) };
         selector.Controls.Add(candidates);
-        selector.Controls.Add(new Label { Text = "勾选要管理的窗口", Dock = DockStyle.Top, Height = 34 });
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 140, Padding = new(6), AutoScroll = true };
+        selector.Controls.Add(new Label { Text = "已接入项保持勾选；\n新窗口可在运行中加入", Dock = DockStyle.Top, Height = 54 });
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 180, Padding = new(6), AutoScroll = true };
         toolbar.Controls.AddRange([start, pause]);
+        InitializeAdmissionControls(toolbar);
         Add(toolbar, "←", () => session?.Pan(new(-240, 0), DateTimeOffset.UtcNow));
         Add(toolbar, "↑", () => session?.Pan(new(0, -180), DateTimeOffset.UtcNow));
         Add(toolbar, "↓", () => session?.Pan(new(0, 180), DateTimeOffset.UtcNow));
@@ -96,10 +97,7 @@ internal sealed class ManagedCanvasControl : UserControl
         toolbar.Controls.Add(overviewShortcutStatus);
         start.Click += (_, _) => Begin();
         pause.Click += (_, _) => Pause();
-        candidates.ItemCheck += (_, e) =>
-        {
-            if (candidates.Items[e.Index] is Candidate { Supported: false }) e.NewValue = CheckState.Unchecked;
-        };
+        candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
         navigationTimer.Tick += (_, _) => NavigationFrame();
         Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(toolbar);
@@ -255,6 +253,7 @@ internal sealed class ManagedCanvasControl : UserControl
         overviewRequested = false; overview?.CancelOverview();
         if (session?.IsRunning == true) Pause("显示配置已变化，已暂停恢复；请重新选择窗口开始。");
         session?.Dispose(); layout = current;
+        admissionTimer.Stop();
         session = new(() => new RecoverySession(new JsonRecoveryJournalStore(journalPath), new WindowsRecoveryWindowPort()),
             new NativeWindowMotionPort(), current, bookmarks.Collection);
         gestures = new(() => session.Workspace.Camera.Position,
@@ -277,31 +276,8 @@ internal sealed class ManagedCanvasControl : UserControl
     {
         if (reading || IsDisposed) return;
         lastSnapshot = snapshot;
+        DrainAdmissionHints(snapshot);
         session?.Observe(snapshot, foreground, DateTimeOffset.UtcNow);
-        if (session?.IsRunning != true && layout is not null)
-        {
-            var selected = candidates.CheckedItems.OfType<Candidate>().Select(item => item.Id).ToHashSet();
-            var previous = candidates.SelectedItem is Candidate selectedItem ? selectedItem.Id : (Guid?)null;
-            var next = snapshot.Entries.Where(entry => entry.Admission.IsAdmitted && entry.Id is not null).Select(entry =>
-            {
-                var reason = ManagedCanvasSession.Unsupported(entry, layout);
-                return new Candidate(entry.Id!.Value, entry.Observation.Title + (reason is null ? "" : " · " + reason), reason is null);
-            }).ToArray();
-            if (!candidates.Items.OfType<Candidate>().SequenceEqual(next))
-            {
-                candidates.BeginUpdate();
-                try
-                {
-                    candidates.Items.Clear();
-                    foreach (var item in next)
-                    {
-                        var index = candidates.Items.Add(item, selected.Contains(item.Id) && item.Supported);
-                        if (item.Id == previous) candidates.SelectedIndex = index;
-                    }
-                }
-                finally { candidates.EndUpdate(); }
-            }
-        }
         RefreshState();
     }
 
@@ -314,9 +290,11 @@ internal sealed class ManagedCanvasControl : UserControl
         {
             reading = true;
             var snapshot = catalog.Inspect();
+            lastSnapshot = snapshot;
             var entries = snapshot.Entries.Where(entry => entry.Id is { } id && selected.Contains(id)).ToArray();
             if (entries.Length != selected.Count) { notice = "窗口已经改变，请刷新并重新选择。"; return; }
             session.Start(entries, DateTimeOffset.UtcNow);
+            if (session.IsRunning) ResetAutomaticAdmission(snapshot);
             preview?.FitToContent();
         }
         catch (Exception exception) when (Expected(exception)) { notice = $"接管未完成：{exception.Message}"; }
@@ -356,16 +334,18 @@ internal sealed class ManagedCanvasControl : UserControl
         button.Click += (_, _) => Act(action); toolbar.Controls.Add(button);
     }
     internal void Pause(string reason = "已暂停并恢复原始位置；再次开始可恢复画布布局。")
-    { overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
+    { notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
     private void RefreshState()
     {
         var running = session?.IsRunning == true;
+        if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
+        UpdateAdmissionState();
         if (globalInput is not null && inputAvailable != running)
         { inputAvailable = running; globalInput.SetAvailable(running); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());
-        candidates.Enabled = !running; start.Enabled = !running;
+        candidates.Enabled = !reading && overview is null; start.Enabled = !running;
         pause.Enabled = running;
         if (running && session!.HasPending) verify.Start(); else verify.Stop();
         if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
@@ -396,11 +376,11 @@ internal sealed class ManagedCanvasControl : UserControl
         _ => false
     };
     private bool Key(Action action) { if (session?.IsRunning != true) return false; Act(action); return true; }
-    private static bool Expected(Exception exception) => exception is IOException or UnauthorizedAccessException or InvalidOperationException
+    private static bool Expected(Exception exception) => exception is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { overviewRequested = false; overview?.CancelOverview(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { overviewRequested = false; overview?.CancelOverview(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }
 }

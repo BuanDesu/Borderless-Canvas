@@ -54,6 +54,8 @@ GUI 新增“恢复日志”页，显示待处理数量和实际路径。启动�
 
 所有原生测试仅操作本项目创建的透明测试窗口；测试 journal 位于 ignored artifacts，GUI 构造日志位于 ignored .local。没有接管或恢复用户当前应用。测试结果合并在 `artifacts/native-discovery-checks.json`，真实截图可能含标题，仅本地保留。
 
+2026-10-18 集成复验：真实 GUI 分三组接入五扇自有跨进程窗口，暂停和继续后，核验进程路径及日志身份再强制结束管理器。独立 inspect 为五项 armed，重启 GUI 自动提示恢复；独立恢复 EXE 确认五项原始 placement/状态，剩余零项，GUI 刷新为零，原生测试文字保留。详见[FR-02 记录](runtime-window-admission.md)。损坏日志另有独立 EXE 文件检查，返回受控错误码 1 且不改写原文件；当前恢复文件检查为 7 项。该验证补齐真实管理器故障流程，不代替所有第三方应用与硬件验收。
+
 ## 官方依据
 
 - [WINDOWPLACEMENT 与工作区坐标](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-windowplacement)

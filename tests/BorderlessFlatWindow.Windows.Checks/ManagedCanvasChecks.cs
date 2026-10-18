@@ -4,6 +4,7 @@ using BorderlessFlatWindow.Application.Discovery;
 using BorderlessFlatWindow.Application.Management;
 using BorderlessFlatWindow.Application.Recovery;
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Windows.Recovery;
 using BorderlessFlatWindow.Application.Bookmarks;
 using BorderlessFlatWindow.Windows.Bookmarks;
@@ -20,6 +21,8 @@ internal static class ManagedCanvasChecks
         check("A real owned dialog pauses management and restores its parked owner", Popup);
         check("Cross-process stalled UI does not block batch submission and late requests cannot defeat recovery", HungChild);
         check("Persisted label jumps use native camera movement while rename and deletion leave windows unchanged", BookmarkNavigation);
+        check("A real late window joins an active camera without moving existing windows and restores on pause", LateWindow);
+        check("A late native window refusing its planned position pauses and recovers the full group", LateRefused);
     }
     private sealed class Fixture : Form
     {
@@ -51,13 +54,14 @@ internal static class ManagedCanvasChecks
         internal readonly ManagedCanvasSession Session;
         internal readonly Rectangle OriginalA;
         internal readonly Rectangle OriginalB;
+        internal readonly string JournalPath;
         internal Harness(BookmarkCollection? bookmarks = null)
         {
             A.Show(); B.Show();
             PumpUntil(() => { Catalog.Inspect(); return Catalog.Current.AdmittedWindows.Count(window => window.Handle == A.Handle || window.Handle == B.Handle) == 2; });
             OriginalA = A.Bounds; OriginalB = B.Bounds;
-            var path = StorageChecks.NewPath("managed");
-            Session = new(() => new(new JsonRecoveryJournalStore(path), new WindowsRecoveryWindowPort(0)), new NativeWindowMotionPort(), new DesktopDisplayCatalog().ReadDisplays(), bookmarks);
+            JournalPath = StorageChecks.NewPath("managed");
+            Session = new(() => new(new JsonRecoveryJournalStore(JournalPath), new WindowsRecoveryWindowPort(0)), new NativeWindowMotionPort(), new DesktopDisplayCatalog().ReadDisplays(), bookmarks);
             Begin();
         }
         internal void Begin()
@@ -116,6 +120,38 @@ internal static class ManagedCanvasChecks
         Require(h.A.Bounds == a && h.B.Bounds == b && h.Session.Workspace.Camera == camera && foreground == WindowEventListener.ForegroundWindow,
             "Deletion moved or activated native windows.");
         h.Session.Pause(); Require(h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB, "Label navigation could not recover.");
+    }
+    private static void LateWindow()
+    {
+        using var h = new Harness(); h.Session.Navigate(new(300, -160), DateTimeOffset.UtcNow); h.Settle();
+        var label = h.Session.Workspace.AddBookmark("接入前"); var camera = h.Session.Workspace.Camera; var history = h.Session.Workspace.PreviousView;
+        var world = h.Session.Workspace.Windows.ToArray(); var a = h.A.Bounds; var b = h.B.Bounds; var foreground = WindowEventListener.ForegroundWindow;
+        using var late = new Fixture("BFW runtime late C", 400); late.Show();
+        PumpUntil(() => { h.Catalog.Inspect(); return h.Catalog.Current.AdmittedWindows.Any(window => window.Handle == late.Handle); });
+        var original = late.Bounds; var entry = h.Catalog.Current.Entries.Single(item => item.Observation.Handle == late.Handle);
+        Require(h.Session.AddWindows([entry], DateTimeOffset.UtcNow), h.Session.Message); h.Settle();
+        var added = h.Session.Workspace.Windows.Single(window => window.Id == entry.Id);
+        Require(h.Session.IsRunning && h.Session.Workspace.Windows.Count == 3 && h.A.Bounds == a && h.B.Bounds == b
+            && h.Session.Workspace.Camera == camera && h.Session.Workspace.PreviousView == history && h.Session.Workspace.Bookmarks.Single() == label
+            && world.All(old => h.Session.Workspace.Windows.Contains(old)) && late.Size == original.Size
+            && world.All(old => !NearbyWindowPlacement.OverlapsWithGap(old.Bounds, added.Bounds))
+            && foreground == WindowEventListener.ForegroundWindow, "Late native admission changed prior layout, navigation, size or foreground.");
+        using (var journal = System.Text.Json.JsonDocument.Parse(File.ReadAllText(h.JournalPath)))
+            Require(journal.RootElement.GetProperty("Entries").GetArrayLength() == 3, "Late ownership was not durable.");
+        h.Session.Pause();
+        Require(h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB && late.Bounds == original, "Late native originals were not restored.");
+    }
+    private static void LateRefused()
+    {
+        using var h = new Harness(); h.Session.Pan(new(200, 100), DateTimeOffset.UtcNow); h.Settle();
+        using var late = new Fixture("BFW runtime refusing C", 200) { RejectMoves = true }; late.Show();
+        PumpUntil(() => { h.Catalog.Inspect(); return h.Catalog.Current.AdmittedWindows.Any(window => window.Handle == late.Handle); });
+        var original = late.Bounds; var now = DateTimeOffset.UtcNow;
+        var entry = h.Catalog.Current.Entries.Single(item => item.Observation.Handle == late.Handle);
+        Require(h.Session.AddWindows([entry], now), h.Session.Message); h.Tick(now.AddMilliseconds(1700));
+        Require(!h.Session.IsRunning && h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB && late.Bounds == original,
+            "Refused late movement left a partially moved group.");
+        late.RejectMoves = false;
     }
     private static void RefusedMove()
     {

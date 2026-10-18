@@ -81,7 +81,7 @@ public sealed class RecoverySession : IDisposable
                     result = new(entry.Id, RecoveryOutcome.ReleasedUnarmed, "Incomplete registration released without moving a window.");
                 }
             }
-            catch (Exception exception) when (exception is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+            catch (Exception exception) when (exception is InvalidOperationException or IOException or InvalidDataException or System.ComponentModel.Win32Exception)
             { result = new(entry.Id, RecoveryOutcome.Failed, exception.Message); }
             results.Add(result);
             // Persist progress per entry. Failed entries retain both record and marker for retry.
@@ -101,7 +101,7 @@ public sealed class RecoverySession : IDisposable
     {
         if (disposed) return;
         try { if (!inheritedPending && Journal.Entries.Count > 0) RecoverAll(); }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
         { LastCloseError = exception.Message; }
         finally { disposed = true; store.Dispose(); }
     }

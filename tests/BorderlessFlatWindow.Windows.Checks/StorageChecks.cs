@@ -18,7 +18,8 @@ internal static class StorageChecks
             ("Malformed, missing and future-version recovery data is preserved and rejected", Malformed),
             ("Atomic replacement failure leaves the previous journal intact and removes its temporary", ReplaceFailure),
             ("Oversized recovery files are rejected before deserialization", Oversized),
-            ("Repeated atomic saves expose only complete revisions and no window titles", Revisions)
+            ("Repeated atomic saves expose only complete revisions and no window titles", Revisions),
+            ("Independent recovery reports malformed data with a controlled exit and preserves its original bytes", RecoveryCommandInvalidData)
         };
         foreach (var (name, action) in cases)
         {
@@ -98,6 +99,20 @@ internal static class StorageChecks
         }
         var text = File.ReadAllText(path);
         Require(!text.Contains("Title", StringComparison.OrdinalIgnoreCase) && !text.Contains("ClassName", StringComparison.OrdinalIgnoreCase), "Journal stored user titles.");
+    }
+    private static void RecoveryCommandInvalidData()
+    {
+        var path = NewPath("cli-invalid"); const string malformed = "{preserve-this-invalid-recovery-fixture"; File.WriteAllText(path, malformed);
+        var configuration = typeof(StorageChecks).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyConfigurationAttribute), false)
+            .Cast<System.Reflection.AssemblyConfigurationAttribute>().Single().Configuration;
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+        var start = new System.Diagnostics.ProcessStartInfo(Path.Combine(root, "src", "BorderlessFlatWindow.Recovery", "bin", configuration, "net10.0-windows", "BorderlessFlatWindow.Recovery.exe"))
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
+        start.ArgumentList.Add("--journal"); start.ArgumentList.Add(path);
+        using var process = System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException("Recovery command did not start.");
+        if (!process.WaitForExit(5000)) { process.Kill(); throw new InvalidOperationException("Recovery command did not exit after malformed data."); }
+        Require(process.ExitCode == 1 && process.StandardError.ReadToEnd().Contains("Recovery stopped:") && File.ReadAllText(path) == malformed,
+            "Malformed data escaped the command boundary or changed the source file.");
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
     private static void Throws<T>(Action action) where T : Exception
