@@ -17,7 +17,7 @@ public readonly record struct TimedNavigationInput(NavigationInput Input, DateTi
 public sealed class GlobalNavigationInput : IDisposable
 {
     private const uint CommandMessage = 0x8001;
-    private const int ToggleId = 0x4BF0, EscapeId = 0x4BF1, HomeId = 0x4BF2, BackId = 0x4BF3;
+    private const int ToggleId = 0x4BF0, EscapeId = 0x4BF1, HomeId = 0x4BF2, BackId = 0x4BF3, OverviewId = 0x4BF4;
     private readonly ConcurrentQueue<Action> commands = new();
     private readonly ConcurrentQueue<TimedNavigationInput> inputs = new();
     private readonly NavigationInputGate gate = new();
@@ -33,6 +33,9 @@ public sealed class GlobalNavigationInput : IDisposable
     private int wakePending, overflow, stopping;
     private long heartbeat = Environment.TickCount64;
     private bool available, escapeRegistered, disposed;
+    private bool overviewOpen;
+    private bool overviewRegistered;
+    private string overviewMessage = "正在注册总览快捷键。";
 
     public GlobalNavigationInput(Action wakeUi)
     {
@@ -47,6 +50,8 @@ public sealed class GlobalNavigationInput : IDisposable
         if (startupError is not null) throw new InvalidOperationException("导航输入不可用。", startupError);
     }
     public GlobalNavigationState State => Volatile.Read(ref state);
+    public string OverviewMessage => Volatile.Read(ref overviewMessage);
+    public void SetOverviewOpen(bool value) => Post(() => { overviewOpen = value; if (value) Leave("总览中，导航已暂停。"); });
     public void SetAvailable(bool value) => Post(() => { available = value; if (!value && gate.Active) Leave("画布未运行，导航已退出。"); });
     public void Toggle() => Post(ToggleCore);
     public void Exit() => Post(() => Leave("已退出导航；应用恢复正常鼠标交互。"));
@@ -93,7 +98,11 @@ public sealed class GlobalNavigationInput : IDisposable
             if (hook == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法安装导航鼠标钩子。");
             timer = SetTimer(0, 0, 100, 0);
             if (timer == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法启动输入看门狗。");
-            RegisterToggle(NavigationHotkey.Default); ready.Set();
+            RegisterToggle(NavigationHotkey.Default);
+            overviewRegistered = RegisterHotKey(0, OverviewId, 3 | 0x4000, 0x4F);
+            Volatile.Write(ref overviewMessage, overviewRegistered ? "Ctrl+Alt+O 打开/关闭空间总览。"
+                : $"总览快捷键 Ctrl+Alt+O 注册失败（{Marshal.GetLastPInvokeError()}），可用界面按钮。");
+            Wake(); ready.Set();
             while (Volatile.Read(ref stopping) == 0)
             {
                 var result = GetMessage(out var message, 0, 0, 0);
@@ -104,6 +113,10 @@ public sealed class GlobalNavigationInput : IDisposable
                 else if (message.MessageId == 0x312 && message.WParam == EscapeId) Leave("Esc 已退出导航；应用恢复正常鼠标交互。");
                 else if (message.MessageId == 0x312 && message.WParam == HomeId && gate.Active) Queue(new(NavigationInputKind.Home, PointD.Zero));
                 else if (message.MessageId == 0x312 && message.WParam == BackId && gate.Active) Queue(new(NavigationInputKind.Back, PointD.Zero));
+                else if (message.MessageId == 0x312 && message.WParam == OverviewId)
+                {
+                    if (available || overviewOpen) { Leave("切换空间总览，导航已退出。"); Queue(new(NavigationInputKind.Overview, PointD.Zero)); }
+                }
                 else if (message.MessageId == 0x113 && gate.Active && Environment.TickCount64 - Volatile.Read(ref heartbeat) > 1800)
                 {
                     Leave("界面响应超时，导航已自动退出。");
@@ -120,7 +133,7 @@ public sealed class GlobalNavigationInput : IDisposable
         finally
         {
             gate.Exit();
-            UnregisterHotKey(0, ToggleId); ReleaseModeKeys();
+            UnregisterHotKey(0, ToggleId); UnregisterHotKey(0, OverviewId); ReleaseModeKeys();
             if (hook != 0) UnhookWindowsHookEx(hook);
             if (timer != 0) KillTimer(0, timer);
             ready.Set(); GC.KeepAlive(callback);
@@ -137,6 +150,7 @@ public sealed class GlobalNavigationInput : IDisposable
     private void ToggleCore()
     {
         if (gate.Active) { Leave("已退出导航；应用恢复正常鼠标交互。"); return; }
+        if (overviewOpen) { Publish(false, State.Registered, State.Hotkey, "请先关闭总览，再进入导航。"); return; }
         if (!State.Registered) return;
         if (!available) { Publish(false, State.Registered, State.Hotkey, "请先勾选窗口并开始画布管理。"); return; }
         var held = (GetAsyncKeyState(1) & 0x8000) != 0 || (GetAsyncKeyState(2) & 0x8000) != 0;

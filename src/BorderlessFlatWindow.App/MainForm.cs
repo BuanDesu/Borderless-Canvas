@@ -312,6 +312,7 @@ internal sealed class MainForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (management.HasOverview) return management.ProcessOverviewKey(keyData) || base.ProcessCmdKey(ref msg, keyData);
         if (tabs.SelectedIndex == 0 && management.ProcessNavigationKey(keyData)) return true;
         if (tabs.SelectedIndex != 1) return base.ProcessCmdKey(ref msg, keyData);
         switch (keyData)
@@ -325,5 +326,48 @@ internal sealed class MainForm : Form
             default:
                 return base.ProcessCmdKey(ref msg, keyData);
         }
+    }
+
+    internal void PresentOverview(SpatialOverviewForm overview, Action completed)
+    {
+        var oldBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        var oldState = WindowState; var oldBorder = FormBorderStyle; var oldTopMost = TopMost; var oldTitle = Text;
+        var visible = Controls.Cast<Control>().Where(control => control.Visible).ToArray();
+        var oldControl = ActiveControl;
+        var restored = false;
+        void Restore()
+        {
+            if (restored) return; restored = true;
+            try
+            {
+                var activate = ForegroundWindowBookmark.IsApplicationForeground;
+                if (!IsDisposed && !Disposing)
+                {
+                    Controls.Remove(overview);
+                    WindowState = FormWindowState.Normal; FormBorderStyle = oldBorder; Bounds = oldBounds;
+                    TopMost = oldTopMost; Text = oldTitle;
+                    foreach (var control in visible) if (!control.IsDisposed) control.Show();
+                    WindowState = oldState;
+                    if (activate && !showWithoutActivation && oldState != FormWindowState.Minimized) { Activate(); oldControl?.Select(); }
+                }
+            }
+            finally { completed(); }
+        }
+        overview.FormClosed += (_, _) => Restore();
+        try
+        {
+            foreach (var control in visible) control.Hide();
+            WindowState = FormWindowState.Normal; FormBorderStyle = FormBorderStyle.None;
+            Bounds = overview.Bounds; Text = "BFW 空间总览"; TopMost = true;
+            overview.TopMost = false; overview.TopLevel = false; overview.Dock = DockStyle.Fill;
+            Controls.Add(overview); overview.BringToFront(); overview.Show(); if (!showWithoutActivation) Activate();
+        }
+        catch { Restore(); throw; }
+    }
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (e.CloseReason == CloseReason.UserClosing && management.HasOverview)
+        { e.Cancel = true; management.CancelOverview(); return; }
+        base.OnFormClosing(e);
     }
 }
