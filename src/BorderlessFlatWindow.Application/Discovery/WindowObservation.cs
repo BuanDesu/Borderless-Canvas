@@ -24,6 +24,8 @@ public sealed record WindowObservation
     public bool IsChildWindow { get; init; }
     public bool IsToolWindow { get; init; }
     public bool IsMinimized { get; init; }
+    public bool IsMaximized { get; init; }
+    public bool IsTopMost { get; init; }
     public bool? IsCloaked { get; init; }
     public bool? IsOnCurrentDesktop { get; init; }
 

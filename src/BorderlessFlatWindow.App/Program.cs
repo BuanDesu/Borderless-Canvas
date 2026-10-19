@@ -25,6 +25,10 @@ internal static class Program
             var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
             Directory.CreateDirectory(output);
             bitmap.Save(Path.Combine(output, "shell-smoke.png"));
+            form.PrepareSampleSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "sample-smoke.png"));
             form.PrepareCatalogSmoke();
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));

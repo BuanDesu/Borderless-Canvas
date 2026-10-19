@@ -29,6 +29,7 @@ internal sealed class MainForm : Form
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
     private readonly DisplayDiagnosticsControl displays;
     private readonly RecoveryDiagnosticsControl recovery;
+    private readonly ManagedCanvasControl management;
     private readonly ListView windowList = new()
     {
         Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
@@ -58,6 +59,13 @@ internal sealed class MainForm : Form
         livePreview.CameraPanRequested += delta => { liveWorkspace.PanBy(delta); livePreview.Invalidate(); };
         eventTimer.Tick += (_, _) => FlushEvents();
 
+        management = new(catalog, journalPath) { Dock = DockStyle.Fill };
+        management.StatusChanged += UpdateCameraStatus;
+        management.RecoveryRequested += () => tabs.SelectedIndex = 5;
+        var managementTab = new TabPage("窗口画布");
+        managementTab.Controls.Add(management);
+        tabs.TabPages.Add(managementTab);
+
         var canvasTab = new TabPage("空间模型预览");
         var catalogTab = new TabPage("Windows 窗口候选（只读）");
         tabs.TabPages.Add(canvasTab);
@@ -66,6 +74,7 @@ internal sealed class MainForm : Form
         displays = new(new BorderlessFlatWindow.Windows.DesktopDisplayCatalog(), layout =>
         {
             workspace.SetViewportSize(layout.Primary.WorkArea.Size);
+            management.SetDisplay(layout);
             liveWorkspace.SetViewportSize(layout.Primary.WorkArea.Size);
             spatial.WorkArea = layout.Primary.WorkArea;
             if (snapshot is not null) UpdateLiveMap();
@@ -129,7 +138,7 @@ internal sealed class MainForm : Form
         var intro = new Label
         {
             Dock = DockStyle.Top, Height = 96, Padding = new Padding(14),
-            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM2：恢复基础已接入。常规模式仅观察，真实窗口接管尚未开放。"
+            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\n勾选窗口开始画布管理；使用按钮或地图内滚轮平移，暂停会恢复原位。"
         };
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
@@ -138,7 +147,7 @@ internal sealed class MainForm : Form
         Controls.Add(status);
         UpdateCameraStatus();
         displays.RefreshDisplays();
-        if (recovery.RefreshJournal() > 0 && !showWithoutActivation) tabs.SelectedIndex = 4;
+        if (recovery.RefreshJournal() > 0 && !showWithoutActivation) tabs.SelectedIndex = 5;
     }
 
     private static CanvasWindow Sample(string title, double x, double y, double width, double height) =>
@@ -158,8 +167,13 @@ internal sealed class MainForm : Form
         preview.Invalidate();
     }
 
-    private void UpdateCameraStatus() => cameraStatus.Text =
-        $"相机 ({workspace.Camera.Position.X:0}, {workspace.Camera.Position.Y:0}) · 示例窗口 {workspace.Windows.Count} · 视口 {workspace.Camera.ViewportSize.Width:0} × {workspace.Camera.ViewportSize.Height:0}";
+    private void UpdateCameraStatus()
+    {
+        var managed = management.Diagnostics();
+        cameraStatus.Text = tabs.SelectedIndex == 0
+            ? $"画布相机 ({managed.Camera.X:0}, {managed.Camera.Y:0}) · 窗口 {managed.Count} · {(managed.Running ? "管理中" : "未接管 / 已暂停")}" :
+                $"示例相机 ({workspace.Camera.Position.X:0}, {workspace.Camera.Position.Y:0}) · 示例窗口 {workspace.Windows.Count}";
+    }
 
     private void RefreshCatalog()
     {
@@ -209,6 +223,7 @@ internal sealed class MainForm : Form
     private void UpdateLiveMap()
     {
         if (snapshot is null) return;
+        management.Observe(snapshot, WindowEventListener.ForegroundWindow);
         spatial.Synchronize(snapshot, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
         livePreview.ActiveWindowId = spatial.ActiveWindowId;
         livePreview.Invalidate();
@@ -226,22 +241,31 @@ internal sealed class MainForm : Form
         base.Dispose(disposing);
     }
 
+    protected override void WndProc(ref Message message)
+    {
+        base.WndProc(ref message);
+        if (message.Msg is 0x007E or 0x02E0 && management is not null && IsHandleCreated && !IsDisposed)
+            BeginInvoke(() => { management.Pause("显示配置发生变化，已暂停恢复。"); displays.RefreshDisplays(); RefreshCatalog(); });
+    }
+
+    internal void PrepareSampleSmoke() => tabs.SelectedIndex = 1;
+
     internal void PrepareCatalogSmoke()
     {
-        tabs.SelectedIndex = 1;
+        tabs.SelectedIndex = 2;
         showExcluded.Checked = true;
         RefreshCatalog();
     }
 
     internal void PrepareDisplaySmoke()
     {
-        tabs.SelectedIndex = 2;
+        tabs.SelectedIndex = 3;
         displays.RefreshDisplays();
     }
 
     internal void PrepareLiveSmoke()
     {
-        tabs.SelectedIndex = 3;
+        tabs.SelectedIndex = 4;
         RefreshCatalog();
         livePreview.FitToContent();
     }
@@ -251,7 +275,7 @@ internal sealed class MainForm : Form
 
     internal void PrepareRecoverySmoke()
     {
-        tabs.SelectedIndex = 4;
+        tabs.SelectedIndex = 5;
         recovery.RefreshJournal();
     }
 
@@ -287,7 +311,8 @@ internal sealed class MainForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (tabs.SelectedIndex != 0) return base.ProcessCmdKey(ref msg, keyData);
+        if (tabs.SelectedIndex == 0 && management.ProcessNavigationKey(keyData)) return true;
+        if (tabs.SelectedIndex != 1) return base.ProcessCmdKey(ref msg, keyData);
         switch (keyData)
         {
             case Keys.Home:

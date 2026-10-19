@@ -62,6 +62,7 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
             IsAlive = stillSame, MetadataAvailable = hasClass && hasStyle && hasExtendedStyle && hasBounds,
             IsVisible = visible, IsChildWindow = (style & 0x40000000L) != 0,
             IsToolWindow = (extendedStyle & 0x80) != 0, IsMinimized = minimized,
+            IsMaximized = NativeMethods.IsZoomed(handle), IsTopMost = (extendedStyle & 8) != 0,
             IsCloaked = cloaked, IsOnCurrentDesktop = currentDesktop
         };
     }
