@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：单屏[可试用原型](docs/prototype-plan.md)已交付，用户已确认物理 Shift 横移、双键拖动/整段返回、任务栏找回/输入及预览显示。包内四窗、总览和故障恢复证据见[试用验证](docs/trial-validation.md)，191 模型、15 文件、48 原生检查通过。T01–T10、FR-02 等任务仍按各自验证与 PR 合并规则勾选；更广应用、多屏、性能与正式发布继续留在后续任务。
+当前状态：首个原型的 T01–T10 与 FR-02 功能 PR 已按授权合并，[提交记录](docs/integration-history.md)可追踪。新版加入自动导航、工作区总览、同 DPI 多屏与托盘；验证范围和待人工项目见[反馈改进](docs/interaction-refresh.md)。T11–T13 的完整兼容、性能与发布条件尚未完成。
 
 ## 已完成：M0 基础项目
 
@@ -16,28 +16,36 @@
 
 ## P0 / M1：建立可靠的只读桌面模型
 
-- [ ] **T01：窗口身份与准入策略。** 用 HWND + PID + 进程启动时间绑定独立模型 ID；排除自身、桌面、任务栏、工具窗口、cloaked 窗口和其他虚拟桌面的窗口；输出明确排除原因。验证句柄复用、owner/模态关系和关闭竞态。对应 FR-02/09。 [Issue #1](https://github.com/BuanDesu/Borderless-Flat-Window/issues/1)
-- [ ] **T02：显示器工作区与坐标边界。** 读取主屏/工作区/DPI，区分世界、视口与物理坐标；检查整数范围；先建立单屏 100% DPI 基线。验证负坐标显示器和任务栏工作区。对应 FR-01/07、NFR-04。依赖 T01。 [Issue #2](https://github.com/BuanDesu/Borderless-Flat-Window/issues/2)
-- [ ] **T03：窗口生命周期与双向事件同步。** 跟踪创建、关闭、移动、尺寸和激活事件；区分用户拖动与自身移动回调；不使用持续全量轮询。验证快速开关窗口和事件乱序；输出只读真实空间地图。对应 FR-02/09。依赖 T01、T02。 [Issue #3](https://github.com/BuanDesu/Borderless-Flat-Window/issues/3)
+- [x] **T01：窗口身份与准入策略。** 用 HWND + PID + 进程启动时间绑定独立模型 ID；排除自身、桌面、任务栏、工具窗口、cloaked 窗口和其他虚拟桌面的窗口；输出明确排除原因。验证句柄复用、owner/模态关系和关闭竞态。对应 FR-02/09。 [Issue #1](https://github.com/BuanDesu/Borderless-Flat-Window/issues/1)
+- [x] **T02：显示器工作区与坐标边界。** 读取主屏/工作区/DPI，区分世界、视口与物理坐标；检查整数范围；先建立单屏 100% DPI 基线。验证负坐标显示器和任务栏工作区。对应 FR-01/07、NFR-04。依赖 T01。 [Issue #2](https://github.com/BuanDesu/Borderless-Flat-Window/issues/2)
+- [x] **T03：窗口生命周期与双向事件同步。** 跟踪创建、关闭、移动、尺寸和激活事件；区分用户拖动与自身移动回调；不使用持续全量轮询。验证快速开关窗口和事件乱序；输出只读真实空间地图。对应 FR-02/09。依赖 T01、T02。 [Issue #3](https://github.com/BuanDesu/Borderless-Flat-Window/issues/3)
 
 ## P0 / M2：安全接管与连续平移
 
-- [ ] **T04：恢复日志和独立恢复入口。** 接管前落盘原始 placement、状态及身份；支持正常退出、强制结束后的重新启动恢复；跳过失效/复用 HWND，防止误移动新窗口。对应 FR-10、NFR-02。依赖 T01、T02。**必须先于真实窗口移动。** [Issue #4](https://github.com/BuanDesu/Borderless-Flat-Window/issues/4)
-- [ ] **T05：离屏策略验证与决策记录。** 比较有界停放/裁剪等策略；验证窗口不漏到副屏、任务栏预览、弹窗和动态画面刷新；记录降级方式和可恢复边界。对应 FR-01/07、NFR-06。依赖 T02、T04。 [Issue #5](https://github.com/BuanDesu/Borderless-Flat-Window/issues/5)
-- [ ] **T06：原生批量平移与焦点跟随。** 先接管测试窗口，再接入普通应用；平移不改尺寸与世界位置，不抢焦点；聚焦整体移动相机后请求激活；任务栏激活离屏目标时定位；局部失败可协调。对应 FR-01/03/04/07。依赖 T03、T04、T05。 [Issue #6](https://github.com/BuanDesu/Borderless-Flat-Window/issues/6)
-- [ ] **T07：全局导航手势与模式状态机。** 配置快捷键、滚轮纵移、Shift 横移、左右双键拖动；解决误触/右键菜单/应用滚动竞争；Esc 释放捕获；一次手势合并为一条历史；快捷键冲突可见。对应 FR-04/08、NFR-03/07。依赖 T06。 [Issue #7](https://github.com/BuanDesu/Borderless-Flat-Window/issues/7)
+- [x] **T04：恢复日志和独立恢复入口。** 接管前落盘原始 placement、状态及身份；支持正常退出、强制结束后的重新启动恢复；跳过失效/复用 HWND，防止误移动新窗口。对应 FR-10、NFR-02。依赖 T01、T02。**必须先于真实窗口移动。** [Issue #4](https://github.com/BuanDesu/Borderless-Flat-Window/issues/4)
+- [x] **T05：离屏策略验证与决策记录。** 比较有界停放/裁剪等策略；验证窗口不漏到副屏、任务栏预览、弹窗和动态画面刷新；记录降级方式和可恢复边界。对应 FR-01/07、NFR-06。依赖 T02、T04。 [Issue #5](https://github.com/BuanDesu/Borderless-Flat-Window/issues/5)
+- [x] **T06：原生批量平移与焦点跟随。** 先接管测试窗口，再接入普通应用；平移不改尺寸与世界位置，不抢焦点；聚焦整体移动相机后请求激活；任务栏激活离屏目标时定位；局部失败可协调。对应 FR-01/03/04/07。依赖 T03、T04、T05。 [Issue #6](https://github.com/BuanDesu/Borderless-Flat-Window/issues/6)
+- [x] **T07：全局导航手势与模式状态机。** 配置快捷键、滚轮纵移、Shift 横移、左右双键拖动；解决误触/右键菜单/应用滚动竞争；Esc 释放捕获；一次手势合并为一条历史；快捷键冲突可见。对应 FR-04/08、NFR-03/07。依赖 T06。 [Issue #7](https://github.com/BuanDesu/Borderless-Flat-Window/issues/7)
 
 ## P0 / M3：空间总览与位置标签
 
-- [ ] **T08：保留位置的总览、选择和搜索。** 独立于工作相机保存总览状态；按统一比例绘制真实位置、原点和视口；方向键按空间选择；搜索不重排；确认才移动工作相机，Esc 取消；目标关闭时安全处理。对应 FR-05。依赖 T03、T06。 [Issue #8](https://github.com/BuanDesu/Borderless-Flat-Window/issues/8)
-- [ ] **T09：DWM 预览资源与降级。** 管理注册/更新/释放生命周期；不可预览或离屏不刷新时显示图标、标题或缓存占位；选择导航仍可用；不向缩略图转发编辑输入。对应 FR-05、NFR-06。依赖 T08。 [Issue #9](https://github.com/BuanDesu/Borderless-Flat-Window/issues/9)
-- [ ] **T10：位置标签 UI 与本地持久化。** 新增、重命名、删除、搜索和跳转；稳定 ID、重名区分、无 1–9 槽位限制；版本化 JSON/原子写入/损坏降级；删除标签不移动窗口。对应 FR-06、NFR-05。依赖 T08。 [Issue #10](https://github.com/BuanDesu/Borderless-Flat-Window/issues/10)
+- [x] **T08：保留位置的总览、选择和搜索。** 独立于工作相机保存总览状态；按统一比例绘制真实位置、原点和视口；方向键按空间选择；搜索不重排；确认才移动工作相机，Esc 取消；目标关闭时安全处理。对应 FR-05。依赖 T03、T06。 [Issue #8](https://github.com/BuanDesu/Borderless-Flat-Window/issues/8)
+- [x] **T09：DWM 预览资源与降级。** 管理注册/更新/释放生命周期；不可预览或离屏不刷新时显示图标、标题或缓存占位；选择导航仍可用；不向缩略图转发编辑输入。对应 FR-05、NFR-06。依赖 T08。 [Issue #9](https://github.com/BuanDesu/Borderless-Flat-Window/issues/9)
+- [x] **T10：位置标签 UI 与本地持久化。** 新增、重命名、删除、搜索和跳转；稳定 ID、重名区分、无 1–9 槽位限制；版本化 JSON/原子写入/损坏降级；删除标签不移动窗口。对应 FR-06、NFR-05。依赖 T08。 [Issue #10](https://github.com/BuanDesu/Borderless-Flat-Window/issues/10)
 
 ## P0 / 原型集成补齐
 
-- [ ] **FR-02 补齐：运行中新窗口接入。** 手动选择与默认关闭的可选自动接入；排除原有未选窗口，稳定后寻找视口附近空位；保留旧布局/相机/标签，仅登记并移动新增项。已完成模型、文件、原生和五窗实际接入/恢复验证，等待 PR 合并。依赖 T03、T04、T06、T10。 [Issue #24](https://github.com/BuanDesu/Borderless-Flat-Window/issues/24)
+- [x] **FR-02 补齐：运行中新窗口接入。** 手动选择与默认开启、可关闭的自动接入；排除原有未选窗口，稳定后寻找视口附近空位；保留旧布局/相机/标签，仅登记并移动新增项。已完成模型、文件、原生和五窗实际接入/恢复验证，功能 PR 已合并。依赖 T03、T04、T06、T10。 [Issue #24](https://github.com/BuanDesu/Borderless-Flat-Window/issues/24)
 
 ## P1 / M4：兼容、性能与发布
+
+本轮反馈 [Issue #27](https://github.com/BuanDesu/Borderless-Flat-Window/issues/27)：
+
+- [x] 桌面自动导航，应用内输入透传；桌面 Tab 总览、Ctrl＋滚轮轮选。
+- [x] Y2K 主题，三页入口与三个诊断子页；工作区并入毛玻璃总览。
+- [x] 同 DPI 多屏工作区并集、主屏聚焦、离屏停放和恢复模型。
+- [x] 新窗默认自动接入，托盘隐藏/返回/暂停/退出。
+- [ ] 最终包上的物理组合、工作区编辑、托盘入口及真实双屏人工验收。
 
 - [ ] **T11：窗口特殊状态与多屏兼容。** 验证最小化、最大化、全屏、置顶、owner/模态框、输入法及权限不足；扩展混合 DPI、拔插/主屏变化、休眠和 Explorer 重启；记录常用应用兼容矩阵。对应 FR-12、AT-05/09/10/11/12。依赖 T06、T07、T09。 [Issue #11](https://github.com/BuanDesu/Borderless-Flat-Window/issues/11)
 - [ ] **T12：性能基线与可撤销整理。** 测量 10/30/更多窗口、预览开关和离屏数量增长下的输入延迟、CPU/GPU/内存；合并高频更新；提供只影响选区的平铺与撤销，不自动压缩全画布。对应 FR-11、NFR-03。依赖 T07、T09。 [Issue #12](https://github.com/BuanDesu/Borderless-Flat-Window/issues/12)

@@ -10,13 +10,19 @@ public sealed class WindowPlacementPlanner
     // A deliberately conservative prototype budget, not a promise about every Win32 application's limits.
     public const int CoordinateBudget = 30000;
     private readonly PixelRect[] monitors;
+    private readonly PixelRect[] visibleAreas;
+    private readonly bool continuous;
     public PixelRect WorkArea { get; }
 
-    public WindowPlacementPlanner(PixelRect workArea, IEnumerable<PixelRect> monitors)
+    public WindowPlacementPlanner(PixelRect workArea, IEnumerable<PixelRect> monitors, IEnumerable<PixelRect>? visibleAreas = null)
     {
         this.monitors = monitors.ToArray();
+        continuous = visibleAreas is not null;
+        this.visibleAreas = visibleAreas?.ToArray() ?? [workArea];
         if (this.monitors.Length == 0 || this.monitors.Any(monitor => !monitor.IsValid)
-            || !this.monitors.Any(monitor => monitor.Contains(workArea)))
+            || !workArea.IsValid || this.visibleAreas.Length == 0
+            || this.visibleAreas.Any(area => !area.IsValid || !workArea.Contains(area) || !this.monitors.Any(m => m.Contains(area)))
+            || !continuous && !this.monitors.Any(monitor => monitor.Contains(workArea)))
             throw new ArgumentException("Need valid monitors containing the viewport work area.");
         WorkArea = workArea;
     }
@@ -32,9 +38,9 @@ public sealed class WindowPlacementPlanner
         {
             var mapper = new DesktopCoordinateMapper(camera, WorkArea);
             if (!mapper.TryProjectWindow(world, out var target) || !WithinBudget(target)) return false;
-            if (monitors.Any(monitor => monitor != monitors.First(item => item.Contains(WorkArea)) && Intersects(target, monitor)))
+            if (!continuous && monitors.Any(monitor => monitor != monitors.First(item => item.Contains(WorkArea)) && Intersects(target, monitor)))
                 return false; // Partial windows must not leak into an adjacent monitor.
-            if (Intersects(target, WorkArea)) { plan = new(target, false); return true; }
+            if (visibleAreas.Any(area => Intersects(target, area))) { plan = new(target, false); return true; }
         }
         var width = checked((int)Math.Round(world.Size.Width, MidpointRounding.AwayFromZero));
         var height = checked((int)Math.Round(world.Size.Height, MidpointRounding.AwayFromZero));

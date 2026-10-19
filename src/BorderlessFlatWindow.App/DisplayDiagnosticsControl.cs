@@ -27,7 +27,7 @@ internal sealed class DisplayDiagnosticsControl : UserControl
         var explanation = new Label
         {
             Dock = DockStyle.Bottom, Height = 112, Padding = new(10),
-            Text = "工作区由 Windows 提供，保留任务栏等系统区域；边界允许负坐标。\n物理坐标 = 世界坐标 − 相机位置 + 工作区左上角；一画布单位对应一物理像素。\nDPI 用于诊断，不对应用内容额外缩放。模型视口使用主屏工作区尺寸；尚未移动真实窗口。"
+            Text = "工作区由 Windows 提供，保留任务栏等系统区域；边界允许负坐标。\n物理坐标 = 世界坐标 − 相机位置 + 各屏工作区包围框的左上角；一单位对应一物理像素。\n同 DPI 多屏共享连续画布；屏间空隙不计入可见区域。混合 DPI 仍需验证应用跨屏尺寸变化。"
         };
         Controls.Add(list); Controls.Add(summary); Controls.Add(actions); Controls.Add(explanation);
     }

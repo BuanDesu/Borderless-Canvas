@@ -45,6 +45,8 @@ try {
         }
     }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/trial-guide.zh-CN.md') -Destination (Join-Path $destination '试用说明.md')
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/interaction-refresh.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/integration-history.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Recover.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Inspect-Recovery.cmd') -Destination $destination

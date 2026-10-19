@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text;
 using BorderlessFlatWindow.Application.Navigation;
 using BorderlessFlatWindow.Core.Geometry;
 
@@ -10,7 +11,7 @@ public sealed record NavigationHotkey(uint Modifiers, uint Key, string Label)
 {
     public static readonly NavigationHotkey Default = new(3, 0x20, "Ctrl+Alt+Space");
 }
-public sealed record GlobalNavigationState(bool Active, bool Registered, NavigationHotkey Hotkey, string Message);
+public sealed record GlobalNavigationState(bool Active, bool Registered, NavigationHotkey Hotkey, string Message, bool Manual = false);
 public readonly record struct TimedNavigationInput(NavigationInput Input, DateTimeOffset At);
 
 /// <summary>Dedicated message-loop thread. Subscribers only post a UI wake; never move windows here.</summary>
@@ -21,14 +22,19 @@ public sealed class GlobalNavigationInput : IDisposable
     private readonly ConcurrentQueue<Action> commands = new();
     private readonly ConcurrentQueue<TimedNavigationInput> inputs = new();
     private readonly NavigationInputGate gate = new();
+    private readonly DesktopNavigationPolicy automatic = new();
     private readonly Action wakeUi;
     private readonly HookCallback callback;
+    private readonly HookCallback keyboardCallback;
     private readonly Thread thread;
     private readonly ManualResetEventSlim ready = new();
     private GlobalNavigationState state = new(false, false, NavigationHotkey.Default, "正在注册快捷键。");
     private Exception? startupError;
     private uint threadId;
     private nint hook;
+    private nint keyboardHook;
+    private bool manual, tabHeld, tabCaptured;
+    private readonly HashSet<uint> capturedKeys = [];
     private nuint timer;
     private int wakePending, overflow, stopping;
     private long heartbeat = Environment.TickCount64;
@@ -39,7 +45,7 @@ public sealed class GlobalNavigationInput : IDisposable
 
     public GlobalNavigationInput(Action wakeUi)
     {
-        this.wakeUi = wakeUi; callback = MouseCallback;
+        this.wakeUi = wakeUi; callback = MouseCallback; keyboardCallback = KeyboardCallback;
         thread = new(ThreadMain) { IsBackground = true, Name = "BFW navigation input" };
         thread.SetApartmentState(ApartmentState.STA); thread.Start();
         if (!ready.Wait(TimeSpan.FromSeconds(5)))
@@ -59,7 +65,7 @@ public sealed class GlobalNavigationInput : IDisposable
     });
     public void SetAvailable(bool value) => Post(() => { available = value; if (!value && gate.Active) Leave("画布未运行，导航已退出。"); });
     public void Toggle() => Post(ToggleCore);
-    public void Exit() => Post(() => Leave("已退出导航；应用恢复正常鼠标交互。"));
+    public void Exit() => Post(() => { automatic.Suspend(); Leave("已退出导航；进入应用窗口后可再次自动导航。"); });
     public void Configure(NavigationInputOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -101,11 +107,13 @@ public sealed class GlobalNavigationInput : IDisposable
             PeekMessage(out _, 0, 0, 0, 0); threadId = GetCurrentThreadId();
             hook = SetWindowsHookEx(14, callback, GetModuleHandle(null), 0);
             if (hook == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法安装导航鼠标钩子。");
+            keyboardHook = SetWindowsHookEx(13, keyboardCallback, GetModuleHandle(null), 0);
+            if (keyboardHook == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法安装桌面总览键盘钩子。");
             timer = SetTimer(0, 0, 100, 0);
             if (timer == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法启动输入看门狗。");
             RegisterToggle(NavigationHotkey.Default);
             overviewRegistered = RegisterHotKey(0, OverviewId, 3 | 0x4000, 0x4F);
-            Volatile.Write(ref overviewMessage, overviewRegistered ? "Ctrl+Alt+O 打开/关闭空间总览。"
+            Volatile.Write(ref overviewMessage, overviewRegistered ? "桌面空白处 Tab / Shift+Tab 打开总览；Ctrl+Alt+O 也可打开/关闭。"
                 : $"总览快捷键 Ctrl+Alt+O 注册失败（{Marshal.GetLastPInvokeError()}），可用界面按钮。");
             Wake(); ready.Set();
             while (Volatile.Read(ref stopping) == 0)
@@ -115,17 +123,21 @@ public sealed class GlobalNavigationInput : IDisposable
                 if (result < 0) throw new Win32Exception(Marshal.GetLastPInvokeError());
                 if (message.MessageId == CommandMessage) while (commands.TryDequeue(out var command)) command();
                 else if (message.MessageId == 0x312 && message.WParam == ToggleId) ToggleCore();
-                else if (message.MessageId == 0x312 && message.WParam == EscapeId) Leave("Esc 已退出导航；应用恢复正常鼠标交互。");
+                else if (message.MessageId == 0x312 && message.WParam == EscapeId) { automatic.Suspend(); Leave("Esc 已退出导航；应用恢复正常鼠标交互。"); }
                 else if (message.MessageId == 0x312 && message.WParam == HomeId && gate.Active) Queue(new(NavigationInputKind.Home, PointD.Zero));
                 else if (message.MessageId == 0x312 && message.WParam == BackId && gate.Active) Queue(new(NavigationInputKind.Back, PointD.Zero));
                 else if (message.MessageId == 0x312 && message.WParam == OverviewId)
                 {
                     if (available || overviewOpen) { Leave("切换空间总览，导航已退出。"); Queue(new(NavigationInputKind.Overview, PointD.Zero)); }
                 }
-                else if (message.MessageId == 0x113 && gate.Active && Environment.TickCount64 - Volatile.Read(ref heartbeat) > 1800)
+                else if (message.MessageId == 0x113)
                 {
-                    Leave("界面响应超时，导航已自动退出。");
-                    Queue(new(NavigationInputKind.Fault, PointD.Zero));
+                    if (gate.Active && Environment.TickCount64 - Volatile.Read(ref heartbeat) > 1800)
+                    {
+                        available = false; Leave("界面响应超时，导航已自动退出。");
+                        Queue(new(NavigationInputKind.Fault, PointD.Zero));
+                    }
+                    else if (GetCursorPos(out var pointer)) UpdateAutomatic(pointer);
                 }
             }
         }
@@ -140,8 +152,9 @@ public sealed class GlobalNavigationInput : IDisposable
             gate.Exit();
             UnregisterHotKey(0, ToggleId); UnregisterHotKey(0, OverviewId); ReleaseModeKeys();
             if (hook != 0) UnhookWindowsHookEx(hook);
+            if (keyboardHook != 0) UnhookWindowsHookEx(keyboardHook);
             if (timer != 0) KillTimer(0, timer);
-            ready.Set(); GC.KeepAlive(callback);
+            ready.Set(); GC.KeepAlive(callback); GC.KeepAlive(keyboardCallback);
         }
     }
     private void RegisterToggle(NavigationHotkey hotkey)
@@ -154,7 +167,7 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     private void ToggleCore()
     {
-        if (gate.Active) { Leave("已退出导航；应用恢复正常鼠标交互。"); return; }
+        if (gate.Active) { automatic.Suspend(); Leave("已退出导航；应用恢复正常鼠标交互。"); return; }
         if (overviewOpen) { Publish(false, State.Registered, State.Hotkey, "请先关闭总览，再进入导航。"); return; }
         if (!State.Registered) return;
         if (!available) { Publish(false, State.Registered, State.Hotkey, "请先勾选窗口并开始画布管理。"); return; }
@@ -168,6 +181,7 @@ public sealed class GlobalNavigationInput : IDisposable
             Publish(false, true, State.Hotkey, "Esc/Home/Backspace 注册失败，未进入导航；请解决快捷键冲突。"); return;
         }
         escapeRegistered = true;
+        manual = true;
         gate.TryEnter(false); Volatile.Write(ref heartbeat, Environment.TickCount64);
         var enabled = string.Join(" / ", new[] { gate.Options.VerticalWheel ? "滚轮纵移" : null,
             gate.Options.HorizontalWheel ? "Shift 横移" : null, gate.Options.TwoButtonDrag ? "双键拖动" : null }.Where(item => item is not null));
@@ -175,7 +189,7 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     private void Leave(string message)
     {
-        var active = gate.Active; gate.Exit();
+        var active = gate.Active; gate.Exit(); manual = false;
         if (escapeRegistered) ReleaseModeKeys();
         if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
         Publish(false, State.Registered, State.Hotkey, State.Registered ? message : State.Message);
@@ -185,7 +199,7 @@ public sealed class GlobalNavigationInput : IDisposable
         UnregisterHotKey(0, EscapeId); UnregisterHotKey(0, HomeId); UnregisterHotKey(0, BackId); escapeRegistered = false;
     }
     private void Publish(bool active, bool registered, NavigationHotkey hotkey, string message)
-    { Volatile.Write(ref state, new(active, registered, hotkey, message)); Wake(); }
+    { Volatile.Write(ref state, new(active, registered, hotkey, message, manual)); Wake(); }
     private void Wake()
     {
         if (Interlocked.Exchange(ref wakePending, 1) != 0) return;
@@ -214,12 +228,15 @@ public sealed class GlobalNavigationInput : IDisposable
             };
             if (kind is { } inputKind)
             {
+                var input = Marshal.PtrToStructure<MouseInput>(data);
+                UpdateAutomatic(input.Point);
                 var shift = inputKind == NavigationInputKind.Wheel && (GetAsyncKeyState(0x10) & 0x8000) != 0;
-                var route = gate.Route(inputKind, shift);
+                var control = inputKind == NavigationInputKind.Wheel && Down(0x11);
+                var route = control && gate.Active ? (Suppress: true, Queue: true) : gate.Route(inputKind, shift);
+                automatic.ObserveButton(inputKind, route.Suppress);
                 if (route.Queue)
                 {
-                    var input = Marshal.PtrToStructure<MouseInput>(data);
-                    Queue(new(inputKind, new(input.Point.X, input.Point.Y), unchecked((short)(input.Data >> 16)), shift));
+                    Queue(new(control ? NavigationInputKind.CycleWindow : inputKind, new(input.Point.X, input.Point.Y), unchecked((short)(input.Data >> 16)), shift));
                 }
                 if (route.Suppress) return 1;
             }
@@ -230,6 +247,71 @@ public sealed class GlobalNavigationInput : IDisposable
             Interlocked.Exchange(ref overflow, 1);
             Publish(false, State.Registered, State.Hotkey, "输入回调异常，导航已退出并请求暂停恢复。");
         }
+        return CallNextHookEx(0, code, message, data);
+    }
+    private void UpdateAutomatic(Point pointer)
+    {
+        if (manual) return;
+        var enter = automatic.ShouldNavigate(IsDesktop(pointer), available, overviewOpen, gate.HasHeldButtons, Down(1) || Down(2));
+        if (enter && !gate.Active && gate.TryEnter(false))
+        {
+            Volatile.Write(ref heartbeat, Environment.TickCount64);
+            Publish(true, State.Registered, State.Hotkey, "桌面导航 · 滚轮纵移 / Shift 横移 / 双键拖动 / Ctrl+滚轮轮选 / Tab 总览");
+        }
+        else if (!enter && gate.Active) Leave("应用交互 · 移至桌面空白处自动导航");
+    }
+    private static bool Down(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
+    private static bool IsDesktop(Point point)
+    {
+        var window = WindowFromPoint(point);
+        if (window == 0) return false;
+        var root = GetAncestor(window, 2);
+        var name = new StringBuilder(128);
+        if (GetClassName(root == 0 ? window : root, name, name.Capacity) == 0) return false;
+        return name.ToString() is "Progman" or "WorkerW";
+    }
+    private nint KeyboardCallback(int code, nuint message, nint data)
+    {
+        if (code < 0) return CallNextHookEx(0, code, message, data);
+        try
+        {
+            var key = unchecked((uint)Marshal.ReadInt32(data));
+            var up = message is 0x101 or 0x105;
+            if (!up && GetCursorPos(out var cursor)) UpdateAutomatic(cursor);
+            if (key == 9)
+            {
+                if (up)
+                {
+                    tabHeld = false;
+                    if (tabCaptured) { tabCaptured = false; return 1; }
+                }
+                else if (!tabHeld)
+                {
+                    tabHeld = true;
+                    if (GetCursorPos(out var pointer) && DesktopNavigationPolicy.OpensOverview(IsDesktop(pointer), available,
+                        overviewOpen, Down(0x11), Down(0x12), Down(0x5B) || Down(0x5C)) && !gate.HasHeldButtons)
+                    {
+                        tabCaptured = true; overviewOpen = true; Leave("打开空间总览。");
+                        Queue(new(NavigationInputKind.Overview, PointD.Zero)); return 1;
+                    }
+                }
+                else if (tabCaptured) return 1;
+            }
+            if (up && capturedKeys.Remove(key)) return 1;
+            if (!up && capturedKeys.Contains(key)) return 1;
+            if (!up && !manual && gate.Active && !overviewOpen && !Down(0x11) && !Down(0x12) && !Down(0x5B) && !Down(0x5C))
+            {
+                var kind = key switch { 0x1B => NavigationInputKind.Exit, 0x24 => NavigationInputKind.Home, 0x08 => NavigationInputKind.Back, _ => (NavigationInputKind?)null };
+                if (kind is { } action)
+                {
+                    capturedKeys.Add(key);
+                    if (action == NavigationInputKind.Exit) { automatic.Suspend(); Leave("Esc 已暂停自动导航；进入应用后恢复。"); }
+                    else Queue(new(action, PointD.Zero));
+                    return 1;
+                }
+            }
+        }
+        catch (Exception) { available = false; Leave("键盘输入异常，已暂停导航。"); Queue(new(NavigationInputKind.Fault, PointD.Zero)); }
         return CallNextHookEx(0, code, message, data);
     }
     public void Dispose()
@@ -252,6 +334,10 @@ public sealed class GlobalNavigationInput : IDisposable
     [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool RegisterHotKey(nint window, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnregisterHotKey(nint window, int id);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetCursorPos(out Point point);
+    [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, StringBuilder name, int count);
     [DllImport("user32.dll", SetLastError = true)] private static extern int GetMessage(out Message message, nint window, uint min, uint max);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
     [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PostThreadMessage(uint thread, uint message, nuint wParam, nint lParam);

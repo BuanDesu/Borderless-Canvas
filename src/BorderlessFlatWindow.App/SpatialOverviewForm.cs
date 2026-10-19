@@ -4,6 +4,7 @@ using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Application.Discovery;
 using BorderlessFlatWindow.Windows;
+using BorderlessFlatWindow.Application.Bookmarks;
 
 namespace BorderlessFlatWindow.App;
 
@@ -12,7 +13,7 @@ internal sealed class SpatialOverviewForm : Form
     internal sealed record PreviewSource(Guid Id, NativeWindowIdentity Identity, bool FullyOnscreen);
     private readonly SpatialOverviewSession model;
     private readonly TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "搜索窗口标题；保持原有空间位置", Margin = new(12) };
-    private readonly Label summary = new() { Dock = DockStyle.Bottom, Height = 96, Padding = new(12) };
+    private readonly Label summary = new() { Dock = DockStyle.Bottom, Height = 34, Padding = new(12, 4, 12, 0) };
     private readonly Button confirm = new() { Text = "定位选中窗口", AutoSize = true };
     private readonly OverviewMap map;
     private readonly bool showWithoutActivation;
@@ -25,18 +26,24 @@ internal sealed class SpatialOverviewForm : Form
     private nint previewDestination;
     private bool closing, refreshingPreviews;
     internal CanvasWindow? ConfirmedTarget { get; private set; }
+    internal PointD? ConfirmedCameraPosition { get; private set; }
+    private readonly WorkspaceStrip workspaces;
+    private Bitmap? backdrop;
+    private readonly Rectangle backdropBounds;
 
-    internal SpatialOverviewForm(IEnumerable<CanvasWindow> windows, Camera2D camera, Rectangle bounds, Guid? selected = null, bool showWithoutActivation = false)
+    internal SpatialOverviewForm(IEnumerable<CanvasWindow> windows, Camera2D camera, Rectangle bounds, Guid? selected = null, bool showWithoutActivation = false,
+        BookmarkLibrary? bookmarks = null, IEnumerable<RectD>? viewports = null)
     {
         this.showWithoutActivation = showWithoutActivation;
+        backdropBounds = bounds;
         model = new(windows, camera, new(1000, 700), selected);
         Text = "BFW 空间总览"; StartPosition = FormStartPosition.Manual; FormBorderStyle = FormBorderStyle.None;
         Bounds = bounds; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
         Font = new Font("Microsoft YaHei UI", 11); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
-        map = new(model) { Dock = DockStyle.Fill };
+        map = new(model, viewports?.ToArray() ?? [camera.Bounds]) { Dock = DockStyle.Fill };
         map.GeometryChanged += RefreshPreviews;
         map.ConfirmRequested += ConfirmSelection;
-        var heading = new Label { Dock = DockStyle.Top, Height = 54, Padding = new(16), Text = "空间总览  ·  方向键选择  ·  单击 / Enter 确认  ·  Esc 取消" };
+        var heading = new Label { Dock = DockStyle.Top, Height = 48, Padding = new(16, 12, 16, 0), Text = "SPATIAL OVERVIEW // 空间总览    ·    方向键 / Tab 选择    ·    Enter 定位    ·    Esc 取消" };
         var searchContainer = new Panel { Dock = DockStyle.Top, Height = 56, Padding = new(16, 8, 16, 8) };
         searchContainer.Controls.Add(search);
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 52, Padding = new(12, 4, 12, 4) };
@@ -47,10 +54,21 @@ internal sealed class SpatialOverviewForm : Form
         showPreviews.CheckedChanged += (_, _) => RefreshSelection();
         toolbar.Controls.AddRange([confirm, fit, cancel, showPreviews]);
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
-        Controls.Add(map); Controls.Add(summary); Controls.Add(toolbar); Controls.Add(searchContainer); Controls.Add(heading);
+        workspaces = new(bookmarks, camera.Position) { Dock = DockStyle.Bottom, Height = Math.Max(150, bounds.Height / 5) };
+        workspaces.JumpRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
+        var upper = new Panel { Dock = DockStyle.Fill };
+        upper.Controls.Add(map); upper.Controls.Add(summary); upper.Controls.Add(toolbar); upper.Controls.Add(searchContainer); upper.Controls.Add(heading);
+        Controls.Add(upper); Controls.Add(workspaces);
+        Resize += (_, _) => workspaces.Height = Math.Max(150, ClientSize.Height / 5);
+        ChromeTheme.Apply(this);
         RefreshSelection();
     }
     protected override bool ShowWithoutActivation => showWithoutActivation;
+    internal void CaptureBackdrop()
+    {
+        if (showWithoutActivation) return;
+        backdrop = FrostedBackdrop.Capture(backdropBounds); map.Backdrop = backdrop;
+    }
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e); map.Refit(); RefreshPreviews(); if (!showWithoutActivation) search.Focus();
@@ -69,8 +87,7 @@ internal sealed class SpatialOverviewForm : Form
     {
         var selected = model.Windows.FirstOrDefault(window => window.Id == model.SelectedId);
         confirm.Enabled = canConfirm && selected is not null;
-        summary.Text = $"匹配 {model.Matches.Count} / {model.Windows.Count}  ·  已选：{selected?.Title ?? "无匹配窗口"}\n"
-            + (managementNotice ?? $"确认前视角保持 ({model.StartCamera.Position.X:0}, {model.StartCamera.Position.Y:0})；Tab 可轮选重叠窗口，Ctrl+F 搜索。");
+        summary.Text = managementNotice ?? $"匹配 {model.Matches.Count} / {model.Windows.Count}  ·  已选：{selected?.Title ?? "无匹配窗口"}  ·  视角 ({model.StartCamera.Position.X:0}, {model.StartCamera.Position.Y:0})";
         map.Invalidate();
         RefreshPreviews();
     }
@@ -119,7 +136,7 @@ internal sealed class SpatialOverviewForm : Form
         base.OnFormClosing(e);
     }
     protected override void Dispose(bool disposing)
-    { if (disposing) { closing = true; ReleasePreviews(); } base.Dispose(disposing); }
+    { if (disposing) { closing = true; ReleasePreviews(); map.Backdrop = null; backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
     protected override bool ProcessCmdKey(ref Message message, Keys keys)
         => HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
     internal bool HandleCommand(Keys keys)
@@ -142,8 +159,9 @@ internal sealed class SpatialOverviewForm : Form
     }
     internal void SetSmokeQuery(string text) => search.Text = text;
 
-    private sealed class OverviewMap(SpatialOverviewSession model) : Control
+    private sealed class OverviewMap(SpatialOverviewSession model, RectD[] viewports) : Control
     {
+        internal Bitmap? Backdrop;
         internal event Action? ConfirmRequested;
         internal event Action? GeometryChanged;
         [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -209,13 +227,23 @@ internal sealed class SpatialOverviewForm : Form
         };
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e); e.Graphics.Clear(Color.FromArgb(20, 25, 35)); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            base.OnPaint(e);
+            ChromeTheme.Grid(e.Graphics, ClientRectangle);
+            if (Backdrop is not null)
+            {
+                var location = TopLevelControl?.PointToClient(PointToScreen(Point.Empty)) ?? Point.Empty;
+                e.Graphics.DrawImage(Backdrop, ClientRectangle, new Rectangle(location, ClientSize), GraphicsUnit.Pixel);
+                using var grid = new Pen(Color.FromArgb(22, ChromeTheme.Cyan));
+                for (var x = 0; x < Width; x += 40) e.Graphics.DrawLine(grid, x, 0, x, Height);
+                for (var y = 0; y < Height; y += 40) e.Graphics.DrawLine(grid, 0, y, Width, y);
+            }
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             foreach (var window in model.Windows.OrderBy(window => window.Id == model.SelectedId))
             {
                 if (VisibleRect(window.Bounds) is not { } rect) continue;
                 var matched = model.IsMatch(window.Id); var selected = window.Id == model.SelectedId;
-                using var fill = new SolidBrush(matched ? Color.FromArgb(45, 71, 93) : Color.FromArgb(28, 34, 43));
-                using var border = new Pen(selected ? Color.Gold : matched ? Color.FromArgb(102, 150, 181) : Color.FromArgb(48, 58, 70), selected ? 3 : 1);
+                using var fill = new LinearGradientBrush(rect, matched ? Color.FromArgb(210, 67, 67, 92) : Color.FromArgb(210, 28, 25, 42), Color.FromArgb(225, 23, 22, 40), 100);
+                using var border = new Pen(selected ? ChromeTheme.Lime : matched ? ChromeTheme.Cyan : Color.FromArgb(70, 67, 90), selected ? 3 : 1);
                 e.Graphics.FillRectangle(fill, rect); e.Graphics.DrawRectangle(border, rect.X, rect.Y, Math.Max(1, rect.Width), Math.Max(1, rect.Height));
                 if (rect.Width > 50 && rect.Height > 24)
                 {
@@ -230,7 +258,8 @@ internal sealed class SpatialOverviewForm : Form
                     }
                 }
             }
-            if (VisibleRect(model.StartCamera.Bounds) is { } view)
+            foreach (var viewport in viewports)
+            if (VisibleRect(viewport) is { } view)
             {
                 using var pen = new Pen(Color.FromArgb(111, 231, 196), 2) { DashStyle = DashStyle.Dash };
                 e.Graphics.DrawRectangle(pen, view.X, view.Y, view.Width, view.Height);

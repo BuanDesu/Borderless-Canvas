@@ -2,7 +2,7 @@ using BorderlessFlatWindow.Core.Geometry;
 
 namespace BorderlessFlatWindow.Application.Navigation;
 
-public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, Exit, Fault }
+public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault }
 public readonly record struct NavigationInput(NavigationInputKind Kind, PointD Position, int WheelDelta = 0, bool Shift = false);
 public sealed record NavigationInputOptions
 {
@@ -15,6 +15,28 @@ public sealed record NavigationInputOptions
     public bool HorizontalWheel { get; }
     public bool TwoButtonDrag { get; }
     public int WheelDistance { get; }
+}
+
+/// <summary>Desktop-only automatic input. An application drag may cross the desktop without being captured.</summary>
+public sealed class DesktopNavigationPolicy
+{
+    private int applicationButtons;
+    private bool suspended;
+    public bool ShouldNavigate(bool desktop, bool available, bool overview, bool capturedButtons, bool physicalButtons)
+    {
+        if (!desktop) suspended = false;
+        return available && !overview && !suspended && (capturedButtons || desktop && applicationButtons == 0 && !physicalButtons);
+    }
+    public void Suspend() => suspended = true;
+    public void ObserveButton(NavigationInputKind kind, bool captured)
+    {
+        var bit = kind is NavigationInputKind.LeftDown or NavigationInputKind.LeftUp ? 1
+            : kind is NavigationInputKind.RightDown or NavigationInputKind.RightUp ? 2 : 0;
+        if (kind is NavigationInputKind.LeftUp or NavigationInputKind.RightUp) applicationButtons &= ~bit;
+        else if (!captured) applicationButtons |= bit;
+    }
+    public static bool OpensOverview(bool desktop, bool available, bool overview, bool control, bool alt, bool windows)
+        => desktop && available && !overview && !control && !alt && !windows;
 }
 
 /// <summary>Pairs swallowed downs/ups even when navigation ends with a button still held.</summary>

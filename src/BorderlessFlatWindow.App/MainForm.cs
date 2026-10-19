@@ -29,6 +29,10 @@ internal sealed class MainForm : Form
     private readonly CheckBox showExcluded = new() { Text = "显示被排除的窗口", AutoSize = true, Margin = new Padding(10, 8, 0, 0) };
     private WindowCatalogSnapshot? snapshot;
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    private readonly List<Control> verificationPages = [];
+    private NotifyIcon? tray;
+    private ContextMenuStrip? trayMenu;
+    private bool exitRequested;
     private readonly DisplayDiagnosticsControl displays;
     private readonly RecoveryDiagnosticsControl recovery;
     private readonly ManagedCanvasControl management;
@@ -43,7 +47,7 @@ internal sealed class MainForm : Form
     {
         this.catalog = catalog;
         this.showWithoutActivation = showWithoutActivation;
-        Text = "Borderless Flat Window · 空间画布基础项目";
+        Text = "Borderless Flat Window · 无限桌面";
         ClientSize = new Size(1100, 740);
         MinimumSize = new Size(800, 560);
         StartPosition = FormStartPosition.CenterScreen;
@@ -69,8 +73,6 @@ internal sealed class MainForm : Form
             management.GoToBookmark, management.EndNavigationForEditing) { Dock = DockStyle.Fill };
         management.StatusChanged += UpdateCameraStatus;
         management.StatusChanged += bookmarkControl.RefreshNavigationState;
-        management.RecoveryRequested += () => tabs.SelectedIndex = 5;
-        management.BookmarksRequested += () => tabs.SelectedIndex = 6;
         tabs.SelectedIndexChanged += (_, _) =>
         {
             if (tabs.SelectedIndex == 6) { management.EndNavigationForEditing(); bookmarkControl.RefreshNavigationState(); }
@@ -87,10 +89,10 @@ internal sealed class MainForm : Form
         var displayTab = new TabPage("显示器与坐标（只读）");
         displays = new(new BorderlessFlatWindow.Windows.DesktopDisplayCatalog(), layout =>
         {
-            workspace.SetViewportSize(layout.Primary.WorkArea.Size);
+            workspace.SetViewportSize(layout.CanvasWorkArea.Size);
             management.SetDisplay(layout);
-            liveWorkspace.SetViewportSize(layout.Primary.WorkArea.Size);
-            spatial.WorkArea = layout.Primary.WorkArea;
+            liveWorkspace.SetViewportSize(layout.CanvasWorkArea.Size);
+            spatial.WorkArea = layout.CanvasWorkArea;
             if (snapshot is not null) UpdateLiveMap();
             UpdateCameraStatus();
             preview.Invalidate();
@@ -115,6 +117,7 @@ internal sealed class MainForm : Form
         recoveryTab.Controls.Add(recovery);
         tabs.TabPages.Add(recoveryTab);
         var bookmarkTab = new TabPage("位置标签"); bookmarkTab.Controls.Add(bookmarkControl); tabs.TabPages.Add(bookmarkTab);
+        management.RecoveryRequested += () => tabs.SelectedTab = recoveryTab;
         canvasTab.Controls.Add(preview);
 
         var navigation = new FlowLayoutPanel
@@ -150,20 +153,27 @@ internal sealed class MainForm : Form
         catalogActions.Controls.AddRange([refresh, showExcluded, catalogSummary]);
         catalogTab.Controls.Add(catalogActions);
 
-        var intro = new Label
+        if (!showWithoutActivation)
         {
-            Dock = DockStyle.Top, Height = 96, Padding = new Padding(14),
-            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\n勾选窗口开始画布管理；使用按钮或地图内滚轮平移，暂停会恢复原位。"
-        };
+            tabs.TabPages.Clear();
+            var diagnostics = new TabPage("设备诊断");
+            var subpages = new TabControl { Dock = DockStyle.Fill };
+            catalogTab.Text = "窗口候选"; displayTab.Text = "显示器与坐标"; liveTab.Text = "真实空间地图";
+            subpages.TabPages.AddRange([catalogTab, displayTab, liveTab]); diagnostics.Controls.Add(subpages);
+            tabs.TabPages.AddRange([managementTab, diagnostics, recoveryTab]); recoveryTab.Text = "恢复中心";
+            verificationPages.AddRange([canvasTab, bookmarkTab]);
+        }
+        var intro = new CanvasHeader();
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
         Controls.Add(tabs);
         Controls.Add(intro);
         Controls.Add(status);
+        ChromeTheme.Apply(this);
         UpdateCameraStatus();
         displays.RefreshDisplays();
         recovery.RefreshJournal();
-        if (recovery.RequiresAttention && !showWithoutActivation) tabs.SelectedIndex = 5;
+        if (recovery.RequiresAttention && !showWithoutActivation) tabs.SelectedTab = recoveryTab;
     }
 
     private static CanvasWindow Sample(string title, double x, double y, double width, double height) =>
@@ -186,9 +196,7 @@ internal sealed class MainForm : Form
     private void UpdateCameraStatus()
     {
         var managed = management.Diagnostics();
-        cameraStatus.Text = tabs.SelectedIndex is 0 or 6
-            ? $"画布相机 ({managed.Camera.X:0}, {managed.Camera.Y:0}) · 窗口 {managed.Count} · {(managed.Running ? "管理中" : "未接管 / 已暂停")}" :
-                $"示例相机 ({workspace.Camera.Position.X:0}, {workspace.Camera.Position.Y:0}) · 示例窗口 {workspace.Windows.Count}";
+        cameraStatus.Text = $"CAMERA ({managed.Camera.X:0}, {managed.Camera.Y:0})   //   WINDOWS {managed.Count}   //   {(managed.Running ? "画布运行中" : "未接管 / 已暂停")}   //   关闭窗口收入托盘；托盘菜单退出并恢复";
     }
 
     private void RefreshCatalog()
@@ -209,7 +217,7 @@ internal sealed class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (!showWithoutActivation) management.InitializeGlobalInput();
+        if (!showWithoutActivation) { InitializeTray(); management.InitializeGlobalInput(); }
         try
         {
             listener = new();
@@ -255,6 +263,9 @@ internal sealed class MainForm : Form
             eventTimer.Dispose();
             listener?.Dispose();
             listener = null;
+            if (tray is not null) { tray.Visible = false; tray.Dispose(); tray = null; }
+            trayMenu?.Dispose(); trayMenu = null;
+            foreach (var page in verificationPages) page.Dispose();
             bookmarks?.Dispose();
         }
         base.Dispose(disposing);
@@ -268,6 +279,28 @@ internal sealed class MainForm : Form
     }
 
     internal void PrepareSampleSmoke() => tabs.SelectedIndex = 1;
+    internal void PrepareRuntimeChromeSmoke()
+    {
+        if (!showWithoutActivation) throw new InvalidOperationException("Verification entry only.");
+        var pages = tabs.TabPages.Cast<TabPage>().ToArray();
+        tabs.TabPages.Clear();
+        var diagnostics = new TabPage("设备诊断");
+        var children = new TabControl { Dock = DockStyle.Fill };
+        pages[2].Text = "窗口候选"; pages[3].Text = "显示器与坐标"; pages[4].Text = "真实空间地图";
+        children.TabPages.AddRange([pages[2], pages[3], pages[4]]); diagnostics.Controls.Add(children);
+        tabs.TabPages.AddRange([pages[0], diagnostics, pages[5]]); pages[5].Text = "恢复中心";
+        verificationPages.AddRange([pages[1], pages[6]]); ChromeTheme.Apply(diagnostics);
+        if (tabs.TabCount != 3 || children.TabCount != 3) throw new InvalidOperationException("Runtime page hierarchy is invalid.");
+    }
+    internal void CheckTraySmoke()
+    {
+        InitializeTray(); Hide();
+        if (Visible) throw new InvalidOperationException("Manager did not hide.");
+        ((ToolStripMenuItem)trayMenu!.Items[0]).PerformClick();
+        if (!Visible || WindowState != FormWindowState.Normal) throw new InvalidOperationException("Tray open action did not restore the manager.");
+        ((ToolStripMenuItem)trayMenu.Items[2]).PerformClick();
+        tray!.Visible = false; tray.Dispose(); tray = null; trayMenu.Dispose(); trayMenu = null;
+    }
 
     internal void PrepareCatalogSmoke()
     {
@@ -341,9 +374,10 @@ internal sealed class MainForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (OwnedForms.Any(form => form.Modal && !form.IsDisposed)) return base.ProcessCmdKey(ref msg, keyData);
         if (management.HasOverview) return management.ProcessOverviewKey(keyData) || base.ProcessCmdKey(ref msg, keyData);
         if (tabs.SelectedIndex == 0 && management.ProcessNavigationKey(keyData)) return true;
-        if (tabs.SelectedIndex != 1) return base.ProcessCmdKey(ref msg, keyData);
+        if (!showWithoutActivation || tabs.SelectedIndex != 1) return base.ProcessCmdKey(ref msg, keyData);
         switch (keyData)
         {
             case Keys.Home:
@@ -359,6 +393,9 @@ internal sealed class MainForm : Form
 
     internal void PresentOverview(SpatialOverviewForm overview, Action completed)
     {
+        overview.CaptureBackdrop();
+        var wasVisible = Visible;
+        if (!wasVisible) Show();
         var oldBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
         var oldState = WindowState; var oldBorder = FormBorderStyle; var oldTopMost = TopMost; var oldTitle = Text;
         var visible = Controls.Cast<Control>().Where(control => control.Visible).ToArray();
@@ -377,7 +414,8 @@ internal sealed class MainForm : Form
                     TopMost = oldTopMost; Text = oldTitle;
                     foreach (var control in visible) if (!control.IsDisposed) control.Show();
                     WindowState = oldState;
-                    if (activate && !showWithoutActivation && oldState != FormWindowState.Minimized) { Activate(); oldControl?.Select(); }
+                    if (!wasVisible) Hide();
+                    if (wasVisible && activate && !showWithoutActivation && oldState != FormWindowState.Minimized) { Activate(); oldControl?.Select(); }
                 }
             }
             finally { completed(); }
@@ -397,6 +435,27 @@ internal sealed class MainForm : Form
     {
         if (e.CloseReason == CloseReason.UserClosing && management.HasOverview)
         { e.Cancel = true; management.CancelOverview(); return; }
+        if (!showWithoutActivation && !exitRequested && e.CloseReason == CloseReason.UserClosing && tray is not null)
+        { e.Cancel = true; Hide(); return; }
         base.OnFormClosing(e);
+    }
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (!showWithoutActivation && WindowState == FormWindowState.Minimized && tray is not null && management?.HasOverview != true) Hide();
+    }
+    private void ShowManager()
+    { management.CancelOverview(); Show(); WindowState = FormWindowState.Normal; if (!showWithoutActivation) Activate(); }
+    private void InitializeTray()
+    {
+        if (tray is not null) return;
+        trayMenu = new();
+        trayMenu.Items.Add("打开窗口画布", null, (_, _) => ShowManager());
+        trayMenu.Items.Add("空间总览", null, (_, _) => management.ShowOverview());
+        trayMenu.Items.Add("暂停并恢复窗口", null, (_, _) => management.Pause());
+        trayMenu.Items.Add(new ToolStripSeparator());
+        trayMenu.Items.Add("退出并恢复窗口", null, (_, _) => { exitRequested = true; management.Pause(); Close(); });
+        tray = new() { Icon = SystemIcons.Application, Text = "BFW · 无限桌面", ContextMenuStrip = trayMenu, Visible = true };
+        tray.DoubleClick += (_, _) => ShowManager();
     }
 }

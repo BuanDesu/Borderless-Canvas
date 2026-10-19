@@ -22,7 +22,7 @@ internal static class Program
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");
             journalPath = Path.Combine(fixture, "recovery.json");
         }
-        using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath);
+        using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath);
         if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.
@@ -77,6 +77,11 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "bookmarks-reset-smoke.png"));
+            form.PrepareRuntimeChromeSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "runtime-shell-smoke.png"));
+            form.CheckTraySmoke();
             using (var hud = new NavigationHud { Opacity = 0 })
             {
                 hud.Present("Ctrl+Alt+Space", new(-12000, 8500));

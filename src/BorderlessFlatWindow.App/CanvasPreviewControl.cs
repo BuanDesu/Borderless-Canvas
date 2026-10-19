@@ -36,6 +36,7 @@ internal sealed class CanvasPreviewControl : Control
         base.OnPaint(e);
         if (Width <= 64 || Height <= 64)
             return;
+        ChromeTheme.Grid(e.Graphics, ClientRectangle);
         var windows = DrawWindows();
         if (AutoFit || projection is null) projection = OverviewProjection.Fit(windows.Select(window => window.Bounds)
             .Append(workspace.Camera.Bounds).Append(new RectD(PointD.Zero, new SizeD(1, 1))),

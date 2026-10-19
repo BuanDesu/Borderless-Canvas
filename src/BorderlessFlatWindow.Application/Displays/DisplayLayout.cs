@@ -38,8 +38,11 @@ public sealed class DisplayLayout
     public IReadOnlyList<DisplayMonitor> Monitors { get; }
     public DisplayMonitor Primary { get; }
     public DateTimeOffset CapturedAt { get; }
+    public PixelRect CanvasWorkArea => new(Monitors.Min(m => m.WorkArea.Left), Monitors.Min(m => m.WorkArea.Top),
+        Monitors.Max(m => m.WorkArea.Right), Monitors.Max(m => m.WorkArea.Bottom));
+    public bool SupportsCanvas => Primary.EffectiveDpi is not null && Monitors.All(m => m.EffectiveDpi == Primary.EffectiveDpi);
     public bool IsSingleScreen100Percent => Monitors.Count == 1 && Primary.EffectiveDpi == 96;
-    public string BaselineDescription => IsSingleScreen100Percent
-        ? "符合单屏 100% DPI 基线（仅只读诊断）"
-        : "超出单屏 100% DPI 基线；多屏 / DPI 兼容待验收";
+    public string BaselineDescription => SupportsCanvas
+        ? $"连续画布可用 · {Monitors.Count} 块屏幕 · 同一缩放比例 {Primary.EffectiveDpi * 100 / 96}%"
+        : "暂不支持混合 DPI 或未知 DPI；请将各屏设置为相同缩放比例后重试。";
 }

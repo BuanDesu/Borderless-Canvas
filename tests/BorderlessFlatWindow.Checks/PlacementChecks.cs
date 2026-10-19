@@ -5,6 +5,7 @@ internal static class PlacementChecks
 {
     internal static IEnumerable<(string Name, Action Run)> Cases()
     {
+        yield return ("Continuous multiscreen uses actual visible areas and parks windows wholly in a monitor gap", Continuous);
         yield return ("Visible plans preserve physical scale and work-area offset", Visible);
         yield return ("Remote world positions park in bounded coordinates without changing size or world layout", Remote);
         yield return ("Finite world inputs with overflowing relative distance still park safely", OverflowDistance);
@@ -13,6 +14,15 @@ internal static class PlacementChecks
         yield return ("A topology with no bounded parking space fails without hiding or resizing", NoSpace);
         yield return ("Oversized and invalid windows cannot produce a native movement plan", Invalid);
         yield return ("Touching the viewport edge is offscreen and partial intersections keep native size", Edges);
+    }
+    private static void Continuous()
+    {
+        PixelRect[] areas = [new(-1920, -1080, 0, -40), new(0, 0, 1920, 1040)];
+        var planner = new WindowPlacementPlanner(new(-1920, -1080, 1920, 1040), [new(-1920, -1080, 0, 0), new(0, 0, 1920, 1080)], areas);
+        Require(planner.TryPlan(Rect(2000, 1200), PointD.Zero, out var secondary) && secondary is { IsParked: false }, "Visible area was parked.");
+        Require(planner.TryPlan(Rect(2000, 100, 200, 100), PointD.Zero, out var gap) && gap is { IsParked: true }, "Empty monitor gap became a screen.");
+        Require(planner.TryPlan(Rect(1700, 1000), PointD.Zero, out var crossing) && crossing is { IsParked: false }
+            && crossing.PhysicalBounds.Size == new SizeD(640, 480), "Continuous edge was refused or resized.");
     }
     private static RectD Rect(double x, double y, double width = 640, double height = 480) => new(new PointD(x, y), new SizeD(width, height));
     private static WindowPlacementPlanner Planner() => new(new(0, 40, 1920, 1080), [new(0, 0, 1920, 1080)]);
