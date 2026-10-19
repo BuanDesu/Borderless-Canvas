@@ -9,15 +9,30 @@ internal static class FrostedBackdrop
 {
     internal static Bitmap? Capture(Rectangle bounds)
     {
+        using var source = CaptureRaw(bounds);
+        return source is null ? null : BlurredCopy(source);
+    }
+    internal static Bitmap? CaptureRaw(Rectangle bounds)
+    {
+        Bitmap? bitmap = null;
         try
         {
-            using var source = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(source)) g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+            bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(bitmap); graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+            return bitmap;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or ArgumentException or OutOfMemoryException or ExternalException) { bitmap?.Dispose(); return null; }
+    }
+    internal static Bitmap? BlurredCopy(Bitmap source)
+    {
+        Bitmap? result = null;
+        try
+        {
             // Downsample before a separable box blur; cost depends on overview size, not desktop pixel count.
-            using var small = new Bitmap(Math.Max(1, bounds.Width / 8), Math.Max(1, bounds.Height / 8), PixelFormat.Format32bppArgb);
+            using var small = new Bitmap(Math.Max(1, source.Width / 8), Math.Max(1, source.Height / 8), PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(small)) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(source, new Rectangle(Point.Empty, small.Size)); }
             Blur(small, 2);
-            var result = new Bitmap(bounds.Width, bounds.Height);
+            result = new Bitmap(source.Width, source.Height);
             using (var g = Graphics.FromImage(result))
             {
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(small, new Rectangle(Point.Empty, result.Size));
@@ -25,7 +40,7 @@ internal static class FrostedBackdrop
             }
             return result;
         }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or ArgumentException or System.Runtime.InteropServices.ExternalException) { return null; }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or ArgumentException or OutOfMemoryException or ExternalException) { result?.Dispose(); return null; }
     }
     private static void Blur(Bitmap bitmap, int radius)
     {
