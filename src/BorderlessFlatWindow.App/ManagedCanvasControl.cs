@@ -201,6 +201,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         if (!overviewRequested || openingOverview || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
         overviewRequested = false; openingOverview = true;
+        hints.Active = false; moreMenu.Close();
         var managed = session; managed.SuspendNavigation(true);
         ForegroundWindowBookmark? focus = null;
         var handedOff = false;
@@ -226,6 +227,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             openingOverview = false;
             if (!handedOff)
             {
+                hints.Active = true;
                 overview?.Dispose(); overview = null; focus?.Dispose(); managed.SuspendNavigation(false);
                 if (!IsDisposed && !Disposing) { globalInput?.SetOverviewOpen(false); RefreshState(); }
             }
@@ -233,6 +235,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void FinishOverview(SpatialOverviewForm dialog, ManagedCanvasSession managed, ForegroundWindowBookmark? focus)
     {
+        if (!IsDisposed && !Disposing) hints.Active = true;
         if (ReferenceEquals(overview, dialog)) overview = null;
         managed.SuspendNavigation(false);
         try

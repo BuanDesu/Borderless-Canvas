@@ -13,7 +13,7 @@ internal sealed class SpatialOverviewForm : Form
     internal sealed record PreviewSource(Guid Id, NativeWindowIdentity Identity, bool FullyOnscreen);
     private readonly SpatialOverviewSession model;
     private readonly TextBox search = new() { Dock = DockStyle.Fill, PlaceholderText = "搜索窗口", AccessibleName = "搜索窗口" };
-    private readonly Label summary = new() { Dock = DockStyle.Bottom, Height = 30, Padding = new(24, 3, 24, 0) };
+    private readonly Label summary = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleRight, Padding = new(6, 0, 12, 0) };
     private readonly Button confirm = new() { Text = "定位选中窗口", AutoSize = true };
     private readonly OverviewMap map;
     private readonly bool showWithoutActivation;
@@ -42,14 +42,14 @@ internal sealed class SpatialOverviewForm : Form
         Text = "BFW 空间总览"; StartPosition = FormStartPosition.Manual; FormBorderStyle = FormBorderStyle.None;
         Bounds = bounds; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
         Font = new Font("Microsoft YaHei UI", 11); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
-        map = new(model, viewports?.ToArray() ?? [camera.Bounds]) { Dock = DockStyle.Fill };
+        map = new(model, viewports?.ToArray() ?? [camera.Bounds]) { Dock = DockStyle.Fill, PaintBackdrop = PaintScene };
         map.GeometryChanged += RefreshPreviews;
         map.ConfirmRequested += ConfirmSelection;
-        var searchContainer = new TableLayoutPanel { Dock = DockStyle.Top, Height = 76, Padding = new(24, 14, 24, 10), ColumnCount = 5, RowCount = 1 };
+        var searchContainer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
         searchContainer.RowStyles.Add(new(SizeType.Percent, 100));
-        searchContainer.ColumnStyles.Add(new(SizeType.Percent, 50)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 420));
-        searchContainer.ColumnStyles.Add(new(SizeType.Percent, 50)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 54)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 54));
-        var searchSurface = new GlassSearchSurface { Dock = DockStyle.Fill, Padding = new(16, 12, 16, 8) }; searchSurface.Controls.Add(search);
+        searchContainer.ColumnStyles.Add(new(SizeType.Percent, 100)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, Math.Clamp(bounds.Width / 3, 240, 420)));
+        searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 48)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 48));
+        var searchSurface = new GlassSearchSurface { Dock = DockStyle.Fill, Padding = new(14, 10, 14, 6) }; searchSurface.Controls.Add(search);
         var more = new Button { Text = "•••", AccessibleName = "总览选项", Dock = DockStyle.Fill };
         var cancel = new Button { Text = "×", AccessibleName = "关闭总览", Dock = DockStyle.Fill };
         confirm.Click += (_, _) => ConfirmSelection(); cancel.Click += (_, _) => CancelOverview();
@@ -64,25 +64,42 @@ internal sealed class SpatialOverviewForm : Form
         more.Click += (_, _) => options.Show(more, new Point(0, more.Height));
         ChromeTheme.StyleMenu(options);
         showPreviews.CheckedChanged += (_, _) => RefreshSelection();
-        searchContainer.Controls.Add(searchSurface, 1, 0);
-        searchContainer.Controls.Add(more, 3, 0); searchContainer.Controls.Add(cancel, 4, 0);
+        searchContainer.Controls.Add(summary, 0, 0); searchContainer.Controls.Add(searchSurface, 1, 0);
+        searchContainer.Controls.Add(more, 2, 0); searchContainer.Controls.Add(cancel, 3, 0);
         hints.SetToolTip(cancel, "关闭 · Esc"); hints.SetToolTip(more, "适配、预览与操作提示");
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
-        workspaces = new(bookmarks, camera.Position) { Dock = DockStyle.Bottom, Height = Math.Max(150, bounds.Height / 5) };
+        workspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, 210, 320) };
         workspaces.JumpRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
-        var upper = new Panel { Dock = DockStyle.Fill };
-        upper.Controls.Add(map); upper.Controls.Add(summary); upper.Controls.Add(searchContainer);
-        Controls.Add(upper); Controls.Add(workspaces);
-        Resize += (_, _) => workspaces.Height = Math.Max(150, ClientSize.Height / 5);
+        Controls.Add(map); Controls.Add(workspaces);
+        Resize += (_, _) =>
+        {
+            workspaces.Height = Math.Clamp(ClientSize.Height / 5, 210, 320);
+            searchContainer.ColumnStyles[1].Width = Math.Clamp(ClientSize.Width / 3, 210, 420);
+        };
         ChromeTheme.Apply(this);
+        MakeTransparent(workspaces);
         search.BorderStyle = BorderStyle.None;
         RefreshSelection();
     }
     protected override bool ShowWithoutActivation => showWithoutActivation;
+    private static void MakeTransparent(Control root)
+    {
+        if (root is Panel or UserControl or Button or Label) root.BackColor = Color.Transparent;
+        foreach (Control child in root.Controls) MakeTransparent(child);
+    }
+    protected override void OnPaintBackground(PaintEventArgs e) => PaintScene(e.Graphics, this);
+    private void PaintScene(Graphics graphics, Control target)
+    {
+        var location = ReferenceEquals(target, this) ? Point.Empty : PointToClient(target.PointToScreen(Point.Empty));
+        var saved = graphics.Save(); graphics.TranslateTransform(-location.X, -location.Y);
+        ChromeTheme.Grid(graphics, ClientRectangle);
+        if (backdrop is not null) graphics.DrawImage(backdrop, ClientRectangle);
+        graphics.Restore(saved);
+    }
     internal void CaptureBackdrop()
     {
         if (showWithoutActivation) return;
-        backdrop = FrostedBackdrop.Capture(backdropBounds); map.Backdrop = backdrop;
+        backdrop?.Dispose(); backdrop = FrostedBackdrop.Capture(backdropBounds); Invalidate(true);
     }
     protected override void OnShown(EventArgs e)
     {
@@ -94,7 +111,7 @@ internal sealed class SpatialOverviewForm : Form
     {
         if (IsDisposed || model.Status != OverviewStatus.Open) return;
         var next = windows.ToArray();
-        if (!model.Windows.SequenceEqual(next)) model.Synchronize(next);
+        if (!model.Windows.SequenceEqual(next)) { model.Synchronize(next); workspaces.Invalidate(true); }
         canConfirm = running; managementNotice = running ? null : "管理已暂停，暂不可跳转。" + message;
         RefreshSelection();
     }
@@ -151,7 +168,7 @@ internal sealed class SpatialOverviewForm : Form
         base.OnFormClosing(e);
     }
     protected override void Dispose(bool disposing)
-    { if (disposing) { closing = true; ReleasePreviews(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); map.Backdrop = null; backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
+    { if (disposing) { closing = true; ReleasePreviews(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
     protected override bool ProcessCmdKey(ref Message message, Keys keys)
         => HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
     internal bool HandleCommand(Keys keys)
@@ -183,7 +200,7 @@ internal sealed class SpatialOverviewForm : Form
 
     private sealed class OverviewMap(SpatialOverviewSession model, RectD[] viewports) : Control
     {
-        internal Bitmap? Backdrop;
+        internal Action<Graphics, Control>? PaintBackdrop;
         internal bool ShowViewport;
         internal event Action? ConfirmRequested;
         internal event Action? GeometryChanged;
@@ -250,19 +267,15 @@ internal sealed class SpatialOverviewForm : Form
         };
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e); ChromeTheme.Grid(e.Graphics, ClientRectangle);
-            if (Backdrop is not null)
-            {
-                var location = TopLevelControl?.PointToClient(PointToScreen(Point.Empty)) ?? Point.Empty;
-                e.Graphics.DrawImage(Backdrop, ClientRectangle, new Rectangle(location, ClientSize), GraphicsUnit.Pixel);
-            }
+            base.OnPaint(e);
+            if (PaintBackdrop is not null) PaintBackdrop(e.Graphics, this); else ChromeTheme.Grid(e.Graphics, ClientRectangle);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             if (ShowViewport) foreach (var viewport in viewports)
-            if (VisibleRect(viewport) is { } view)
-            {
-                using var outline = new Pen(Color.FromArgb(45, ChromeTheme.Text), 1) { DashStyle = DashStyle.Dash };
-                e.Graphics.DrawRectangle(outline, view.X, view.Y, view.Width, view.Height);
-            }
+                if (VisibleRect(viewport) is { } view)
+                {
+                    using var outline = new Pen(Color.FromArgb(45, ChromeTheme.Text), 1) { DashStyle = DashStyle.Dash };
+                    e.Graphics.DrawRectangle(outline, view.X, view.Y, view.Width, view.Height);
+                }
             foreach (var window in model.Windows.OrderBy(window => window.Id == model.SelectedId))
             {
                 if (VisibleRect(window.Bounds) is not { } rect || rect.Width < 2 || rect.Height < 2) continue;

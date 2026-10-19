@@ -16,12 +16,12 @@ internal static class FrostedBackdrop
             // Downsample before a separable box blur; cost depends on overview size, not desktop pixel count.
             using var small = new Bitmap(Math.Max(1, bounds.Width / 8), Math.Max(1, bounds.Height / 8), PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(small)) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(source, new Rectangle(Point.Empty, small.Size)); }
-            Blur(small, 3);
+            Blur(small, 2);
             var result = new Bitmap(bounds.Width, bounds.Height);
             using (var g = Graphics.FromImage(result))
             {
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(small, new Rectangle(Point.Empty, result.Size));
-                using var tint = new SolidBrush(Color.FromArgb(100, ChromeTheme.Ink)); g.FillRectangle(tint, 0, 0, result.Width, result.Height);
+                using var tint = new SolidBrush(Color.FromArgb(28, ChromeTheme.Ink)); g.FillRectangle(tint, 0, 0, result.Width, result.Height);
             }
             return result;
         }

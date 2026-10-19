@@ -49,6 +49,15 @@
 
 视觉改进 [Issue #29](https://github.com/BuanDesu/Borderless-Flat-Window/issues/29)：糖果色玻璃材质、悬浮按钮、精简主命令栏、二级菜单和任务视图式总览，见[设计记录](docs/candy-glass-design.md)。
 
+本轮继续改进 [Issue #31](https://github.com/BuanDesu/Borderless-Flat-Window/issues/31)：
+
+- [x] 原创八尺寸 ICO，用于 EXE、标题栏及托盘，验证图标资源。
+- [x] 播放器渐变外壳、像素胶囊/爱心/糖果、圆角内容屏幕。
+- [x] 总览统一通透模糊背景，搜索并入底部，CRT 工作区展示对应视角内的窗口位置。
+- [x] 单独右击与双键手势仲裁，菜单期间暂停自动导航；补充四组模型回归。
+- [x] 202 模型、15 文件、48 原生检查与常规/紧凑布局复核。
+- [ ] 最终包人工复验：桌面单独右击、双键松开不弹菜单、托盘中的原创图标。
+
 - [ ] **T11：窗口特殊状态与多屏兼容。** 验证最小化、最大化、全屏、置顶、owner/模态框、输入法及权限不足；扩展混合 DPI、拔插/主屏变化、休眠和 Explorer 重启；记录常用应用兼容矩阵。对应 FR-12、AT-05/09/10/11/12。依赖 T06、T07、T09。 [Issue #11](https://github.com/BuanDesu/Borderless-Flat-Window/issues/11)
 - [ ] **T12：性能基线与可撤销整理。** 测量 10/30/更多窗口、预览开关和离屏数量增长下的输入延迟、CPU/GPU/内存；合并高频更新；提供只影响选区的平铺与撤销，不自动压缩全画布。对应 FR-11、NFR-03。依赖 T07、T09。 [Issue #12](https://github.com/BuanDesu/Borderless-Flat-Window/issues/12)
 - [ ] **T13：发布准备。** 托盘、暂停/恢复可见状态、配置入口；选择许可证，验证第三方许可；确定自包含部署/安装与卸载方式；检查启动失败与恢复指引；以完整桌面验收矩阵决定是否发布。依赖 T10、T11、T12。 [Issue #13](https://github.com/BuanDesu/Borderless-Flat-Window/issues/13)

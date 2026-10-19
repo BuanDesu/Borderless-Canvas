@@ -4,8 +4,10 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>Assets/Borderless.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Assets/Borderless.ico" />
     <ProjectReference Include="../BorderlessFlatWindow.Application/BorderlessFlatWindow.Application.csproj" />
     <ProjectReference Include="../BorderlessFlatWindow.Windows/BorderlessFlatWindow.Windows.csproj" />
   </ItemGroup>
