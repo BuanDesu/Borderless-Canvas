@@ -7,8 +7,8 @@ internal sealed partial class ManagedCanvasControl
 {
     private readonly RuntimeAdmissionTracker admissionTracker = new();
     private readonly System.Windows.Forms.Timer admissionTimer = new() { Interval = 220 };
-    private readonly Button addWindows = new() { Text = "将勾选新窗口加入画布", AutoSize = true, Enabled = false };
-    private readonly CheckBox automaticAdmission = new() { Text = "自动接入之后新开的窗口", AutoSize = true, Checked = true };
+    private readonly Button addWindows = new() { Text = "加入勾选窗口", AutoSize = true, Enabled = false };
+    private readonly CheckBox automaticAdmission = new() { Text = "自动接入新窗口", AutoSize = true, Checked = true };
     private readonly HashSet<nint> admissionDestroyedHints = [];
     private bool admissionIdentityGap, renderingCandidates;
     private void InitializeAdmissionControls(FlowLayoutPanel toolbar)
@@ -65,8 +65,8 @@ internal sealed partial class ManagedCanvasControl
         {
             var reason = ManagedCanvasSession.Unsupported(entry, layout); var id = entry.Id!.Value;
             var owned = running && managedIds.Contains(id);
-            var prefix = owned ? "[已接入] " : reason is not null ? "[暂不支持] " : running ? "[可接入] " : "";
-            return new Candidate(id, prefix + entry.Observation.Title + $" · {id:N}"[..11] + (reason is null ? "" : " · " + reason), reason is null, owned);
+            var prefix = owned ? "● " : reason is not null ? "暂不可用 · " : "";
+            return new Candidate(id, prefix + entry.Observation.Title + (reason is null ? "" : " · " + reason), reason is null, owned);
         }).ToArray();
         if (candidates.Items.OfType<Candidate>().SequenceEqual(next)) return;
         renderingCandidates = true; candidates.BeginUpdate();
@@ -84,6 +84,7 @@ internal sealed partial class ManagedCanvasControl
     private void UpdateAdmissionState()
     {
         var canAdd = session?.IsRunning == true && !reading && !session.IsBusy && !session.HasPending && overview is null && !openingOverview;
+        addWindows.Visible = session?.IsRunning == true;
         addWindows.Enabled = canAdd && candidates.CheckedItems.OfType<Candidate>().Any(item => !item.Managed && item.Supported);
         if (!automaticAdmission.Checked || session?.IsRunning != true || layout is null || lastSnapshot is null)
         { admissionTimer.Stop(); return; }

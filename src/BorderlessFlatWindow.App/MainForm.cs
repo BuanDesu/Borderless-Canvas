@@ -28,7 +28,7 @@ internal sealed class MainForm : Form
     private readonly Label catalogSummary = new() { AutoSize = true, Margin = new Padding(12, 9, 0, 0) };
     private readonly CheckBox showExcluded = new() { Text = "显示被排除的窗口", AutoSize = true, Margin = new Padding(10, 8, 0, 0) };
     private WindowCatalogSnapshot? snapshot;
-    private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    private readonly TabControl tabs = new ChromeTabs() { Dock = DockStyle.Fill };
     private readonly List<Control> verificationPages = [];
     private NotifyIcon? tray;
     private ContextMenuStrip? trayMenu;
@@ -157,7 +157,7 @@ internal sealed class MainForm : Form
         {
             tabs.TabPages.Clear();
             var diagnostics = new TabPage("设备诊断");
-            var subpages = new TabControl { Dock = DockStyle.Fill };
+            var subpages = new ChromeTabs { Dock = DockStyle.Fill };
             catalogTab.Text = "窗口候选"; displayTab.Text = "显示器与坐标"; liveTab.Text = "真实空间地图";
             subpages.TabPages.AddRange([catalogTab, displayTab, liveTab]); diagnostics.Controls.Add(subpages);
             tabs.TabPages.AddRange([managementTab, diagnostics, recoveryTab]); recoveryTab.Text = "恢复中心";
@@ -196,7 +196,7 @@ internal sealed class MainForm : Form
     private void UpdateCameraStatus()
     {
         var managed = management.Diagnostics();
-        cameraStatus.Text = $"CAMERA ({managed.Camera.X:0}, {managed.Camera.Y:0})   //   WINDOWS {managed.Count}   //   {(managed.Running ? "画布运行中" : "未接管 / 已暂停")}   //   关闭窗口收入托盘；托盘菜单退出并恢复";
+        cameraStatus.Text = managed.Running ? $"● 画布运行中 · {managed.Count} 个窗口" : "○ 已就绪";
     }
 
     private void RefreshCatalog()
@@ -285,7 +285,7 @@ internal sealed class MainForm : Form
         var pages = tabs.TabPages.Cast<TabPage>().ToArray();
         tabs.TabPages.Clear();
         var diagnostics = new TabPage("设备诊断");
-        var children = new TabControl { Dock = DockStyle.Fill };
+        var children = new ChromeTabs { Dock = DockStyle.Fill };
         pages[2].Text = "窗口候选"; pages[3].Text = "显示器与坐标"; pages[4].Text = "真实空间地图";
         children.TabPages.AddRange([pages[2], pages[3], pages[4]]); diagnostics.Controls.Add(children);
         tabs.TabPages.AddRange([pages[0], diagnostics, pages[5]]); pages[5].Text = "恢复中心";
@@ -455,6 +455,7 @@ internal sealed class MainForm : Form
         trayMenu.Items.Add("暂停并恢复窗口", null, (_, _) => management.Pause());
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("退出并恢复窗口", null, (_, _) => { exitRequested = true; management.Pause(); Close(); });
+        ChromeTheme.StyleMenu(trayMenu);
         tray = new() { Icon = SystemIcons.Application, Text = "BFW · 无限桌面", ContextMenuStrip = trayMenu, Visible = true };
         tray.DoubleClick += (_, _) => ShowManager();
     }

@@ -45,7 +45,9 @@
 - [x] Y2K 主题，三页入口与三个诊断子页；工作区并入毛玻璃总览。
 - [x] 同 DPI 多屏工作区并集、主屏聚焦、离屏停放和恢复模型。
 - [x] 新窗默认自动接入，托盘隐藏/返回/暂停/退出。
-- [ ] 最终包上的物理组合、工作区编辑、托盘入口及真实双屏人工验收。
+- [x] 最终包上的物理组合、工作区编辑、托盘入口及真实双屏人工验收（用户确认全部正常）。
+
+视觉改进 [Issue #29](https://github.com/BuanDesu/Borderless-Flat-Window/issues/29)：糖果色玻璃材质、悬浮按钮、精简主命令栏、二级菜单和任务视图式总览，见[设计记录](docs/candy-glass-design.md)。
 
 - [ ] **T11：窗口特殊状态与多屏兼容。** 验证最小化、最大化、全屏、置顶、owner/模态框、输入法及权限不足；扩展混合 DPI、拔插/主屏变化、休眠和 Explorer 重启；记录常用应用兼容矩阵。对应 FR-12、AT-05/09/10/11/12。依赖 T06、T07、T09。 [Issue #11](https://github.com/BuanDesu/Borderless-Flat-Window/issues/11)
 - [ ] **T12：性能基线与可撤销整理。** 测量 10/30/更多窗口、预览开关和离屏数量增长下的输入延迟、CPU/GPU/内存；合并高频更新；提供只影响选区的平铺与撤销，不自动压缩全画布。对应 FR-11、NFR-03。依赖 T07、T09。 [Issue #12](https://github.com/BuanDesu/Borderless-Flat-Window/issues/12)

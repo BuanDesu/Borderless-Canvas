@@ -17,8 +17,6 @@ internal sealed class CanvasPreviewControl : Control
     internal void FitToContent() { projection = null; Invalidate(); }
 
     protected override void OnResize(EventArgs e) { base.OnResize(e); projection = null; }
-    private static readonly Color[] Palette =
-        [Color.FromArgb(47, 90, 115), Color.FromArgb(67, 78, 122), Color.FromArgb(94, 76, 112), Color.FromArgb(49, 101, 90)];
 
     internal CanvasPreviewControl(CanvasWorkspace workspace)
     {
@@ -42,32 +40,33 @@ internal sealed class CanvasPreviewControl : Control
             .Append(workspace.Camera.Bounds).Append(new RectD(PointD.Zero, new SizeD(1, 1))),
             new SizeD(Width, Height), padding: 48);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var border = new Pen(Color.FromArgb(120, 170, 195));
         for (var index = 0; index < windows.Count; index++)
         {
             var window = windows[index];
             var rect = DrawingRect(projection.ToMap(window.Bounds));
-            using var fill = new SolidBrush(Palette[index % Palette.Length]);
-            e.Graphics.FillRectangle(fill, rect);
-            e.Graphics.DrawRectangle(border, rect.X, rect.Y, rect.Width, rect.Height);
-            if (window.Id == ActiveWindowId)
-            {
-                using var active = new Pen(Color.Gold, 3);
-                e.Graphics.DrawRectangle(active, rect.X, rect.Y, rect.Width, rect.Height);
-            }
+            if (rect.Width < 2 || rect.Height < 2) continue;
+            ChromeTheme.Glass(e.Graphics, rect, ChromeTheme.Candy[index % ChromeTheme.Candy.Length], window.Id == ActiveWindowId);
             TextRenderer.DrawText(e.Graphics, window.Title, Font,
-                Rectangle.Round(rect), Color.White, TextFormatFlags.HorizontalCenter
+                Rectangle.Round(rect), ChromeTheme.Text, TextFormatFlags.HorizontalCenter
                 | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
-        var viewport = DrawingRect(projection.ToMap(workspace.Camera.Bounds));
-        using var viewportPen = new Pen(Color.FromArgb(111, 231, 196), 3) { DashStyle = DashStyle.Dash };
-        e.Graphics.DrawRectangle(viewportPen, viewport.X, viewport.Y, viewport.Width, viewport.Height);
-        var origin = projection.ToMap(PointD.Zero);
-        using var originPen = new Pen(Color.Gold, 2);
-        e.Graphics.DrawLine(originPen, (float)origin.X - 7, (float)origin.Y, (float)origin.X + 7, (float)origin.Y);
-        e.Graphics.DrawLine(originPen, (float)origin.X, (float)origin.Y - 7, (float)origin.X, (float)origin.Y + 7);
-        TextRenderer.DrawText(e.Graphics, "虚线：当前视口    十字：画布原点", Font,
-            new Point(12, 10), Color.FromArgb(190, 210, 220));
+        if (windows.Count > 0)
+        {
+            var viewport = DrawingRect(projection.ToMap(workspace.Camera.Bounds));
+            using var viewportPen = new Pen(Color.FromArgb(75, ChromeTheme.Purple), 1) { DashStyle = DashStyle.Dash };
+            e.Graphics.DrawRectangle(viewportPen, viewport.X, viewport.Y, viewport.Width, viewport.Height);
+            var origin = projection.ToMap(PointD.Zero);
+            using var originPen = new Pen(Color.FromArgb(95, ChromeTheme.Purple), 1);
+            e.Graphics.DrawLine(originPen, (float)origin.X - 7, (float)origin.Y, (float)origin.X + 7, (float)origin.Y);
+            e.Graphics.DrawLine(originPen, (float)origin.X, (float)origin.Y - 7, (float)origin.X, (float)origin.Y + 7);
+        }
+        if (windows.Count == 0)
+        {
+            var center = new Point(Width / 2, Height / 2);
+            ChromeTheme.Mark(e.Graphics, new(center.X - 30, center.Y - 76, 60, 60));
+            TextRenderer.DrawText(e.Graphics, "为窗口留一点自由", Font, new Rectangle(0, center.Y + 4, Width, 36), ChromeTheme.Text,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
     }
 
     protected override void OnMouseDown(MouseEventArgs e)

@@ -81,6 +81,12 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "runtime-shell-smoke.png"));
+            var regularSize = form.ClientSize;
+            form.ClientSize = new(800, 560);
+            System.Windows.Forms.Application.DoEvents();
+            using (var compact = new Bitmap(form.Width, form.Height))
+            { form.DrawToBitmap(compact, new Rectangle(Point.Empty, form.Size)); compact.Save(Path.Combine(output, "runtime-compact-smoke.png")); }
+            form.ClientSize = regularSize;
             form.CheckTraySmoke();
             using (var hud = new NavigationHud { Opacity = 0 })
             {
@@ -100,12 +106,15 @@ internal static class Program
                 settingsBitmap.Save(Path.Combine(output, "navigation-settings-smoke.png"));
                 settings.Hide();
             }
+            using var previewLabels = new BorderlessFlatWindow.Application.Bookmarks.BookmarkLibrary(
+                () => new BorderlessFlatWindow.Windows.Bookmarks.JsonBookmarkStore(Path.Combine(Path.GetDirectoryName(bookmarkPath!)!, "visual-bookmarks.json")));
+            previewLabels.Reload(); previewLabels.Add("工作", new(0, 0)); previewLabels.Add("资料", new(1200, -800)); previewLabels.Add("灵感", new(-1600, 400));
             using (var overview = new SpatialOverviewForm([
                 new(Guid.NewGuid(), "编辑器", new(new(-900, 0), new(640, 480))),
                 new(Guid.NewGuid(), "浏览器", new(new(0, 0), new(800, 600))),
                 new(Guid.NewGuid(), "资料", new(new(0, -700), new(640, 480))),
                 new(Guid.NewGuid(), "聊天", new(new(1000, 100), new(480, 700)))],
-                new(new(-200, 100), new(1920, 1080)), new(0, 0, 1200, 800), showWithoutActivation: true) { Opacity = 0 })
+                new(new(-200, 100), new(1920, 1080)), new(0, 0, 1200, 800), showWithoutActivation: true, bookmarks: previewLabels) { Opacity = 0 })
             {
                 overview.Show();
                 System.Windows.Forms.Application.DoEvents();
@@ -116,6 +125,10 @@ internal static class Program
                 System.Windows.Forms.Application.DoEvents();
                 overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size));
                 overviewBitmap.Save(Path.Combine(output, "overview-search-smoke.png"));
+                overview.SetSmokeQuery(""); overview.Size = new(800, 560);
+                System.Windows.Forms.Application.DoEvents();
+                using (var compact = new Bitmap(overview.Width, overview.Height))
+                { overview.DrawToBitmap(compact, new Rectangle(Point.Empty, overview.Size)); compact.Save(Path.Combine(output, "overview-compact-smoke.png")); }
                 overview.Hide();
             }
             var inspection = new DesktopWindowCatalog().Inspect();
