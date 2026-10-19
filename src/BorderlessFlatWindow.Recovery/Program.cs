@@ -38,7 +38,7 @@ internal static class Program
             { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }));
             return report.IsComplete ? 0 : 2;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException
             or ArgumentException or System.ComponentModel.Win32Exception)
         { Console.Error.WriteLine($"Recovery stopped: {exception.Message}"); return 1; }
     }

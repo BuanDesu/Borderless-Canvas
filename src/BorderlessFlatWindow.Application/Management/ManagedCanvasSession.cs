@@ -21,7 +21,7 @@ public sealed class ManagedCanvasSession : IDisposable
     private Guid? activation;
     private nint lastForeground;
     private bool busy;
-    private bool disposed;
+    private bool disposed, disposeRequested;
     private sealed class Managed(Guid id, NativeWindowIdentity identity, Guid recoveryId, PixelRect observed)
     {
         internal readonly Guid Id = id;
@@ -49,6 +49,7 @@ public sealed class ManagedCanvasSession : IDisposable
     public Guid? ActiveWindowId { get; private set; }
     public IReadOnlyList<nint> PendingHandles => managed.Values.Where(window => window.Deadline is not null).Select(window => window.Identity.Handle).ToArray();
     public IReadOnlyList<nint> ManagedHandles => managed.Values.Select(window => window.Identity.Handle).ToArray();
+    public IReadOnlyList<Guid> ManagedIds => managed.Keys.ToArray();
     public int ParkedCount => managed.Values.Count(window => window.Parked);
     public bool NavigationSuspended { get; private set; }
     public void SuspendNavigation(bool suspended) { NavigationSuspended = suspended; if (suspended) activation = null; }
@@ -96,6 +97,7 @@ public sealed class ManagedCanvasSession : IDisposable
             {
                 var identity = entry.Observation.Identity!.Value;
                 var original = recovery.Register(identity);
+                ThrowIfClosing();
                 if (original.Original.Placement.ShowCommand != 1) throw new InvalidOperationException("窗口已改变显示状态，请恢复普通窗口后重试。");
                 var id = entry.Id!.Value;
                 var physical = original.Original.PhysicalBounds;
@@ -113,7 +115,7 @@ public sealed class ManagedCanvasSession : IDisposable
             else { recovery?.Dispose(); recovery = null; Status = CanvasSessionStatus.RecoveryRequired; Message = $"无法开始接管：{exception.Message}"; }
             return false;
         }
-        finally { busy = false; }
+        finally { ExitBusy(); }
     }
 
     public bool Navigate(PointD camera, DateTimeOffset now, bool recordHistory = true)
@@ -123,7 +125,64 @@ public sealed class ManagedCanvasSession : IDisposable
         activation = null;
         try { return ApplyCamera(camera, now, recordHistory); }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"平移失败：{exception.Message}"); return false; }
-        finally { busy = false; }
+        finally { ExitBusy(); }
+    }
+    public bool AddWindows(IReadOnlyList<InspectedWindow> selection, DateTimeOffset now)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (!IsRunning || busy || NavigationSuspended || HasPending)
+        { Message = "请等待当前移动或总览结束后再接入窗口。"; return false; }
+        if (selection.Count == 0 || selection.Any(entry => entry.Id is null || entry.Id == Guid.Empty || entry.Observation.Identity is not { IsValid: true })
+            || selection.Select(entry => entry.Id).Distinct().Count() != selection.Count
+            || selection.Select(entry => entry.Observation.Handle).Distinct().Count() != selection.Count
+            || selection.Any(entry => managed.ContainsKey(entry.Id!.Value) || managed.Values.Any(window => window.Identity.Handle == entry.Observation.Handle)))
+        { Message = "请选择尚未接入的不同普通窗口。"; return false; }
+        var unsupported = selection.Select(entry => Unsupported(entry, layout)).FirstOrDefault(reason => reason is not null);
+        if (unsupported is not null) { Message = unsupported; return false; }
+        busy = true; var accepted = false; var published = new List<Guid>();
+        try
+        {
+            var occupied = Workspace.Windows.Select(window => window.Bounds).ToList();
+            var staged = new List<(CanvasWindow Window, Managed State, WindowPlacementPlan Plan)>();
+            // Register every new identity before the first native move. Existing windows are never re-registered or replanned.
+            foreach (var entry in selection)
+            {
+                var original = recovery!.Register(entry.Observation.Identity!.Value);
+                ThrowIfClosing();
+                if (original.Original.Placement.ShowCommand != 1) throw new InvalidOperationException("新窗口已改变显示状态，请恢复普通窗口后重试。");
+                if (!NearbyWindowPlacement.TryPlace(original.Original.PhysicalBounds.Size, Workspace.Camera.Bounds, occupied, out var bounds)
+                    || !planner.TryPlan(bounds, Workspace.Camera.Position, out var plan))
+                    throw new InvalidOperationException("无法为新窗口规划可恢复的空闲位置。");
+                var id = entry.Id!.Value;
+                staged.Add((new(id, entry.Observation.Title, bounds), new(id, entry.Observation.Identity.Value, original.Id, original.Original.PhysicalBounds), plan!));
+                occupied.Add(bounds);
+            }
+            var translations = new List<WindowTranslation>();
+            ThrowIfClosing();
+            foreach (var (window, state, plan) in staged)
+            {
+                Workspace.UpsertWindow(window); managed.Add(window.Id, state); published.Add(window.Id);
+                state.Desired = plan.PhysicalBounds; state.Parked = plan.IsParked;
+                if (state.Observed != plan.PhysicalBounds)
+                {
+                    state.Expected.Add(state.Observed); state.Expected.Add(plan.PhysicalBounds); state.Deadline = now.AddMilliseconds(1500);
+                    translations.Add(new(state.RecoveryId, plan.PhysicalBounds));
+                }
+            }
+            if (translations.Count > 0 && motion.RequestBatch(recovery!, translations) is { Accepted: false } failure)
+            { PauseInternal($"新窗口拒绝接入，已暂停恢复：{failure.Detail}"); return false; }
+            accepted = true;
+            var outside = staged.Count(item => !NearbyWindowPlacement.FitsInside(item.Window.Bounds, Workspace.Camera.Bounds));
+            Message = $"已接入 {staged.Count} 个窗口；既有布局、相机和标签保持。"
+                + (outside > 0 ? $" {outside} 个空位位于视口附近，可用总览定位。" : "");
+            return true;
+        }
+        catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"新窗口接入失败，已暂停恢复：{exception.Message}"); return false; }
+        finally
+        {
+            if (!accepted) foreach (var id in published) { Workspace.RemoveWindow(id); managed.Remove(id); }
+            ExitBusy();
+        }
     }
     public bool GoToBookmark(Guid id, DateTimeOffset now)
     {
@@ -256,7 +315,7 @@ public sealed class ManagedCanvasSession : IDisposable
             CompleteActivation();
         }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"同步失败：{exception.Message}"); }
-        finally { busy = false; }
+        finally { ExitBusy(); }
     }
 
     private void PruneClosed(IReadOnlyDictionary<nint, InspectedWindow> entries)
@@ -291,7 +350,7 @@ public sealed class ManagedCanvasSession : IDisposable
     public void Pause(string reason = "已暂停并恢复原始窗口位置。")
     {
         if (busy) return;
-        busy = true; try { PauseInternal(reason); } finally { busy = false; }
+        busy = true; try { PauseInternal(reason); } finally { ExitBusy(); }
     }
     private void PauseInternal(string reason)
     {
@@ -308,11 +367,17 @@ public sealed class ManagedCanvasSession : IDisposable
         finally { recovery?.Dispose(); recovery = null; }
     }
     public bool MatchesDisplay(DisplayLayout current) => layout.Monitors.SequenceEqual(current.Monitors);
-    private static bool IsExpected(Exception exception) => exception is IOException or UnauthorizedAccessException
+    private static bool IsExpected(Exception exception) => exception is IOException or InvalidDataException or UnauthorizedAccessException
         or InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception or OverflowException;
+    private void ThrowIfClosing()
+    { if (disposeRequested) throw new InvalidOperationException("会话正在退出，已取消接管。"); }
+    private void ExitBusy()
+    { busy = false; if (disposeRequested) Dispose(); }
     public void Dispose()
     {
         if (disposed) return;
+        if (busy) { disposeRequested = true; return; }
+        disposeRequested = false;
         if (IsRunning || recovery is not null) Pause();
         disposed = true;
     }

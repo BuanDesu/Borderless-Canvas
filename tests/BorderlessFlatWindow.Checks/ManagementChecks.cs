@@ -25,6 +25,14 @@ internal static class ManagementChecks
         yield return ("Closing a group of managed targets removes every paused-layout ghost", ClosedGroup);
         yield return ("A hide-before-destroy event sequence removes paused ghosts without moving survivors", HiddenThenClosed);
         yield return ("Managed label jumps translate the whole camera and preserve window layout and navigation history", BookmarkJump);
+        yield return ("Runtime admission preserves the existing world, native placement, camera, history and labels", RuntimeAdd);
+        yield return ("A late batch registers and moves only new windows into separate empty regions", RuntimeBatch);
+        yield return ("Duplicate, existing and unsupported late selections cannot register or move anything", RuntimeInvalid);
+        yield return ("Pending, suspended and paused sessions cannot admit late windows", RuntimeDeferred);
+        yield return ("A failed late registration recovers durable records without submitting a new native batch", RuntimeRegisterFailure);
+        yield return ("Invalid-data journal writes fail safely during runtime admission", RuntimeStorageFailure);
+        yield return ("Partial late movement restores originals and rolls back only new logical entries", RuntimePartial);
+        yield return ("Closing reentrantly during late registration cannot move new windows or leak recovery ownership", RuntimeDispose);
         yield return ("Pause/resume preserves the logical layout, camera and bookmarks", Resume);
         yield return ("Beginning management cannot silently recover an inherited journal", Inherited);
         yield return ("Unsupported native state and multiscreen configuration cannot start management", Unsupported);
@@ -44,6 +52,10 @@ internal static class ManagementChecks
         internal int Batches;
         internal int Activations;
         internal int Restorations;
+        internal nint? CaptureFailure;
+        internal Action<nint>? DuringCapture;
+        internal int InvalidDataSaves;
+        internal IReadOnlyList<WindowTranslation> LastBatch = [];
         internal readonly List<IReadOnlyList<WindowTranslation>> Pending = [];
         private readonly HashSet<Guid> markers = [];
         private RecoverySession? lastRecovery;
@@ -73,6 +85,7 @@ internal static class ManagementChecks
         public MotionBatchResult RequestBatch(RecoverySession recovery, IReadOnlyList<WindowTranslation> translations)
         {
             Batches++;
+            LastBatch = translations.ToArray();
             Require(translations.All(item => recovery.CanMove(item.RecoveryId)), "Batch lacks durable ownership.");
             if (RejectPartial) { Apply(translations.Take(1).ToArray()); return new(false, "Controlled partial rejection."); }
             if (Delayed) Pending.Add(translations.ToArray()); else Apply(translations);
@@ -81,6 +94,8 @@ internal static class ManagementChecks
         public bool RequestActivation(RecoverySession recovery, Guid id) { Activations++; return AllowActivation; }
         public OriginalWindowState Capture(NativeWindowIdentity identity)
         {
+            DuringCapture?.Invoke(identity.Handle);
+            if (CaptureFailure == identity.Handle) throw new InvalidOperationException("Late fixture refused capture.");
             var bounds = Native[identity.Handle].Bounds!.Value;
             return new(new(0, 1, -1, -1, -1, -1, (int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom),
                 new((int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom));
@@ -99,7 +114,11 @@ internal static class ManagementChecks
         private sealed class Store(Harness owner) : IRecoveryJournalStore
         {
             public RecoveryJournal? Load() => owner.Saved;
-            public void Save(RecoveryJournal journal) => owner.Saved = journal;
+            public void Save(RecoveryJournal journal)
+            {
+                if (owner.InvalidDataSaves > 0) { owner.InvalidDataSaves--; throw new InvalidDataException("Controlled invalid-data save failure."); }
+                owner.Saved = journal;
+            }
             public void Dispose() { }
         }
         public void Dispose() => Session.Dispose();
@@ -251,6 +270,72 @@ internal static class ManagementChecks
             && h.Session.Back(Now), "Label jump changed layout or lost history."); h.Tick();
         Require(h.Session.Workspace.Camera.Position == PointD.Zero && !h.Session.GoToBookmark(Guid.NewGuid(), Now), "Back or missing label changed the view.");
         h.Session.Pause(); Require(!h.Session.GoToBookmark(entry.Id, Now), "Paused label jump moved native windows.");
+    }
+    private static InspectedWindow[] Late(Harness h, params int[] handles) => h.Selected().Where(entry => handles.Contains((int)entry.Observation.Handle)).ToArray();
+    private static void RuntimeAdd()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.Navigate(new(400, -200), Now); h.Tick();
+        var bookmark = h.Session.Workspace.AddBookmark("位置"); var camera = h.Session.Workspace.Camera; var history = h.Session.Workspace.PreviousView;
+        var before = h.Session.Workspace.Windows.ToArray(); var a = h.Native[42].Bounds; var b = h.Native[43].Bounds;
+        h.Native[44] = Window(44, Rect(120, 160)); Require(h.Session.AddWindows(Late(h, 44), Now), h.Session.Message); h.Tick();
+        Require(h.Session.Workspace.Windows.Where(window => before.Any(old => old.Id == window.Id)).SequenceEqual(before)
+            && h.Native[42].Bounds == a && h.Native[43].Bounds == b && h.Session.Workspace.Camera == camera
+            && h.Session.Workspace.PreviousView == history && h.Session.Workspace.Bookmarks.Single() == bookmark && h.Saved!.Entries.Count == 3
+            && h.LastBatch.Count == 1 && h.Activations == 0, "Late admission rebuilt, moved or renavigated existing layout.");
+    }
+    private static void RuntimeBatch()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.Navigate(new(3000, -2400), Now); h.Tick(); var original = h.Session.Workspace.Windows.ToArray();
+        h.Native[44] = Window(44, Rect(40, 70, 440, 310)); h.Native[45] = Window(45, Rect(60, 90, 500, 360));
+        Require(h.Session.AddWindows(Late(h, 44, 45), Now) && h.Saved!.Entries.Count == 4 && h.LastBatch.Count == 2, h.Session.Message); h.Tick();
+        var added = h.Session.Workspace.Windows.Where(window => !original.Any(old => old.Id == window.Id)).ToArray();
+        Require(added.Length == 2 && !BorderlessFlatWindow.Core.Canvas.NearbyWindowPlacement.OverlapsWithGap(added[0].Bounds, added[1].Bounds)
+            && added.All(window => original.All(old => !BorderlessFlatWindow.Core.Canvas.NearbyWindowPlacement.OverlapsWithGap(window.Bounds, old.Bounds)))
+            && added.All(window => BorderlessFlatWindow.Core.Canvas.NearbyWindowPlacement.FitsInside(window.Bounds, h.Session.Workspace.Camera.Bounds)), "New batch overlapped or ignored current camera.");
+        h.Session.Pause(); Require(h.Native[44].Bounds == Rect(40, 70, 440, 310) && h.Native[45].Bounds == Rect(60, 90, 500, 360) && h.Saved!.Entries.Count == 0, "Late originals were not restored.");
+    }
+    private static void RuntimeInvalid()
+    {
+        using var h = new Harness(); h.Begin(); h.Native[44] = Window(44, Rect(10, 20)); var entry = Late(h, 44).Single(); var batches = h.Batches;
+        foreach (var selection in new[] { new[] { entry, entry }, new[] { entry, entry with { Id = Guid.NewGuid() } },
+            h.Selected().Where(item => item.Observation.Handle == 42).ToArray(), new[] { entry with { Observation = entry.Observation with { IsMaximized = true } } } })
+            Require(!h.Session.AddWindows(selection, Now) && h.Session.IsRunning && h.Batches == batches && h.Saved!.Entries.Count == 2, "Invalid selection had side effects.");
+    }
+    private static void RuntimeDeferred()
+    {
+        using var h = new Harness(); h.Begin(); h.Native[44] = Window(44, Rect(10, 20)); var entry = Late(h, 44); h.Delayed = true;
+        h.Session.Pan(new(200, 100), Now); Require(!h.Session.AddWindows(entry, Now) && h.Saved!.Entries.Count == 2, "Pending move allowed admission.");
+        h.Apply(h.Pending.Single()); h.Tick(); h.Session.SuspendNavigation(true);
+        Require(!h.Session.AddWindows(entry, Now), "Overview suspension allowed admission."); h.Session.SuspendNavigation(false); h.Session.Pause();
+        Require(!h.Session.AddWindows(entry, Now), "Paused session allowed admission.");
+    }
+    private static void RuntimeRegisterFailure()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.Pan(new(200, 100), Now); h.Tick(); var before = h.Session.Workspace.Windows.ToArray(); var batches = h.Batches;
+        h.Native[44] = Window(44, Rect(10, 20)); h.Native[45] = Window(45, Rect(50, 60)); h.CaptureFailure = 45;
+        Require(!h.Session.AddWindows(Late(h, 44, 45), Now) && !h.Session.IsRunning && h.Batches == batches && h.Saved!.Entries.Count == 0
+            && h.Session.Workspace.Windows.SequenceEqual(before) && h.Native[44].Bounds == Rect(10, 20), "Failed capture moved or published new windows.");
+    }
+    private static void RuntimeStorageFailure()
+    {
+        using var h = new Harness(); h.Begin(); h.Native[44] = Window(44, Rect(10, 20)); h.InvalidDataSaves = 1;
+        Require(!h.Session.AddWindows(Late(h, 44), Now) && !h.Session.IsRunning && h.Saved!.Entries.Count == 0 && h.Native[44].Bounds == Rect(10, 20),
+            "InvalidDataException escaped or an unregistered window moved.");
+    }
+    private static void RuntimePartial()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.Pan(new(200, 100), Now); h.Tick(); var before = h.Session.Workspace.Windows.ToArray(); var camera = h.Session.Workspace.Camera;
+        h.Native[44] = Window(44, Rect(10, 20)); h.Native[45] = Window(45, Rect(50, 60)); h.RejectPartial = true;
+        Require(!h.Session.AddWindows(Late(h, 44, 45), Now) && !h.Session.IsRunning && h.Saved!.Entries.Count == 0
+            && h.Session.Workspace.Windows.SequenceEqual(before) && h.Session.ManagedIds.Count == 2 && h.Session.Workspace.Camera == camera
+            && h.Native[42].Bounds == Rect(100, 140) && h.Native[44].Bounds == Rect(10, 20) && h.Native[45].Bounds == Rect(50, 60), "Partial late batch could not recover and roll back.");
+    }
+    private static void RuntimeDispose()
+    {
+        using var h = new Harness(); h.Begin(); var batches = h.Batches; h.Native[44] = Window(44, Rect(10, 20));
+        h.DuringCapture = handle => { if (handle == 44) h.Session.Dispose(); };
+        Require(!h.Session.AddWindows(Late(h, 44), Now) && h.Batches == batches && h.Saved!.Entries.Count == 0 && h.Native[44].Bounds == Rect(10, 20),
+            "Reentrant close leaked ownership or submitted movement after exit.");
     }
     private static void Inherited()
     {

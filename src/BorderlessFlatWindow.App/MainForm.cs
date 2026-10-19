@@ -215,6 +215,7 @@ internal sealed class MainForm : Form
             listener.EventReceived += change =>
             {
                 eventBuffer.Add(change);
+                management.RecordWindowChange(change);
                 if (!eventTimer.Enabled) eventTimer.Start();
             };
             RefreshCatalog();

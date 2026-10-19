@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T10 核心实现/记录已推进，待各自验证与 PR 合并后勾选。T10 标签 UI、真实跳转、重启保留及损坏降级已验证，见[标签说明](docs/location-bookmarks.md)。168 模型、14 文件（6 恢复 + 8 标签）、46 原生检查通过。下一步 FR-02 运行中新窗口接入和可试用原型验收。实际 Shift/双键组合、任务栏点击/hover、普通第三方应用和真实多屏仍未完成验收；持续目标为[可试用原型](docs/prototype-plan.md)。
+当前状态：T01–T10 及 FR-02 运行中新窗口接入已实现，待各自验证与 PR 合并后勾选。手动/自动接入、空位放置和五窗主 GUI 强制结束后独立恢复已有实测，见[接入说明](docs/runtime-window-admission.md)。191 模型、15 文件（7 恢复 + 8 标签）、48 原生检查通过。下一步普通应用兼容、任务栏/组合手势验收和试用打包。真实多屏仍未验收；持续目标为[可试用原型](docs/prototype-plan.md)。
 
 ## 已完成：M0 基础项目
 
@@ -32,6 +32,10 @@
 - [ ] **T08：保留位置的总览、选择和搜索。** 独立于工作相机保存总览状态；按统一比例绘制真实位置、原点和视口；方向键按空间选择；搜索不重排；确认才移动工作相机，Esc 取消；目标关闭时安全处理。对应 FR-05。依赖 T03、T06。 [Issue #8](https://github.com/BuanDesu/Borderless-Flat-Window/issues/8)
 - [ ] **T09：DWM 预览资源与降级。** 管理注册/更新/释放生命周期；不可预览或离屏不刷新时显示图标、标题或缓存占位；选择导航仍可用；不向缩略图转发编辑输入。对应 FR-05、NFR-06。依赖 T08。 [Issue #9](https://github.com/BuanDesu/Borderless-Flat-Window/issues/9)
 - [ ] **T10：位置标签 UI 与本地持久化。** 新增、重命名、删除、搜索和跳转；稳定 ID、重名区分、无 1–9 槽位限制；版本化 JSON/原子写入/损坏降级；删除标签不移动窗口。对应 FR-06、NFR-05。依赖 T08。 [Issue #10](https://github.com/BuanDesu/Borderless-Flat-Window/issues/10)
+
+## P0 / 原型集成补齐
+
+- [ ] **FR-02 补齐：运行中新窗口接入。** 手动选择与默认关闭的可选自动接入；排除原有未选窗口，稳定后寻找视口附近空位；保留旧布局/相机/标签，仅登记并移动新增项。已完成模型、文件、原生和五窗实际接入/恢复验证，等待 PR 合并。依赖 T03、T04、T06、T10。 [Issue #24](https://github.com/BuanDesu/Borderless-Flat-Window/issues/24)
 
 ## P1 / M4：兼容、性能与发布
 
