@@ -12,6 +12,9 @@ try {
     }
     if ($NativeChecks) {
         dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build
-        if ($LASTEXITCODE -ne 0) { throw "Native discovery checks failed: $LASTEXITCODE" }
+        if ($LASTEXITCODE -ne 0) { throw "Native checks failed: $LASTEXITCODE" }
+    } else {
+        dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build -- --storage-only
+        if ($LASTEXITCODE -ne 0) { throw "Recovery storage checks failed: $LASTEXITCODE" }
     }
 } finally { Pop-Location }

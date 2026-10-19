@@ -75,7 +75,7 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
         return ReadWindow(handle, desktops);
     }
 
-    private static long? ReadCreationTime(uint processId)
+    internal static long? ReadCreationTime(uint processId)
     {
         if (processId == 0) return null;
         using var process = NativeMethods.OpenProcess(0x1000, false, processId);
