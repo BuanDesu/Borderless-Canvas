@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T10、FR-02 及本地试用打包已推进，待各自验证与 PR 合并后勾选。包内计算器/记事本/Probe 四窗操作、总览和 GUI 故障独立恢复已有实测，见[试用验证](docs/trial-validation.md)。191 模型、15 文件（7 恢复 + 8 标签）、48 原生检查通过。剩余物理 Shift/双键、任务栏实际路径，以及更广应用/硬件兼容；持续目标为[可试用原型](docs/prototype-plan.md)。
+当前状态：单屏[可试用原型](docs/prototype-plan.md)已交付，用户已确认物理 Shift 横移、双键拖动/整段返回、任务栏找回/输入及预览显示。包内四窗、总览和故障恢复证据见[试用验证](docs/trial-validation.md)，191 模型、15 文件、48 原生检查通过。T01–T10、FR-02 等任务仍按各自验证与 PR 合并规则勾选；更广应用、多屏、性能与正式发布继续留在后续任务。
 
 ## 已完成：M0 基础项目
 
