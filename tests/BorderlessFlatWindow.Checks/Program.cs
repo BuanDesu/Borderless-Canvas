@@ -14,7 +14,7 @@ var cases = new (string Name, Action Run)[]
 };
 var failed = 0;
 var allCases = cases.Concat(DiscoveryChecks.Cases()).Concat(CoordinateChecks.Cases()).Concat(LifecycleChecks.Cases())
-    .Concat(RecoveryChecks.Cases()).ToArray();
+    .Concat(RecoveryChecks.Cases()).Concat(PlacementChecks.Cases()).ToArray();
 foreach (var (name, run) in allCases)
 {
     try { run(); Console.WriteLine($"PASS {name}"); }

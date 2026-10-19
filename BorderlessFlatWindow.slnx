@@ -7,6 +7,7 @@
     <Project Path="src/BorderlessFlatWindow.Recovery/BorderlessFlatWindow.Recovery.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/BorderlessFlatWindow.Probe/BorderlessFlatWindow.Probe.csproj" />
     <Project Path="tests/BorderlessFlatWindow.Checks/BorderlessFlatWindow.Checks.csproj" />
     <Project Path="tests/BorderlessFlatWindow.Windows.Checks/BorderlessFlatWindow.Windows.Checks.csproj" />
   </Folder>
