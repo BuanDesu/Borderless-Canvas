@@ -31,6 +31,8 @@ internal sealed class MainForm : Form
     private readonly TabControl tabs = new ChromeTabs() { Dock = DockStyle.Fill };
     private readonly List<Control> verificationPages = [];
     private NotifyIcon? tray;
+    private readonly Icon brandIcon = BrandIcon.Load(32);
+    private readonly Icon trayIcon = BrandIcon.Load(Math.Max(16, SystemInformation.SmallIconSize.Width));
     private ContextMenuStrip? trayMenu;
     private bool exitRequested;
     private readonly DisplayDiagnosticsControl displays;
@@ -40,7 +42,9 @@ internal sealed class MainForm : Form
     private readonly BookmarkControl bookmarkControl;
     private readonly ListView windowList = new()
     {
-        Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
+        Dock = DockStyle.Fill,
+        View = View.Details,
+        FullRowSelect = true
     };
 
     internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null)
@@ -53,6 +57,7 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Microsoft YaHei UI", 10);
         KeyPreview = true;
+        Icon = brandIcon;
 
         workspace.UpsertWindow(Sample("编辑器", 80, 90, 820, 600));
         workspace.UpsertWindow(Sample("浏览器", 980, 90, 900, 600));
@@ -70,7 +75,8 @@ internal sealed class MainForm : Form
         bookmarks = new(() => new JsonBookmarkStore(bookmarksPath ?? JsonBookmarkStore.DefaultPath)); bookmarks.Reload();
         management = new(catalog, journalPath, bookmarks) { Dock = DockStyle.Fill };
         bookmarkControl = new(bookmarks, () => management.BookmarkPosition, () => management.CanJumpToBookmark,
-            management.GoToBookmark, management.EndNavigationForEditing) { Dock = DockStyle.Fill };
+            management.GoToBookmark, management.EndNavigationForEditing)
+        { Dock = DockStyle.Fill };
         management.StatusChanged += UpdateCameraStatus;
         management.StatusChanged += bookmarkControl.RefreshNavigationState;
         tabs.SelectedIndexChanged += (_, _) =>
@@ -96,7 +102,8 @@ internal sealed class MainForm : Form
             if (snapshot is not null) UpdateLiveMap();
             UpdateCameraStatus();
             preview.Invalidate();
-        }) { Dock = DockStyle.Fill };
+        })
+        { Dock = DockStyle.Fill };
         displayTab.Controls.Add(displays);
         tabs.TabPages.Add(displayTab);
         var liveTab = new TabPage("真实空间地图（只读）");
@@ -122,7 +129,10 @@ internal sealed class MainForm : Form
 
         var navigation = new FlowLayoutPanel
         {
-            Dock = DockStyle.Top, Height = 48, Padding = new Padding(6), AutoSize = false
+            Dock = DockStyle.Top,
+            Height = 48,
+            Padding = new Padding(6),
+            AutoSize = false
         };
         AddButton(navigation, "←", () => workspace.PanBy(new(-240, 0)));
         AddButton(navigation, "↑", () => workspace.PanBy(new(0, -180)));
@@ -134,7 +144,9 @@ internal sealed class MainForm : Form
 
         var hint = new Label
         {
-            Dock = DockStyle.Bottom, Height = 84, Padding = new Padding(10),
+            Dock = DockStyle.Bottom,
+            Height = 84,
+            Padding = new Padding(10),
             Text = "示例矩形仅验证空间位置。点击聚焦；滚轮纵移，Shift＋滚轮横移。\nHome 返回原点；Backspace 返回上一视角。"
         };
         canvasTab.Controls.Add(hint);
@@ -166,7 +178,9 @@ internal sealed class MainForm : Form
         var intro = new CanvasHeader();
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
-        Controls.Add(tabs);
+        var player = new PlayerScreenPanel { Dock = DockStyle.Fill, Padding = new(14) };
+        player.Controls.Add(tabs);
+        Controls.Add(player);
         Controls.Add(intro);
         Controls.Add(status);
         ChromeTheme.Apply(this);
@@ -265,6 +279,7 @@ internal sealed class MainForm : Form
             listener = null;
             if (tray is not null) { tray.Visible = false; tray.Dispose(); tray = null; }
             trayMenu?.Dispose(); trayMenu = null;
+            trayIcon.Dispose(); brandIcon.Dispose();
             foreach (var page in verificationPages) page.Dispose();
             bookmarks?.Dispose();
         }
@@ -294,7 +309,16 @@ internal sealed class MainForm : Form
     }
     internal void CheckTraySmoke()
     {
-        InitializeTray(); Hide();
+        InitializeTray();
+        if (tray!.Icon?.Handle == 0 || tray.Icon is null || !tray.Visible) throw new InvalidOperationException("Tray icon resource is missing.");
+        using (var icon = tray.Icon.ToBitmap())
+        {
+            if (icon.Width < 16 || icon.Height < 16) throw new InvalidOperationException("Tray icon is too small.");
+            var visible = 0;
+            for (var y = 0; y < icon.Height; y++) for (var x = 0; x < icon.Width; x++) if (icon.GetPixel(x, y).A > 128) visible++;
+            if (visible < icon.Width * icon.Height / 2) throw new InvalidOperationException("Tray icon artwork is transparent.");
+        }
+        Hide();
         if (Visible) throw new InvalidOperationException("Manager did not hide.");
         ((ToolStripMenuItem)trayMenu!.Items[0]).PerformClick();
         if (!Visible || WindowState != FormWindowState.Normal) throw new InvalidOperationException("Tray open action did not restore the manager.");
@@ -360,7 +384,8 @@ internal sealed class MainForm : Form
                     entry.Admission.Description, window.ProcessId.ToString(),
                     window.OwnerHandle == 0 ? "—" : $"0x{window.OwnerHandle:X}",
                     entry.Id?.ToString("N")[..8] ?? "—", window.ClassName
-                ]) { Tag = entry.Id, ForeColor = entry.Admission.IsAdmitted ? SystemColors.WindowText : SystemColors.GrayText };
+                ])
+                { Tag = entry.Id, ForeColor = entry.Admission.IsAdmitted ? SystemColors.WindowText : SystemColors.GrayText };
                 item.Selected = entry.Id is not null && entry.Id == selected;
                 windowList.Items.Add(item);
             }
@@ -456,7 +481,7 @@ internal sealed class MainForm : Form
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("退出并恢复窗口", null, (_, _) => { exitRequested = true; management.Pause(); Close(); });
         ChromeTheme.StyleMenu(trayMenu);
-        tray = new() { Icon = SystemIcons.Application, Text = "BFW · 无限桌面", ContextMenuStrip = trayMenu, Visible = true };
+        tray = new() { Icon = trayIcon, Text = "Borderless · 无限桌面", ContextMenuStrip = trayMenu, Visible = true };
         tray.DoubleClick += (_, _) => ShowManager();
     }
 }

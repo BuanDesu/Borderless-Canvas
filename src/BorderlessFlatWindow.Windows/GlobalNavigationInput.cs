@@ -23,6 +23,10 @@ public sealed class GlobalNavigationInput : IDisposable
     private readonly ConcurrentQueue<TimedNavigationInput> inputs = new();
     private readonly NavigationInputGate gate = new();
     private readonly DesktopNavigationPolicy automatic = new();
+    private readonly DesktopContextClick contextClick = new();
+    private static readonly nuint ContextClickTag = 0x42465743;
+    private nint contextTarget;
+    private long contextGeneration;
     private readonly Action wakeUi;
     private readonly HookCallback callback;
     private readonly HookCallback keyboardCallback;
@@ -189,6 +193,7 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     private void Leave(string message)
     {
+        contextClick.Cancel(); contextTarget = 0; contextGeneration++;
         var active = gate.Active; gate.Exit(); manual = false;
         if (escapeRegistered) ReleaseModeKeys();
         if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
@@ -220,20 +225,38 @@ public sealed class GlobalNavigationInput : IDisposable
         if (code < 0) return CallNextHookEx(0, code, message, data);
         try
         {
+            if (message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); }
             NavigationInputKind? kind = message switch
             {
-                0x200 => NavigationInputKind.Move, 0x201 => NavigationInputKind.LeftDown, 0x202 => NavigationInputKind.LeftUp,
-                0x204 => NavigationInputKind.RightDown, 0x205 => NavigationInputKind.RightUp,
-                0x20A => NavigationInputKind.Wheel, 0x20E => NavigationInputKind.HorizontalWheel, _ => null
+                0x200 => NavigationInputKind.Move,
+                0x201 => NavigationInputKind.LeftDown,
+                0x202 => NavigationInputKind.LeftUp,
+                0x204 => NavigationInputKind.RightDown,
+                0x205 => NavigationInputKind.RightUp,
+                0x20A => NavigationInputKind.Wheel,
+                0x20E => NavigationInputKind.HorizontalWheel,
+                _ => null
             };
             if (kind is { } inputKind)
             {
                 var input = Marshal.PtrToStructure<MouseInput>(data);
+                // Only our balanced replay bypasses routing; unrelated injected input follows normal policy.
+                if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return CallNextHookEx(0, code, message, data);
+                if (inputKind != NavigationInputKind.Move) contextGeneration++;
                 UpdateAutomatic(input.Point);
                 var shift = inputKind == NavigationInputKind.Wheel && (GetAsyncKeyState(0x10) & 0x8000) != 0;
                 var control = inputKind == NavigationInputKind.Wheel && Down(0x11);
                 var route = control && gate.Active ? (Suppress: true, Queue: true) : gate.Route(inputKind, shift);
                 automatic.ObserveButton(inputKind, route.Suppress);
+                var desktop = IsDesktop(input.Point);
+                if (inputKind == NavigationInputKind.RightDown) contextTarget = desktop ? WindowFromPoint(input.Point) : 0;
+                if (contextClick.Accept(inputKind, new(input.Point.X, input.Point.Y), route.Suppress && gate.Active, desktop,
+                    Math.Max(GetSystemMetrics(68), GetSystemMetrics(69))))
+                {
+                    var target = contextTarget; var point = input.Point; var generation = contextGeneration;
+                    // Run after the physical release has left this hook. Never move the pointer or click an application.
+                    Post(() => RestoreDesktopContextClick(target, point, generation));
+                }
                 if (route.Queue)
                 {
                     Queue(new(control ? NavigationInputKind.CycleWindow : inputKind, new(input.Point.X, input.Point.Y), unchecked((short)(input.Data >> 16)), shift));
@@ -252,7 +275,7 @@ public sealed class GlobalNavigationInput : IDisposable
     private void UpdateAutomatic(Point pointer)
     {
         if (manual) return;
-        var enter = automatic.ShouldNavigate(IsDesktop(pointer), available, overviewOpen, gate.HasHeldButtons, Down(1) || Down(2));
+        var enter = automatic.ShouldNavigate(IsDesktop(pointer) && !MenuActive(), available, overviewOpen, gate.HasHeldButtons, Down(1) || Down(2));
         if (enter && !gate.Active && gate.TryEnter(false))
         {
             Volatile.Write(ref heartbeat, Environment.TickCount64);
@@ -261,6 +284,31 @@ public sealed class GlobalNavigationInput : IDisposable
         else if (!enter && gate.Active) Leave("应用交互 · 移至桌面空白处自动导航");
     }
     private static bool Down(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
+    private static bool MenuActive()
+    {
+        var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
+        return GetGUIThreadInfo(0, ref info) && (info.Flags & 0x1C) != 0;
+    }
+    private void RestoreDesktopContextClick(nint target, Point released, long generation)
+    {
+        if (generation != contextGeneration || !gate.Active || !available || overviewOpen || target == 0 || Down(1) || Down(2)
+            || Environment.TickCount64 - Volatile.Read(ref heartbeat) > 1800
+            || !GetCursorPos(out var pointer) || !IsDesktop(pointer) || WindowFromPoint(pointer) != target
+            || Math.Abs(pointer.X - released.X) > 2 || Math.Abs(pointer.Y - released.Y) > 2) return;
+        Leave("桌面右键菜单 · 关闭菜单后恢复自动导航");
+        // A physical single right click was withheld to disambiguate the two-button gesture.
+        // Reinsert exactly one balanced pair at the unchanged cursor; no key or pointer movement is synthesized.
+        NativeInput[] pair = [new() { Mouse = new() { Flags = 0x08, Extra = ContextClickTag } },
+            new() { Mouse = new() { Flags = 0x10, Extra = ContextClickTag } }];
+        var sent = SendInput(2, pair, Marshal.SizeOf<NativeInput>());
+        if (sent != 2)
+        {
+            // If Windows accepted only the down, make one bounded attempt to balance it.
+            if (sent == 1) SendInput(1, [pair[1]], Marshal.SizeOf<NativeInput>());
+            automatic.Suspend();
+            Publish(false, State.Registered, State.Hotkey, "Windows 未接受桌面右击；自动导航已暂停，可直接再次右击。");
+        }
+    }
     private static bool IsDesktop(Point point)
     {
         var window = WindowFromPoint(point);
@@ -277,6 +325,7 @@ public sealed class GlobalNavigationInput : IDisposable
         {
             var key = unchecked((uint)Marshal.ReadInt32(data));
             var up = message is 0x101 or 0x105;
+            contextGeneration++;
             if (!up && GetCursorPos(out var cursor)) UpdateAutomatic(cursor);
             if (key == 9)
             {
@@ -288,7 +337,7 @@ public sealed class GlobalNavigationInput : IDisposable
                 else if (!tabHeld)
                 {
                     tabHeld = true;
-                    if (GetCursorPos(out var pointer) && DesktopNavigationPolicy.OpensOverview(IsDesktop(pointer), available,
+                    if (GetCursorPos(out var pointer) && DesktopNavigationPolicy.OpensOverview(IsDesktop(pointer) && !MenuActive(), available,
                         overviewOpen, Down(0x11), Down(0x12), Down(0x5B) || Down(0x5C)) && !gate.HasHeldButtons)
                     {
                         tabCaptured = true; overviewOpen = true; Leave("打开空间总览。");
@@ -324,23 +373,29 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     [StructLayout(LayoutKind.Sequential)] private struct Point { internal int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct MouseInput { internal Point Point; internal uint Data, Flags, Time; internal nuint Extra; }
+    [StructLayout(LayoutKind.Sequential)] private struct SyntheticMouse { internal int X, Y; internal uint Data, Flags, Time; internal nuint Extra; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeInput { internal uint Type; internal SyntheticMouse Mouse; }
+    [StructLayout(LayoutKind.Sequential)] private struct GuiThreadInfo { internal uint Size, Flags; internal nint Active, Focus, Capture, MenuOwner, MoveSize, Caret; internal int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct Message { internal nint Window; internal uint MessageId; internal nuint WParam; internal nint LParam; internal uint Time; internal Point Point; internal uint Private; }
     private delegate nint HookCallback(int code, nuint message, nint data);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? name);
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SetWindowsHookEx(int kind, HookCallback callback, nint module, uint thread);
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnhookWindowsHookEx(nint hook);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnhookWindowsHookEx(nint hook);
     [DllImport("user32.dll")] private static extern nint CallNextHookEx(nint hook, int code, nuint message, nint data);
-    [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool RegisterHotKey(nint window, int id, uint modifiers, uint key);
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnregisterHotKey(nint window, int id);
+    [DllImport("user32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool RegisterHotKey(nint window, int id, uint modifiers, uint key);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnregisterHotKey(nint window, int id);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetCursorPos(out Point point);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, NativeInput[] inputs, int size);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, StringBuilder name, int count);
     [DllImport("user32.dll", SetLastError = true)] private static extern int GetMessage(out Message message, nint window, uint min, uint max);
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
-    [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PostThreadMessage(uint thread, uint message, nuint wParam, nint lParam);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);
+    [DllImport("user32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool PostThreadMessage(uint thread, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll", SetLastError = true)] private static extern nuint SetTimer(nint window, nuint id, uint milliseconds, nint callback);
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool KillTimer(nint window, nuint id);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool KillTimer(nint window, nuint id);
 }

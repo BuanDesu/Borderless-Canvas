@@ -10,6 +10,10 @@ internal static class NavigationChecks
         yield return ("An application drag crossing the desktop cannot become a navigation drag", ApplicationDrag);
         yield return ("Escape suspends automatic navigation until an application boundary is crossed", AutomaticEscape);
         yield return ("Desktop Tab accepts Shift but excludes application input, other modifiers and overview", DesktopTab);
+        yield return ("A solitary desktop right click requests exactly one shell click", DesktopRightClick);
+        yield return ("Neither chord order opens a desktop context menu after release", ChordContextClick);
+        yield return ("Right drag or an excursion outside the desktop cannot open a context menu", ContextClickBoundary);
+        yield return ("Inactive input, wheel gestures and cancellation never replay a right click", ContextClickCancellation);
         yield return ("Navigation gate leaves ordinary application input untouched", PassThrough);
         yield return ("Navigation cannot start with a physical or swallowed button held", HeldEntry);
         yield return ("Navigation swallows complete left/right pairs and wheel input", Suppression);
@@ -65,6 +69,46 @@ internal static class NavigationChecks
             && !DesktopNavigationPolicy.OpensOverview(true, true, false, false, false, true), "Tab leaked through a context boundary.");
     }
     private static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch;
+    private static bool Context(DesktopContextClick click, NavigationInputKind kind, double x = 0, bool captured = true, bool desktop = true)
+        => click.Accept(kind, new(x, 20), captured, desktop, 4);
+    private static void DesktopRightClick()
+    {
+        var click = new DesktopContextClick();
+        Require(!Context(click, NavigationInputKind.RightDown) && !Context(click, NavigationInputKind.Move, 2)
+            && Context(click, NavigationInputKind.RightUp, 2) && !Context(click, NavigationInputKind.RightUp, 2), "Single right click was lost or repeated.");
+    }
+    private static void ChordContextClick()
+    {
+        foreach (var reverse in new[] { false, true }) foreach (var rightFirst in new[] { false, true })
+        {
+            var click = new DesktopContextClick();
+            Context(click, reverse ? NavigationInputKind.RightDown : NavigationInputKind.LeftDown);
+            Context(click, reverse ? NavigationInputKind.LeftDown : NavigationInputKind.RightDown);
+            Require(!Context(click, rightFirst ? NavigationInputKind.RightUp : NavigationInputKind.LeftUp)
+                && !Context(click, rightFirst ? NavigationInputKind.LeftUp : NavigationInputKind.RightUp), "Chord leaked a shell click.");
+        }
+    }
+    private static void ContextClickBoundary()
+    {
+        var click = new DesktopContextClick(); Context(click, NavigationInputKind.RightDown);
+        Context(click, NavigationInputKind.Move, 10); Context(click, NavigationInputKind.Move);
+        Require(!Context(click, NavigationInputKind.RightUp), "Right drag became a click after returning to its origin.");
+        Context(click, NavigationInputKind.RightDown); Context(click, NavigationInputKind.Move, desktop: false);
+        Require(!Context(click, NavigationInputKind.RightUp), "Crossing an application replayed a click.");
+        Context(click, NavigationInputKind.RightDown, desktop: false);
+        Require(!Context(click, NavigationInputKind.RightUp), "Application-origin right click was captured.");
+    }
+    private static void ContextClickCancellation()
+    {
+        var click = new DesktopContextClick(); Context(click, NavigationInputKind.RightDown, captured: false);
+        Require(!Context(click, NavigationInputKind.RightUp, captured: false), "Inactive click replayed.");
+        Context(click, NavigationInputKind.RightDown); Context(click, NavigationInputKind.Wheel);
+        Require(!Context(click, NavigationInputKind.RightUp), "Wheel interaction replayed.");
+        Context(click, NavigationInputKind.RightDown); click.Cancel();
+        Require(!Context(click, NavigationInputKind.RightUp), "Cancelled navigation replayed.");
+        Context(click, NavigationInputKind.RightDown);
+        Require(!Context(click, NavigationInputKind.RightUp, captured: false), "Post-exit release replayed.");
+    }
     private sealed class Harness
     {
         internal readonly CanvasWorkspace Workspace = new(new(1920, 1080));

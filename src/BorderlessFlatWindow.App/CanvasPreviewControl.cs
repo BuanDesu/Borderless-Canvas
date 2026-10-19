@@ -16,7 +16,15 @@ internal sealed class CanvasPreviewControl : Control
     internal Guid? ActiveWindowId { get; set; }
     internal void FitToContent() { projection = null; Invalidate(); }
 
-    protected override void OnResize(EventArgs e) { base.OnResize(e); projection = null; }
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e); projection = null;
+        if (Width > 0 && Height > 0)
+        {
+            using var shape = ChromeTheme.Round(ClientRectangle, 24);
+            var old = Region; Region = new Region(shape); old?.Dispose();
+        }
+    }
 
     internal CanvasPreviewControl(CanvasWorkspace workspace)
     {
@@ -35,6 +43,8 @@ internal sealed class CanvasPreviewControl : Control
         if (Width <= 64 || Height <= 64)
             return;
         ChromeTheme.Grid(e.Graphics, ClientRectangle);
+        ChromeTheme.Sticker(e.Graphics, new(22, 22), "heart", 3);
+        ChromeTheme.Sticker(e.Graphics, new(Width - 56, Height - 47), "candy", 3);
         var windows = DrawWindows();
         if (AutoFit || projection is null) projection = OverviewProjection.Fit(windows.Select(window => window.Bounds)
             .Append(workspace.Camera.Bounds).Append(new RectD(PointD.Zero, new SizeD(1, 1))),
@@ -63,7 +73,8 @@ internal sealed class CanvasPreviewControl : Control
         if (windows.Count == 0)
         {
             var center = new Point(Width / 2, Height / 2);
-            ChromeTheme.Mark(e.Graphics, new(center.X - 30, center.Y - 76, 60, 60));
+            ChromeTheme.Glass(e.Graphics, new(center.X - 112, center.Y - 92, 224, 160), ChromeTheme.Purple);
+            ChromeTheme.Mark(e.Graphics, new(center.X - 30, center.Y - 74, 60, 60));
             TextRenderer.DrawText(e.Graphics, "为窗口留一点自由", Font, new Rectangle(0, center.Y + 4, Width, 36), ChromeTheme.Text,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
