@@ -13,6 +13,7 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
     {
         if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
             throw new InvalidOperationException("Window inspection requires an STA thread.");
+        using var pixels = new PhysicalPixelScope();
         // Keep native callbacks short; do all probing outside the unmanaged callback.
         var handles = new List<nint>();
         var succeeded = NativeMethods.EnumWindows((handle, _) => { handles.Add(handle); return true; }, 0);

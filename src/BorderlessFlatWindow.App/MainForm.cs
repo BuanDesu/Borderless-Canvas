@@ -17,6 +17,7 @@ internal sealed class MainForm : Form
     private readonly CheckBox showExcluded = new() { Text = "显示被排除的窗口", AutoSize = true, Margin = new Padding(10, 8, 0, 0) };
     private WindowCatalogSnapshot? snapshot;
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    private readonly DisplayDiagnosticsControl displays;
     private readonly ListView windowList = new()
     {
         Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
@@ -44,6 +45,15 @@ internal sealed class MainForm : Form
         var catalogTab = new TabPage("Windows 窗口候选（只读）");
         tabs.TabPages.Add(canvasTab);
         tabs.TabPages.Add(catalogTab);
+        var displayTab = new TabPage("显示器与坐标（只读）");
+        displays = new(new BorderlessFlatWindow.Windows.DesktopDisplayCatalog(), layout =>
+        {
+            workspace.SetViewportSize(layout.Primary.WorkArea.Size);
+            UpdateCameraStatus();
+            preview.Invalidate();
+        }) { Dock = DockStyle.Fill };
+        displayTab.Controls.Add(displays);
+        tabs.TabPages.Add(displayTab);
         canvasTab.Controls.Add(preview);
 
         var navigation = new FlowLayoutPanel
@@ -82,7 +92,7 @@ internal sealed class MainForm : Form
         var intro = new Label
         {
             Dock = DockStyle.Top, Height = 96, Padding = new Padding(14),
-            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM1：窗口身份与准入检查。查看检查页了解纳入或排除原因；尚未移动真实窗口。"
+            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM1：窗口身份、显示器工作区与物理坐标诊断。尚未移动真实窗口。"
         };
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
@@ -90,6 +100,7 @@ internal sealed class MainForm : Form
         Controls.Add(intro);
         Controls.Add(status);
         UpdateCameraStatus();
+        displays.RefreshDisplays();
     }
 
     private static CanvasWindow Sample(string title, double x, double y, double width, double height) =>
@@ -110,7 +121,7 @@ internal sealed class MainForm : Form
     }
 
     private void UpdateCameraStatus() => cameraStatus.Text =
-        $"相机 ({workspace.Camera.Position.X:0}, {workspace.Camera.Position.Y:0}) · 示例窗口 {workspace.Windows.Count} · 视口 1280 × 720";
+        $"相机 ({workspace.Camera.Position.X:0}, {workspace.Camera.Position.Y:0}) · 示例窗口 {workspace.Windows.Count} · 视口 {workspace.Camera.ViewportSize.Width:0} × {workspace.Camera.ViewportSize.Height:0}";
 
     private void RefreshCatalog()
     {
@@ -130,6 +141,12 @@ internal sealed class MainForm : Form
         tabs.SelectedIndex = 1;
         showExcluded.Checked = true;
         RefreshCatalog();
+    }
+
+    internal void PrepareDisplaySmoke()
+    {
+        tabs.SelectedIndex = 2;
+        displays.RefreshDisplays();
     }
 
     private void RenderSnapshot()

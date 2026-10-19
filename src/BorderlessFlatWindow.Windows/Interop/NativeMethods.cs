@@ -6,6 +6,44 @@ namespace BorderlessFlatWindow.Windows.Interop;
 
 internal static class NativeMethods
 {
+    internal delegate bool MonitorEnumCallback(nint monitor, nint dc, nint rectangle, nint parameter);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EnumDisplayMonitors(nint dc, nint clip, MonitorEnumCallback callback, nint parameter);
+
+    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetMonitorInfo(nint monitor, ref NativeMonitorInfo info);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct NativeMonitorInfo
+    {
+        internal uint Size;
+        internal NativeRect Bounds;
+        internal NativeRect WorkArea;
+        internal uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        internal string DeviceName;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern nint SetThreadDpiAwarenessContext(nint context);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern nint CreateWindowExW(uint extendedStyle, string className, string title, uint style,
+        int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DestroyWindow(nint window);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetDpiForWindow(nint window);
+
+    [DllImport("user32.dll")]
+    internal static extern nint MonitorFromWindow(nint window, uint flags);
+
     internal delegate bool EnumWindowsCallback(nint window, nint parameter);
 
     [DllImport("user32.dll", SetLastError = true)]

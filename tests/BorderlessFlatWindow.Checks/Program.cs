@@ -13,7 +13,7 @@ var cases = new (string Name, Action Run)[]
     ("Missing and closed targets do not move the camera", MissingTargets)
 };
 var failed = 0;
-var allCases = cases.Concat(DiscoveryChecks.Cases()).ToArray();
+var allCases = cases.Concat(DiscoveryChecks.Cases()).Concat(CoordinateChecks.Cases()).ToArray();
 foreach (var (name, run) in allCases)
 {
     try { run(); Console.WriteLine($"PASS {name}"); }

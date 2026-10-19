@@ -27,6 +27,8 @@ public sealed class CanvasWorkspace
 
     public bool RemoveWindow(Guid id) => windows.Remove(id);
 
+    public void SetViewportSize(SizeD size) => Camera = new(Camera.Position, size);
+
     public void NavigateTo(PointD position)
     {
         if (position == Camera.Position)
