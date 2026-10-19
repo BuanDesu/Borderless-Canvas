@@ -49,6 +49,8 @@ public sealed class ManagedCanvasSession : IDisposable
     public IReadOnlyList<nint> PendingHandles => managed.Values.Where(window => window.Deadline is not null).Select(window => window.Identity.Handle).ToArray();
     public IReadOnlyList<nint> ManagedHandles => managed.Values.Select(window => window.Identity.Handle).ToArray();
     public int ParkedCount => managed.Values.Count(window => window.Parked);
+    public bool NavigationSuspended { get; private set; }
+    public void SuspendNavigation(bool suspended) { NavigationSuspended = suspended; if (suspended) activation = null; }
 
     public static string? Unsupported(InspectedWindow entry, DisplayLayout layout)
     {
@@ -115,7 +117,7 @@ public sealed class ManagedCanvasSession : IDisposable
 
     public bool Navigate(PointD camera, DateTimeOffset now, bool recordHistory = true)
     {
-        if (!IsRunning || busy) return false;
+        if (!IsRunning || busy || NavigationSuspended) return false;
         busy = true;
         activation = null;
         try { return ApplyCamera(camera, now, recordHistory); }
@@ -193,7 +195,7 @@ public sealed class ManagedCanvasSession : IDisposable
             // Foreground is handled before geometry: shells/apps may reposition an activated parked window.
             var active = managed.Values.FirstOrDefault(window => window.Identity.Handle == foreground);
             ActiveWindowId = active?.Id;
-            if (foreground != lastForeground && active is { Parked: true })
+            if (!NavigationSuspended && foreground != lastForeground && active is { Parked: true })
             {
                 var window = Workspace.Windows.Single(window => window.Id == active.Id);
                 if (byHandle.TryGetValue(foreground, out var activated) && activated.Id == active.Id
@@ -216,7 +218,15 @@ public sealed class ManagedCanvasSession : IDisposable
                 if (!byHandle.TryGetValue(state.Identity.Handle, out var entry) || entry.Id != state.Id
                     || entry.Observation.Identity != state.Identity || !entry.Admission.IsAdmitted
                     || entry.Observation.IsMaximized || entry.Observation.IsTopMost)
-                { PauseInternal("受管理窗口关闭、身份或状态改变，已暂停恢复。"); return; }
+                {
+                    foreach (var candidate in managed.Values.ToArray())
+                    {
+                        if (!byHandle.TryGetValue(candidate.Identity.Handle, out var current) || !current.Observation.IsAlive
+                            || current.Observation.Identity is { } identity && identity != candidate.Identity)
+                        { Workspace.RemoveWindow(candidate.Id); managed.Remove(candidate.Id); }
+                    }
+                    PauseInternal("受管理窗口关闭、身份或状态改变，已暂停恢复。"); return;
+                }
                 var bounds = entry.Observation.Bounds!.Value;
                 var actual = new PixelRect(checked((int)bounds.Position.X), checked((int)bounds.Position.Y), checked((int)bounds.Right), checked((int)bounds.Bottom));
                 var world = Workspace.Windows.Single(window => window.Id == state.Id);

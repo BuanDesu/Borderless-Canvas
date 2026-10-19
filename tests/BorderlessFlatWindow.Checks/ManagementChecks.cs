@@ -14,6 +14,7 @@ internal static class ManagementChecks
         yield return ("Focus activates only after native placement is observed", Focus);
         yield return ("Activation denial keeps the located layout and reports a usable fallback", ActivationDenied);
         yield return ("A new navigation gesture cancels an older pending activation", SupersededFocus);
+        yield return ("Overview suspension freezes native navigation and foreground-follow until confirmation", OverviewSuspension);
         yield return ("Shell relocation before parked foreground activation preserves world geometry", ShellActivation);
         yield return ("External drag/resize updates only that window in world space", ExternalDrag);
         yield return ("Intermediate queued movement callbacks cannot corrupt world geometry", Queued);
@@ -21,6 +22,7 @@ internal static class ManagementChecks
         yield return ("Partially rejected native batches restore every registered window", PartialFailure);
         yield return ("Owned dialogs including indirect owner chains pause and restore management", Popup);
         yield return ("Closed targets are skipped while surviving managed windows recover", Closed);
+        yield return ("Closing a group of managed targets removes every paused-layout ghost", ClosedGroup);
         yield return ("Pause/resume preserves the logical layout, camera and bookmarks", Resume);
         yield return ("Beginning management cannot silently recover an inherited journal", Inherited);
         yield return ("Unsupported native state and multiscreen configuration cannot start management", Unsupported);
@@ -148,6 +150,17 @@ internal static class ManagementChecks
         h.Apply(h.Pending.Last()); h.Tick();
         Require(h.Session.IsRunning && !h.Session.HasPending && h.Activations == 0, "Superseded focus stole activation during pan.");
     }
+    private static void OverviewSuspension()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.Navigate(new(8000, 0), Now); h.Tick();
+        var camera = h.Session.Workspace.Camera.Position; var batches = h.Batches;
+        h.Session.SuspendNavigation(true);
+        Require(!h.Session.Pan(new(120, 0), Now) && !h.Session.Home(Now) && !h.Session.Focus(h.Session.Workspace.Windows[0].Id, Now), "Overview allowed working navigation.");
+        h.Tick(100, foreground: 42);
+        Require(h.Session.IsRunning && h.Session.Workspace.Camera.Position == camera && h.Batches == batches && h.Activations == 0,
+            "Foreground-follow changed the overview's starting view.");
+        h.Session.SuspendNavigation(false); Require(h.Session.Home(Now), "Closing overview did not release suspension.");
+    }
     private static void ExternalDrag()
     {
         using var h = new Harness(); h.Begin(); h.Session.Pan(new(100, 0), Now); h.Tick(); var before = h.Session.Workspace.Windows[0]; var batches = h.Batches;
@@ -198,7 +211,8 @@ internal static class ManagementChecks
     private static void Closed()
     {
         using var h = new Harness(); h.Begin(); h.Session.Pan(new(300, 0), Now); h.Tick(); h.Native.Remove(42); h.Tick();
-        Require(!h.Session.IsRunning && h.Native[43].Bounds == Rect(900, 140) && h.Saved!.Entries.Count == 0, "Close did not safely recover survivors.");
+        Require(!h.Session.IsRunning && h.Native[43].Bounds == Rect(900, 140) && h.Saved!.Entries.Count == 0
+            && h.Session.Workspace.Windows.Count == 1 && h.Session.ManagedHandles.SequenceEqual(new nint[] { 43 }), "Close did not safely remove the target and recover survivors.");
     }
     private static void Resume()
     {
@@ -206,6 +220,12 @@ internal static class ManagementChecks
         h.Session.Workspace.AddBookmark("Area"); h.Session.Pause(); h.Begin();
         Require(h.Session.Workspace.Camera.Position == new PointD(300, -100) && h.Session.Workspace.Windows.SequenceEqual(before)
             && h.Session.Workspace.Bookmarks.Count == 1, "Resume forgot logical session.");
+    }
+    private static void ClosedGroup()
+    {
+        using var h = new Harness(); h.Begin(); h.Native.Clear(); h.Tick();
+        Require(!h.Session.IsRunning && h.Session.Workspace.Windows.Count == 0 && h.Session.ManagedHandles.Count == 0
+            && h.Saved!.Entries.Count == 0, "Closed group left stale windows or recovery records.");
     }
     private static void Inherited()
     {

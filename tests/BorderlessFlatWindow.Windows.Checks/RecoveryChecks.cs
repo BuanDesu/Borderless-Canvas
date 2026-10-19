@@ -25,8 +25,10 @@ internal static class RecoveryChecks
         internal void Open()
         {
             Show();
+            System.Windows.Forms.Application.DoEvents();
             var catalog = new DesktopWindowCatalog(0);
-            PumpUntil(() => { catalog.RefreshWindow(Handle); return catalog.Current.AdmittedWindows.Any(window => window.Handle == Handle); }, TimeSpan.FromSeconds(3));
+            PumpUntil(() => { catalog.RefreshWindow(Handle); return catalog.Current.AdmittedWindows.Any(window => window.Handle == Handle); }, TimeSpan.FromSeconds(3),
+                () => "Recovery fixture not admitted: " + catalog.Current.Entries.FirstOrDefault(entry => entry.Observation.Handle == Handle)?.Admission.Reason);
         }
     }
     private static NativeWindowIdentity Identity(Fixture fixture) => new DesktopWindowCatalog(0).Inspect().Entries
@@ -164,11 +166,11 @@ internal static class RecoveryChecks
         }
         catch (Exception exception) { Console.Error.WriteLine(exception.Message); return 1; }
     }
-    private static void PumpUntil(Func<bool> completed, TimeSpan timeout)
+    private static void PumpUntil(Func<bool> completed, TimeSpan timeout, Func<string>? failure = null)
     {
         var watch = Stopwatch.StartNew();
         while (!completed() && watch.Elapsed < timeout) { System.Windows.Forms.Application.DoEvents(); Thread.Sleep(5); }
-        Require(completed(), "Recovery subprocess timed out.");
+        Require(completed(), failure?.Invoke() ?? "Recovery subprocess timed out.");
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

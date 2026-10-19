@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T07 核心实现/记录已推进，待各自验证与 PR 合并后勾选。T07 已接全局模式、快捷键冲突、手势合并和输入释放；全局滚轮、Esc、Home/Backspace 与跨进程水平滚动已实测，实际 Shift/双键组合仍待验收，见[导航说明](docs/global-navigation.md)。下一步空间总览、预览降级和标签。任务栏实际点击/hover、普通第三方应用和真实多屏仍未完成验收；持续目标为[可试用原型](docs/prototype-plan.md)。
+当前状态：T01–T08 核心实现/记录已推进，待各自验证与 PR 合并后勾选。T08 总览搜索、方向选择、确认/取消、焦点返回和关闭移除已用两个真实窗口验证，见[总览说明](docs/spatial-overview.md)。下一步 T09 预览资源与降级、T10 标签持久化。实际 Shift/双键组合、任务栏点击/hover、普通第三方应用和真实多屏仍未完成验收；持续目标为[可试用原型](docs/prototype-plan.md)。
 
 ## 已完成：M0 基础项目
 
