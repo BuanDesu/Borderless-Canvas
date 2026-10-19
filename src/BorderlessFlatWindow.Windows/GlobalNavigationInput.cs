@@ -51,7 +51,12 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     public GlobalNavigationState State => Volatile.Read(ref state);
     public string OverviewMessage => Volatile.Read(ref overviewMessage);
-    public void SetOverviewOpen(bool value) => Post(() => { overviewOpen = value; if (value) Leave("总览中，导航已暂停。"); });
+    public void SetOverviewOpen(bool value) => Post(() =>
+    {
+        if (overviewOpen == value) return;
+        overviewOpen = value;
+        Leave(value ? "总览中，导航已暂停。" : "总览已关闭；可再次切换导航，Esc 退出。");
+    });
     public void SetAvailable(bool value) => Post(() => { available = value; if (!value && gate.Active) Leave("画布未运行，导航已退出。"); });
     public void Toggle() => Post(ToggleCore);
     public void Exit() => Post(() => Leave("已退出导航；应用恢复正常鼠标交互。"));

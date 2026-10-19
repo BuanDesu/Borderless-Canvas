@@ -4,7 +4,7 @@
 
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
-当前推进到 **M3 / T08 空间总览**：已有单屏真实画布、全局导航、按手势保存历史，以及保留位置的总览搜索、方向选择、确认和取消。总览使用标题视图；下一步 DWM 预览降级和位置标签持久化。操作与证据见[空间总览](docs/spatial-overview.md)、[全局导航](docs/global-navigation.md)、[真实画布管理](docs/managed-canvas.md)与[原型交付检查](docs/prototype-plan.md)。
+当前推进到 **M3 / T09 总览预览与降级**：已有单屏真实画布、全局导航、手势历史、空间总览搜索/选择，以及可关闭的 DWM 画面；离屏和不可预览来源使用标题卡片，仍可定位。下一步位置标签持久化和运行中新窗口接入。操作与证据见[空间总览](docs/spatial-overview.md)、[预览与降级](docs/overview-previews.md)、[全局导航](docs/global-navigation.md)与[原型交付检查](docs/prototype-plan.md)。
 
 ## 快速开始
 
@@ -96,6 +96,7 @@ docs/
 - [真实画布管理](docs/managed-canvas.md)：T06 接管、连续平移、聚焦、暂停恢复与实测范围。
 - [全局导航](docs/global-navigation.md)：T07 模式、快捷键、手势历史、线程与输入释放边界。
 - [空间总览](docs/spatial-overview.md)：T08 稳定投影、搜索/选择、确认/取消、焦点保护与生命周期。
+- [总览预览与降级](docs/overview-previews.md)：T09 资源生命周期、离屏标题占位、失败重试和真实画面验证。
 - [可试用原型交付检查](docs/prototype-plan.md)：持续目标的实际功能与验收边界。
 - [开发路线图](docs/roadmap.md)：从 M0 骨架到真实桌面接管的顺序。
 - [验收与验证记录](docs/acceptance.md)：模型检查、UI 冒烟检查和后续桌面验收。
