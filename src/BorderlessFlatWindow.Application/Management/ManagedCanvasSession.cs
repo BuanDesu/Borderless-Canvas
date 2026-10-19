@@ -117,6 +117,7 @@ public sealed class ManagedCanvasSession : IDisposable
     {
         if (!IsRunning || busy) return false;
         busy = true;
+        activation = null;
         try { return ApplyCamera(camera, now, recordHistory); }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"平移失败：{exception.Message}"); return false; }
         finally { busy = false; }

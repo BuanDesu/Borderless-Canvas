@@ -193,6 +193,7 @@ internal sealed class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        if (!showWithoutActivation) management.InitializeGlobalInput();
         try
         {
             listener = new();

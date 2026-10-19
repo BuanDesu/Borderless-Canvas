@@ -45,6 +45,24 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "recovery-smoke.png"));
+            using (var hud = new NavigationHud { Opacity = 0 })
+            {
+                hud.Present("Ctrl+Alt+Space", new(-12000, 8500));
+                System.Windows.Forms.Application.DoEvents();
+                using var hudBitmap = new Bitmap(hud.Width, hud.Height);
+                hud.DrawToBitmap(hudBitmap, new Rectangle(Point.Empty, hud.Size));
+                hudBitmap.Save(Path.Combine(output, "navigation-hud-smoke.png"));
+                hud.Hide();
+            }
+            using (var settings = new NavigationSettingsDialog(new(wheelDistance: 240), showWithoutActivation: true) { Opacity = 0 })
+            {
+                settings.Show();
+                System.Windows.Forms.Application.DoEvents();
+                using var settingsBitmap = new Bitmap(settings.Width, settings.Height);
+                settings.DrawToBitmap(settingsBitmap, new Rectangle(Point.Empty, settings.Size));
+                settingsBitmap.Save(Path.Combine(output, "navigation-settings-smoke.png"));
+                settings.Hide();
+            }
             var inspection = new DesktopWindowCatalog().Inspect();
             var tracking = form.GetTrackingDiagnostics();
             File.WriteAllText(Path.Combine(output, "shell-smoke.json"),
