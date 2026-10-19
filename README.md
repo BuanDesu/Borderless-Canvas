@@ -4,7 +4,7 @@
 
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
-当前推进到 **M3 / T09 总览预览与降级**：已有单屏真实画布、全局导航、手势历史、空间总览搜索/选择，以及可关闭的 DWM 画面；离屏和不可预览来源使用标题卡片，仍可定位。下一步位置标签持久化和运行中新窗口接入。操作与证据见[空间总览](docs/spatial-overview.md)、[预览与降级](docs/overview-previews.md)、[全局导航](docs/global-navigation.md)与[原型交付检查](docs/prototype-plan.md)。
+当前推进到 **M3 / T10 位置标签持久化**：已有单屏真实画布、全局导航、空间总览及预览降级；位置标签支持新增、重命名、删除、搜索和真实相机跳转，关闭后重启保留 ID 与坐标。下一步运行中新窗口接入及试用验收。操作与证据见[位置标签](docs/location-bookmarks.md)、[空间总览](docs/spatial-overview.md)、[预览与降级](docs/overview-previews.md)和[原型交付检查](docs/prototype-plan.md)。
 
 ## 快速开始
 
@@ -16,7 +16,7 @@ Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作
 # 编译整个解决方案
 .\scripts\build.ps1
 
-# 执行模型与日志文件检查；加 -SmokeUi 可渲染六个页面
+# 执行模型与恢复/标签文件检查；加 -SmokeUi 可渲染页面及降级状态
 .\scripts\check.ps1 -SmokeUi
 
 # 在具备交互桌面的 Windows 上检查透明原生测试窗口
@@ -97,6 +97,7 @@ docs/
 - [全局导航](docs/global-navigation.md)：T07 模式、快捷键、手势历史、线程与输入释放边界。
 - [空间总览](docs/spatial-overview.md)：T08 稳定投影、搜索/选择、确认/取消、焦点保护与生命周期。
 - [总览预览与降级](docs/overview-previews.md)：T09 资源生命周期、离屏标题占位、失败重试和真实画面验证。
+- [位置标签与存储](docs/location-bookmarks.md)：T10 命名位置、重名区分、真实跳转、重启及文件损坏处理。
 - [可试用原型交付检查](docs/prototype-plan.md)：持续目标的实际功能与验收边界。
 - [开发路线图](docs/roadmap.md)：从 M0 骨架到真实桌面接管的顺序。
 - [验收与验证记录](docs/acceptance.md)：模型检查、UI 冒烟检查和后续桌面验收。

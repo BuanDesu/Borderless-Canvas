@@ -1,6 +1,7 @@
 using BorderlessFlatWindow.Application.Discovery;
 using BorderlessFlatWindow.Application.Displays;
 using BorderlessFlatWindow.Application.Recovery;
+using BorderlessFlatWindow.Application.Bookmarks;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
 
@@ -33,11 +34,11 @@ public sealed class ManagedCanvasSession : IDisposable
         internal readonly HashSet<PixelRect> Expected = [];
     }
 
-    public ManagedCanvasSession(Func<RecoverySession> createRecovery, IWindowMotionPort motion, DisplayLayout layout)
+    public ManagedCanvasSession(Func<RecoverySession> createRecovery, IWindowMotionPort motion, DisplayLayout layout, BookmarkCollection? bookmarks = null)
     {
         this.createRecovery = createRecovery; this.motion = motion; this.layout = layout;
         planner = new(layout.Primary.WorkArea, layout.Monitors.Select(monitor => monitor.Bounds));
-        Workspace = new(layout.Primary.WorkArea.Size);
+        Workspace = new(layout.Primary.WorkArea.Size, bookmarks);
     }
     public CanvasWorkspace Workspace { get; }
     public CanvasSessionStatus Status { get; private set; }
@@ -123,6 +124,11 @@ public sealed class ManagedCanvasSession : IDisposable
         try { return ApplyCamera(camera, now, recordHistory); }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"平移失败：{exception.Message}"); return false; }
         finally { busy = false; }
+    }
+    public bool GoToBookmark(Guid id, DateTimeOffset now)
+    {
+        var bookmark = Workspace.Bookmarks.FirstOrDefault(entry => entry.Id == id);
+        return bookmark is not null && Navigate(bookmark.CameraPosition, now);
     }
     public bool Pan(PointD delta, DateTimeOffset now) => Navigate(Workspace.Camera.Position + delta, now);
     public bool Home(DateTimeOffset now) => Navigate(PointD.Zero, now);

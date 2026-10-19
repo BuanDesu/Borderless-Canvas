@@ -12,7 +12,11 @@ internal static class Program
         var journalIndex = Array.IndexOf(args, "--journal");
         if (journalIndex >= 0 && journalIndex + 1 >= args.Length) return 1;
         var journalPath = journalIndex < 0 ? null : args[journalIndex + 1];
-        using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath);
+        var bookmarkIndex = Array.IndexOf(args, "--bookmarks");
+        if (bookmarkIndex >= 0 && bookmarkIndex + 1 >= args.Length) return 1;
+        var bookmarkPath = bookmarkIndex < 0 ? null : args[bookmarkIndex + 1];
+        if (smoke) bookmarkPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/bookmark-smoke", Guid.NewGuid().ToString("N"), "bookmarks.json"));
+        using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath);
         if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.
@@ -45,6 +49,24 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "recovery-smoke.png"));
+            form.PrepareBookmarkSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "bookmarks-smoke.png"));
+            form.PrepareBookmarkSearchSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "bookmarks-search-smoke.png"));
+            form.CheckBookmarkCommandsSmoke();
+            File.WriteAllText(bookmarkPath!, "{intentionally-malformed-smoke-fixture");
+            form.ReloadBookmarksSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "bookmarks-readonly-smoke.png"));
+            form.ResetBookmarksSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "bookmarks-reset-smoke.png"));
             using (var hud = new NavigationHud { Opacity = 0 })
             {
                 hud.Present("Ctrl+Alt+Space", new(-12000, 8500));

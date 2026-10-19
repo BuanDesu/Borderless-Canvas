@@ -1,5 +1,6 @@
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Application.Bookmarks;
 
 namespace BorderlessFlatWindow.Application;
 
@@ -7,15 +8,16 @@ namespace BorderlessFlatWindow.Application;
 public sealed class CanvasWorkspace
 {
     private readonly Dictionary<Guid, CanvasWindow> windows = [];
-    private readonly Dictionary<Guid, LocationBookmark> bookmarks = [];
+    private readonly BookmarkCollection bookmarks;
     private readonly List<PointD> history = [];
     private const int HistoryLimit = 64;
 
-    public CanvasWorkspace(SizeD viewportSize) => Camera = new(PointD.Zero, viewportSize);
+    public CanvasWorkspace(SizeD viewportSize, BookmarkCollection? bookmarks = null)
+    { Camera = new(PointD.Zero, viewportSize); this.bookmarks = bookmarks ?? new(); }
 
     public Camera2D Camera { get; private set; }
     public IReadOnlyList<CanvasWindow> Windows => windows.Values.ToArray();
-    public IReadOnlyList<LocationBookmark> Bookmarks => bookmarks.Values.ToArray();
+    public IReadOnlyList<LocationBookmark> Bookmarks => bookmarks.Items;
 
     public void UpsertWindow(CanvasWindow window)
     {
@@ -77,17 +79,15 @@ public sealed class CanvasWorkspace
 
     public LocationBookmark AddBookmark(string name)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        var bookmark = new LocationBookmark(Guid.NewGuid(), name.Trim(), Camera.Position);
-        bookmarks.Add(bookmark.Id, bookmark);
-        return bookmark;
+        return bookmarks.Add(name, Camera.Position);
     }
 
     public bool RemoveBookmark(Guid id) => bookmarks.Remove(id);
 
     public bool GoToBookmark(Guid id)
     {
-        if (!bookmarks.TryGetValue(id, out var bookmark))
+        var bookmark = bookmarks.Items.FirstOrDefault(entry => entry.Id == id);
+        if (bookmark is null)
             return false;
         NavigateTo(bookmark.CameraPosition);
         return true;

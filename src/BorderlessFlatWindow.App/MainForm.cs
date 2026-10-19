@@ -5,6 +5,8 @@ using BorderlessFlatWindow.Application.Ports;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows;
+using BorderlessFlatWindow.Application.Bookmarks;
+using BorderlessFlatWindow.Windows.Bookmarks;
 
 namespace BorderlessFlatWindow.App;
 
@@ -30,12 +32,14 @@ internal sealed class MainForm : Form
     private readonly DisplayDiagnosticsControl displays;
     private readonly RecoveryDiagnosticsControl recovery;
     private readonly ManagedCanvasControl management;
+    private readonly BookmarkLibrary bookmarks;
+    private readonly BookmarkControl bookmarkControl;
     private readonly ListView windowList = new()
     {
         Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
     };
 
-    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null)
+    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null)
     {
         this.catalog = catalog;
         this.showWithoutActivation = showWithoutActivation;
@@ -59,9 +63,19 @@ internal sealed class MainForm : Form
         livePreview.CameraPanRequested += delta => { liveWorkspace.PanBy(delta); livePreview.Invalidate(); };
         eventTimer.Tick += (_, _) => FlushEvents();
 
-        management = new(catalog, journalPath) { Dock = DockStyle.Fill };
+        bookmarks = new(() => new JsonBookmarkStore(bookmarksPath ?? JsonBookmarkStore.DefaultPath)); bookmarks.Reload();
+        management = new(catalog, journalPath, bookmarks) { Dock = DockStyle.Fill };
+        bookmarkControl = new(bookmarks, () => management.BookmarkPosition, () => management.CanJumpToBookmark,
+            management.GoToBookmark, management.EndNavigationForEditing) { Dock = DockStyle.Fill };
         management.StatusChanged += UpdateCameraStatus;
+        management.StatusChanged += bookmarkControl.RefreshNavigationState;
         management.RecoveryRequested += () => tabs.SelectedIndex = 5;
+        management.BookmarksRequested += () => tabs.SelectedIndex = 6;
+        tabs.SelectedIndexChanged += (_, _) =>
+        {
+            if (tabs.SelectedIndex == 6) { management.EndNavigationForEditing(); bookmarkControl.RefreshNavigationState(); }
+            UpdateCameraStatus();
+        };
         var managementTab = new TabPage("窗口画布");
         managementTab.Controls.Add(management);
         tabs.TabPages.Add(managementTab);
@@ -100,6 +114,7 @@ internal sealed class MainForm : Form
         recovery = new(journalPath) { Dock = DockStyle.Fill };
         recoveryTab.Controls.Add(recovery);
         tabs.TabPages.Add(recoveryTab);
+        var bookmarkTab = new TabPage("位置标签"); bookmarkTab.Controls.Add(bookmarkControl); tabs.TabPages.Add(bookmarkTab);
         canvasTab.Controls.Add(preview);
 
         var navigation = new FlowLayoutPanel
@@ -170,7 +185,7 @@ internal sealed class MainForm : Form
     private void UpdateCameraStatus()
     {
         var managed = management.Diagnostics();
-        cameraStatus.Text = tabs.SelectedIndex == 0
+        cameraStatus.Text = tabs.SelectedIndex is 0 or 6
             ? $"画布相机 ({managed.Camera.X:0}, {managed.Camera.Y:0}) · 窗口 {managed.Count} · {(managed.Running ? "管理中" : "未接管 / 已暂停")}" :
                 $"示例相机 ({workspace.Camera.Position.X:0}, {workspace.Camera.Position.Y:0}) · 示例窗口 {workspace.Windows.Count}";
     }
@@ -238,6 +253,7 @@ internal sealed class MainForm : Form
             eventTimer.Dispose();
             listener?.Dispose();
             listener = null;
+            bookmarks?.Dispose();
         }
         base.Dispose(disposing);
     }
@@ -279,6 +295,16 @@ internal sealed class MainForm : Form
         tabs.SelectedIndex = 5;
         recovery.RefreshJournal();
     }
+    internal void PrepareBookmarkSmoke()
+    {
+        bookmarks.Add("工作区", new(0, 0)); bookmarks.Add("工作区", new(-4800, 2700));
+        bookmarks.Add("资料", new(9600, -3600)); bookmarkControl.RefreshSmoke(); tabs.SelectedIndex = 6;
+    }
+    internal void PrepareBookmarkSearchSmoke() => bookmarkControl.SetSmokeQuery("资料");
+    internal void CheckBookmarkCommandsSmoke() => bookmarkControl.CheckSmokeCommands();
+    internal void ReloadBookmarksSmoke() { bookmarks.Reload(); bookmarkControl.RefreshSmoke(); }
+    internal void ResetBookmarksSmoke()
+    { if (!bookmarks.BackupAndReset()) throw new InvalidOperationException(bookmarks.Message); bookmarkControl.RefreshSmoke(); }
 
     private void RenderSnapshot()
     {

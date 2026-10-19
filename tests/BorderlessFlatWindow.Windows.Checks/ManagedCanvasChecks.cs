@@ -5,6 +5,8 @@ using BorderlessFlatWindow.Application.Management;
 using BorderlessFlatWindow.Application.Recovery;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows.Recovery;
+using BorderlessFlatWindow.Application.Bookmarks;
+using BorderlessFlatWindow.Windows.Bookmarks;
 
 namespace BorderlessFlatWindow.Windows.Checks;
 
@@ -17,6 +19,7 @@ internal static class ManagedCanvasChecks
         check("A real native window refusing a deferred position triggers bounded recovery", RefusedMove);
         check("A real owned dialog pauses management and restores its parked owner", Popup);
         check("Cross-process stalled UI does not block batch submission and late requests cannot defeat recovery", HungChild);
+        check("Persisted label jumps use native camera movement while rename and deletion leave windows unchanged", BookmarkNavigation);
     }
     private sealed class Fixture : Form
     {
@@ -48,13 +51,13 @@ internal static class ManagedCanvasChecks
         internal readonly ManagedCanvasSession Session;
         internal readonly Rectangle OriginalA;
         internal readonly Rectangle OriginalB;
-        internal Harness()
+        internal Harness(BookmarkCollection? bookmarks = null)
         {
             A.Show(); B.Show();
             PumpUntil(() => { Catalog.Inspect(); return Catalog.Current.AdmittedWindows.Count(window => window.Handle == A.Handle || window.Handle == B.Handle) == 2; });
             OriginalA = A.Bounds; OriginalB = B.Bounds;
             var path = StorageChecks.NewPath("managed");
-            Session = new(() => new(new JsonRecoveryJournalStore(path), new WindowsRecoveryWindowPort(0)), new NativeWindowMotionPort(), new DesktopDisplayCatalog().ReadDisplays());
+            Session = new(() => new(new JsonRecoveryJournalStore(path), new WindowsRecoveryWindowPort(0)), new NativeWindowMotionPort(), new DesktopDisplayCatalog().ReadDisplays(), bookmarks);
             Begin();
         }
         internal void Begin()
@@ -93,6 +96,26 @@ internal static class ManagedCanvasChecks
         var camera = h.Session.Workspace.Camera.Position;
         h.Session.Pause(); Require(h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB, "Pause did not recover originals.");
         h.Begin(); Require(h.Session.Workspace.Camera.Position == camera && h.Session.Workspace.Windows.SequenceEqual(world), "Resume lost layout.");
+    }
+    private static void BookmarkNavigation()
+    {
+        var path = Path.Combine(Path.GetDirectoryName(StorageChecks.NewPath("managed-bookmarks"))!, "bookmarks.json");
+        using var labels = new BookmarkLibrary(() => new JsonBookmarkStore(path)); Require(labels.Reload(), labels.Message);
+        var home = labels.Add("同名位置", PointD.Zero)!; var far = labels.Add("同名位置", new(6000, -5000))!;
+        using var h = new Harness(labels.Collection); var windows = h.Session.Workspace.Windows.ToArray(); var foreground = WindowEventListener.ForegroundWindow;
+        Require(h.Session.GoToBookmark(far.Id, DateTimeOffset.UtcNow), h.Session.Message); h.Settle();
+        Require(h.Session.ParkedCount == 2, "Label jump did not move the camera to its saved region.");
+        var a = h.A.Bounds; var b = h.B.Bounds; var camera = h.Session.Workspace.Camera;
+        Require(labels.Rename(far.Id, "重命名后") && labels.Reload(), labels.Message);
+        Require(h.A.Bounds == a && h.B.Bounds == b && h.Session.Workspace.Camera == camera, "Rename/reload moved native windows.");
+        Require(h.Session.GoToBookmark(home.Id, DateTimeOffset.UtcNow), h.Session.Message); h.Settle();
+        Require(h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB && h.Session.Workspace.Windows.SequenceEqual(windows), "Label jump changed world layout.");
+        Require(h.Session.Back(DateTimeOffset.UtcNow), "Label jump lost navigation history."); h.Settle();
+        a = h.A.Bounds; b = h.B.Bounds; camera = h.Session.Workspace.Camera;
+        Require(labels.Remove(far.Id) && !h.Session.GoToBookmark(far.Id, DateTimeOffset.UtcNow), "Removed label still navigated.");
+        Require(h.A.Bounds == a && h.B.Bounds == b && h.Session.Workspace.Camera == camera && foreground == WindowEventListener.ForegroundWindow,
+            "Deletion moved or activated native windows.");
+        h.Session.Pause(); Require(h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB, "Label navigation could not recover.");
     }
     private static void RefusedMove()
     {
