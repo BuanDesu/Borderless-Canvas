@@ -18,12 +18,16 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
     {
         this.journalPath = Path.GetFullPath(journalPath ?? JsonRecoveryJournalStore.DefaultPath);
         var path = new TextBox { Dock = DockStyle.Top, ReadOnly = true, Text = this.journalPath, Height = 32 };
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new(6) };
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6) };
         actions.Controls.AddRange([refresh, recover]);
         refresh.Click += (_, _) => RefreshJournal();
         recover.Click += async (_, _) => await RecoverAsync();
-        var hint = new Label { Dock = DockStyle.Bottom, Height = 120, Padding = new(14),
-            Text = "恢复程序会核验窗口身份和实例标记，再恢复原始位置与显示状态。\n正常退出和异常恢复共用日志；失败项目保留，关闭或身份不符的窗口会跳过。\n也可独立运行 BorderlessFlatWindow.Recovery.exe；加 --inspect 只检查日志。" };
+        var hint = new WrapLabel
+        {
+            Dock = DockStyle.Bottom,
+            Padding = new(14),
+            Text = "恢复程序会核验窗口身份和实例标记，再恢复原始位置与显示状态。\n正常退出和异常恢复共用日志；失败项目保留，关闭或身份不符的窗口会跳过。\n也可独立运行 BorderlessFlatWindow.Recovery.exe；加 --inspect 只检查日志。"
+        };
         Controls.Add(summary); Controls.Add(actions); Controls.Add(path); Controls.Add(hint);
     }
 
@@ -71,8 +75,13 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
         try
         {
             var executable = FindRecoveryExecutable();
-            var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true };
+            var start = new ProcessStartInfo(executable)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
             start.ArgumentList.Add("--journal"); start.ArgumentList.Add(journalPath);
             using var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动恢复程序。");
             var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();

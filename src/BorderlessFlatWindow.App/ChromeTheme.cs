@@ -1,14 +1,34 @@
 using System.Drawing.Drawing2D;
 using System.Runtime.CompilerServices;
+using BorderlessFlatWindow.Core.Appearance;
 namespace BorderlessFlatWindow.App;
 
 internal static class ChromeTheme
 {
-    private sealed class Surface { internal bool Hover, Pressed, Applied; internal Color? Accent; }
+    private sealed class Surface { internal bool Hover, Pressed, Applied, Game; internal Color? Accent; }
     private static readonly ConditionalWeakTable<Control, Surface> styled = new();
-    internal static readonly Color Ink = Color.FromArgb(231, 226, 255), Panel = Color.FromArgb(245, 240, 255), Text = Color.FromArgb(43, 34, 78), Muted = Color.FromArgb(105, 93, 135);
-    internal static readonly Color Cyan = Color.FromArgb(0, 178, 248), Pink = Color.FromArgb(255, 55, 157), Lime = Color.FromArgb(0, 199, 165), Purple = Color.FromArgb(125, 58, 244);
-    internal static readonly Color[] Candy = [Purple, Cyan, Pink, Lime];
+    private static Color[] colors = [ColorOf(CandyPalette.Default.Primary), ColorOf(CandyPalette.Default.Secondary), ColorOf(CandyPalette.Default.Tertiary), ColorOf(CandyPalette.Default.Quaternary)];
+    internal static Color Ink => Mix(Color.White, Purple, .16f);
+    internal static Color Panel => Mix(Color.White, Purple, .07f);
+    internal static readonly Color Text = Color.FromArgb(35, 30, 49), Muted = Color.FromArgb(89, 82, 107);
+    internal static Color Purple => colors[0];
+    internal static Color Cyan => colors[1];
+    internal static Color Pink => colors[2];
+    internal static Color Lime => colors[3];
+    internal static Color[] Candy => colors;
+    private static Color ColorOf(Rgb c) => Color.FromArgb(c.R, c.G, c.B);
+    internal static void SetPalette(CandyPalette next)
+    {
+        var old = colors; colors = [ColorOf(next.Primary), ColorOf(next.Secondary), ColorOf(next.Tertiary), ColorOf(next.Quaternary)];
+        foreach (var pair in styled)
+            if (pair.Value.Accent is { } accent && Array.IndexOf(old, accent) is var index && index >= 0) pair.Value.Accent = colors[index];
+    }
+    internal static Color OnAccent(Color color)
+    {
+        var rgb = new Rgb(color.R, color.G, color.B);
+        return rgb.Contrast(new(255, 255, 255)) >= rgb.Contrast(new(0, 0, 0)) ? Color.White : Color.Black;
+    }
+    internal static void Game(Button button, Color? accent = null) { var surface = styled.GetOrCreateValue(button); surface.Game = true; surface.Accent = accent; }
     internal static void Accent(Button button, Color color) => styled.GetOrCreateValue(button).Accent = color;
     internal static void Apply(Control root)
     {
@@ -18,7 +38,7 @@ internal static class ChromeTheme
         {
             case Button b:
                 b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderSize = 0; b.UseVisualStyleBackColor = false;
-                b.Padding = new(12, 7, 12, 7); b.MinimumSize = new(40, 42); b.Cursor = Cursors.Hand;
+                b.Padding = new(12, 7, 12, 7); b.MinimumSize = new(36, 36); b.Cursor = Cursors.Hand;
                 if (first)
                 {
                     b.Paint += DrawButton;
@@ -33,11 +53,13 @@ internal static class ChromeTheme
             case ListView list: list.BackColor = Panel; list.BorderStyle = BorderStyle.None; break;
             case CheckedListBox list: list.BackColor = Panel; list.BorderStyle = BorderStyle.None; list.IntegralHeight = false; break;
             case TabControl tabs:
-                tabs.DrawMode = TabDrawMode.OwnerDrawFixed; tabs.SizeMode = TabSizeMode.Fixed; tabs.ItemSize = new(128, 44); tabs.Padding = new(12, 8);
+                tabs.DrawMode = TabDrawMode.OwnerDrawFixed; tabs.SizeMode = TabSizeMode.Fixed; tabs.Padding = new(12, 8);
+                if (tabs is ChromeTabs chrome) chrome.FitLabels(); else tabs.ItemSize = new(156, Math.Max(44, tabs.Font.Height + 18));
                 if (first) tabs.DrawItem += DrawTab; break;
             case ToolStrip strip: StyleMenu(strip); break;
         }
         foreach (Control child in root.Controls) Apply(child);
+        if (root is GameCommandDeck) foreach (Control child in root.Controls) child.BackColor = Color.Transparent;
     }
     internal static void StyleMenu(ToolStrip menu)
     {
@@ -50,9 +72,9 @@ internal static class ChromeTheme
         public override Color ImageMarginGradientBegin => Panel;
         public override Color ImageMarginGradientMiddle => Panel;
         public override Color ImageMarginGradientEnd => Panel;
-        public override Color MenuItemSelected => Color.FromArgb(231, 225, 255);
-        public override Color MenuItemBorder => Color.FromArgb(213, 200, 255);
-        public override Color MenuBorder => Color.FromArgb(217, 223, 239);
+        public override Color MenuItemSelected => Mix(Color.White, Purple, .12f);
+        public override Color MenuItemBorder => Mix(Color.White, Purple, .25f);
+        public override Color MenuBorder => Mix(Color.White, Purple, .2f);
     }
     internal static GraphicsPath Round(RectangleF r, float radius = 14)
     {
@@ -72,9 +94,23 @@ internal static class ChromeTheme
     {
         if (sender is not Button b || b.Width < 8 || b.Height < 8) return;
         var s = styled.GetOrCreateValue(b); var g = e.Graphics; if (b.BackColor != Color.Transparent) g.Clear(b.BackColor);
+        if (s.Game) { DrawGameButton(g, b, s); return; }
         var r = new RectangleF(4, s.Pressed ? 5 : s.Hover ? 1 : 2, b.Width - 8, b.Height - 9); Glass(g, r, s.Accent ?? Purple, b.Focused || s.Hover, s.Pressed);
         if (s.Accent is { } accent && b.Enabled) { using var shape = Round(r); using var fill = new LinearGradientBrush(r, accent, accent == Pink ? Purple : Cyan, 25); g.FillPath(fill, shape); using var shine = new Pen(Color.FromArgb(170, Color.White)); g.DrawArc(shine, r.X + 2, r.Y + 2, r.Width - 4, r.Height - 4, 190, 120); }
-        TextRenderer.DrawText(g, b.Text, b.Font, Rectangle.Round(r), b.Enabled ? s.Accent is null ? Text : Color.White : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.WordBreak);
+        TextRenderer.DrawText(g, b.Text, b.Font, Rectangle.Round(r), b.Enabled ? s.Accent is null ? Text : OnAccent(Mix(s.Accent.Value, s.Accent == Pink ? Purple : Cyan, .5f)) : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.WordBreak);
+    }
+    private static void DrawGameButton(Graphics g, Button button, Surface state)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var size = Math.Min(button.Width, button.Height) - 10;
+        var r = new RectangleF((button.Width - size) / 2f, state.Pressed ? 7 : 3, size, size);
+        using var socket = new SolidBrush(Mix(Purple, Color.Black, .28f)); g.FillEllipse(socket, r.X - 3, r.Y + 2, r.Width + 6, r.Height + 5);
+        var accent = state.Accent ?? Mix(Color.White, Purple, .75f);
+        using var fill = new LinearGradientBrush(r, Mix(accent, Color.White, .4f), accent, 80); g.FillEllipse(fill, r);
+        using var rim = new Pen(Color.FromArgb(210, Color.White), button.Focused || state.Hover ? 2.5f : 1); g.DrawEllipse(rim, r);
+        using var highlight = new Pen(Color.FromArgb(145, Color.White), 2); g.DrawArc(highlight, r.X + 4, r.Y + 3, r.Width - 8, r.Height - 8, 200, 95);
+        TextRenderer.DrawText(g, button.Text, button.Font, Rectangle.Round(r), button.Enabled ? OnAccent(Mix(accent, Color.White, .15f)) : Muted,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
     }
     private static void DrawTab(object? sender, DrawItemEventArgs e)
     {
@@ -93,7 +129,7 @@ internal static class ChromeTheme
     internal static void Grid(Graphics g, Rectangle bounds)
     {
         if (bounds.Width < 1 || bounds.Height < 1) return;
-        using var fill = new LinearGradientBrush(bounds, Color.FromArgb(209, 236, 255), Color.FromArgb(255, 210, 236), 30); g.FillRectangle(fill, bounds);
+        using var fill = new LinearGradientBrush(bounds, Mix(Color.White, Cyan, .22f), Mix(Color.White, Pink, .23f), 30); g.FillRectangle(fill, bounds);
         Glow(g, new(bounds.Width * .05f, -bounds.Height * .2f, bounds.Width * .85f, bounds.Height * .9f), Cyan);
         Glow(g, new(bounds.Width * .45f, bounds.Height * .2f, bounds.Width * .8f, bounds.Height * .9f), Pink);
     }
@@ -126,6 +162,24 @@ internal static class ChromeTheme
 }
 internal sealed class ChromeTabs : TabControl
 {
+    private bool fitting;
+    internal void FitLabels()
+    {
+        if (fitting || TabCount == 0 || IsDisposed) return;
+        fitting = true;
+        try
+        {
+            var scale = DeviceDpi / 96f;
+            var width = TabPages.Cast<TabPage>().Max(page => TextRenderer.MeasureText(page.Text, Font).Width) + (int)(24 * scale);
+            var size = new Size(Math.Max(72, width), Math.Max((int)(38 * scale), Font.Height + (int)(16 * scale)));
+            if (!Multiline) Multiline = true;
+            if (ItemSize != size) ItemSize = size;
+        }
+        finally { fitting = false; }
+    }
+    protected override void OnLayout(LayoutEventArgs e) { FitLabels(); base.OnLayout(e); }
+    protected override void OnFontChanged(EventArgs e) { base.OnFontChanged(e); FitLabels(); }
+    protected override void OnDpiChangedAfterParent(EventArgs e) { base.OnDpiChangedAfterParent(e); FitLabels(); }
     protected override void WndProc(ref Message message)
     {
         base.WndProc(ref message);
@@ -137,26 +191,29 @@ internal sealed class ChromeTabs : TabControl
 }
 internal sealed class CanvasHeader : Control
 {
-    internal CanvasHeader() { DoubleBuffered = true; ResizeRedraw = true; Height = 108; Dock = DockStyle.Top; }
+    internal CanvasHeader() { DoubleBuffered = true; ResizeRedraw = true; Height = 78; Dock = DockStyle.Top; }
+    protected override void OnLayout(LayoutEventArgs e)
+    {
+        var height = (int)(78 * DeviceDpi / 96f); if (Height != height) Height = height;
+        base.OnLayout(e);
+    }
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics; g.Clear(ChromeTheme.Ink); g.SmoothingMode = SmoothingMode.AntiAlias;
-        var body = new RectangleF(10, 5, Width - 20, Height - 18);
+        var s = DeviceDpi / 96f;
+        var body = new RectangleF(10 * s, 5 * s, Width - 20 * s, Height - 18 * s);
         ChromeTheme.Glass(g, body, ChromeTheme.Pink);
-        using var shell = ChromeTheme.Round(body, 27); using var color = new LinearGradientBrush(body, Color.FromArgb(255, 137, 214), Color.FromArgb(133, 201, 255), 8); g.FillPath(color, shell);
+        using var shell = ChromeTheme.Round(body, 27); using var color = new LinearGradientBrush(body, ChromeTheme.Mix(Color.White, ChromeTheme.Pink, .55f), ChromeTheme.Mix(Color.White, ChromeTheme.Cyan, .55f), 8); g.FillPath(color, shell);
         using var rim = new Pen(Color.FromArgb(220, Color.White), 2); g.DrawPath(rim, shell);
         // Recessed display and speaker perforations evoke a pocket music player.
-        var lcd = new RectangleF(80, 18, Math.Max(250, Width - 290), 62);
-        using var screen = ChromeTheme.Round(lcd, 18); using var tint = new LinearGradientBrush(lcd, Color.FromArgb(247, 239, 255), Color.FromArgb(199, 235, 255), 95); g.FillPath(tint, screen);
+        var lcd = new RectangleF(56 * s, 14 * s, Math.Max(140 * s, Width - 124 * s), 40 * s);
+        using var screen = ChromeTheme.Round(lcd, 13); using var tint = new LinearGradientBrush(lcd, ChromeTheme.Panel, ChromeTheme.Mix(Color.White, ChromeTheme.Cyan, .2f), 95); g.FillPath(tint, screen);
         using var inset = new Pen(Color.FromArgb(100, ChromeTheme.Purple), 2); g.DrawPath(inset, screen);
-        using var title = new Font("Segoe UI", 17, FontStyle.Bold); using var micro = new Font("Segoe UI", 7.5f, FontStyle.Bold);
-        TextRenderer.DrawText(g, "BORDERLESS", title, new Point(96, 20), ChromeTheme.Text);
-        TextRenderer.DrawText(g, "INFINITE DESKTOP   /   SPATIAL PLAYER", micro, new Point(98, 61), ChromeTheme.Muted);
-        ChromeTheme.Sticker(g, new(30, 25), "capsule", 4);
-        ChromeTheme.Sticker(g, new(Width - 190, 30), "heart", 4);
-        ChromeTheme.Sticker(g, new(Width - 145, 29), "candy", 4);
+        using var title = new Font("Segoe UI", 13, FontStyle.Bold);
+        TextRenderer.DrawText(g, "BORDERLESS", title, Rectangle.Round(lcd), ChromeTheme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        ChromeTheme.Sticker(g, new((int)(22 * s), (int)(27 * s)), "heart", Math.Max(2, (int)(3 * s)));
         using var holes = new SolidBrush(Color.FromArgb(115, ChromeTheme.Purple));
-        for (var x = 0; x < 4; x++) for (var y = 0; y < 5; y++) g.FillEllipse(holes, Width - 72 + x * 9, 26 + y * 8, 3, 3);
+        if (Controls.Count == 0) for (var x = 0; x < 3; x++) for (var y = 0; y < 4; y++) g.FillEllipse(holes, Width - 52 * s + x * 7 * s, (22 + y * 7) * s, 3 * s, 3 * s);
     }
 }
 internal sealed class PlayerScreenPanel : Panel

@@ -9,7 +9,7 @@ internal sealed class DisplayDiagnosticsControl : UserControl
     private readonly IDesktopDisplayCatalog catalog;
     private readonly Action<DisplayLayout> onRead;
     private readonly ListView list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
-    private readonly Label summary = new() { Dock = DockStyle.Top, Height = 88, Padding = new(10) };
+    private readonly WrapLabel summary = new() { Dock = DockStyle.Top, Padding = new(10) };
 
     internal DisplayDiagnosticsControl(IDesktopDisplayCatalog catalog, Action<DisplayLayout> onRead)
     {
@@ -22,11 +22,13 @@ internal sealed class DisplayDiagnosticsControl : UserControl
         list.Columns.Add("有效 DPI", 160);
         var refresh = new Button { Text = "刷新显示器（只读）", AutoSize = true };
         refresh.Click += (_, _) => RefreshDisplays();
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new(6) };
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6) };
         actions.Controls.Add(refresh);
-        var explanation = new Label
+        var explanation = new WrapLabel
         {
-            Dock = DockStyle.Bottom, Height = 112, Padding = new(10),
+            Dock = DockStyle.Bottom,
+            Height = 112,
+            Padding = new(10),
             Text = "工作区由 Windows 提供，保留任务栏等系统区域；边界允许负坐标。\n物理坐标 = 世界坐标 − 相机位置 + 各屏工作区包围框的左上角；一单位对应一物理像素。\n同 DPI 多屏共享连续画布；屏间空隙不计入可见区域。混合 DPI 仍需验证应用跨屏尺寸变化。"
         };
         Controls.Add(list); Controls.Add(summary); Controls.Add(actions); Controls.Add(explanation);

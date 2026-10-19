@@ -14,6 +14,8 @@ internal sealed class WorkspaceStrip : UserControl
     private readonly FlowLayoutPanel cards = new() { Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true, Padding = new(12, 0, 12, 0) };
     private readonly Label message = new() { Dock = DockStyle.Bottom, Height = 26, Padding = new(24, 2, 0, 0), Visible = false };
     private readonly ToolTip hints = new();
+    private readonly TableLayoutPanel header;
+    private bool sizing;
     internal event Action<PointD>? JumpRequested;
     internal WorkspaceStrip(BookmarkLibrary? library, PointD camera, Func<IReadOnlyList<CanvasWindow>> windows, SizeD viewport, Control tools)
     {
@@ -21,7 +23,8 @@ internal sealed class WorkspaceStrip : UserControl
         DoubleBuffered = true; ResizeRedraw = true;
         cards.SizeChanged += (_, _) =>
         { SizeCards(); };
-        var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 52, Padding = new(24, 0, 24, 0), ColumnCount = 4, RowCount = 1 };
+        cards.Layout += (_, _) => SizeCards();
+        header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 52, Padding = new(24, 0, 24, 0), ColumnCount = 4, RowCount = 1 };
         header.RowStyles.Add(new(SizeType.Percent, 100));
         header.ColumnStyles.Add(new(SizeType.Absolute, 90)); header.ColumnStyles.Add(new(SizeType.Absolute, 48));
         header.ColumnStyles.Add(new(SizeType.Absolute, 48)); header.ColumnStyles.Add(new(SizeType.Percent, 100));
@@ -33,7 +36,7 @@ internal sealed class WorkspaceStrip : UserControl
             if (name is null) return;
             library!.Add(name, camera); Render(true);
         };
-        var manage = new Button { Text = "•••", AccessibleName = "管理工作区", Size = new(44, 44), Enabled = library is not null };
+        var manage = new Button { Text = "⋯", AccessibleName = "管理工作区", Size = new(44, 44), Enabled = library is not null };
         manage.Click += (_, _) =>
         {
             using var dialog = new Form
@@ -55,6 +58,18 @@ internal sealed class WorkspaceStrip : UserControl
         Controls.Add(cards); Controls.Add(message); Controls.Add(header); Padding = new(12, 12, 12, 10);
         Render(); ChromeTheme.Apply(this);
     }
+    protected override void OnFontChanged(EventArgs e) { base.OnFontChanged(e); FitHeader(); }
+    protected override void OnDpiChangedAfterParent(EventArgs e) { base.OnDpiChangedAfterParent(e); FitHeader(); }
+    private void FitHeader()
+    {
+        if (header is null) return;
+        var s = DeviceDpi / 96f;
+        header.Height = Math.Max((int)(52 * s), Font.Height + (int)(20 * s));
+        header.ColumnStyles[0].Width = TextRenderer.MeasureText("工作区", Font).Width + (int)(18 * s);
+        header.ColumnStyles[1].Width = header.ColumnStyles[2].Width = Math.Max(48 * s, Font.Height + 18 * s);
+        foreach (var button in header.Controls.OfType<Button>()) button.Size = new((int)header.ColumnStyles[1].Width - 6, header.Height - 6);
+        SizeCards();
+    }
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         base.OnPaintBackground(e);
@@ -62,11 +77,18 @@ internal sealed class WorkspaceStrip : UserControl
     }
     private void SizeCards()
     {
-        var height = Math.Clamp(cards.ClientSize.Height - 26, 88, 228);
-        foreach (Control card in cards.Controls) card.Size = new((int)(height * 1.16), height);
-        var total = cards.Controls.Cast<Control>().Sum(c => c.Width + c.Margin.Horizontal);
-        var left = Math.Max(16, (cards.ClientSize.Width - total) / 2);
-        if (cards.Padding.Left != left) cards.Padding = new(left, 4, 16, 8);
+        if (sizing || cards is null) return; sizing = true;
+        try
+        {
+            var desired = cards.Height - cards.Padding.Vertical - 12;
+            var needsScroll = cards.Controls.Cast<Control>().Sum(card => (int)(desired * 1.16) + card.Margin.Horizontal) + 32 > cards.Width;
+            var height = Math.Clamp(desired - (needsScroll ? SystemInformation.HorizontalScrollBarHeight + 8 : 8), 60, (int)(228 * DeviceDpi / 96f));
+            foreach (Control card in cards.Controls) { var size = new Size((int)(height * 1.16), height); if (card.Size != size) card.Size = size; }
+            var total = cards.Controls.Cast<Control>().Sum(c => c.Width + c.Margin.Horizontal);
+            var left = Math.Max(16, (cards.ClientSize.Width - total) / 2);
+            if (cards.Padding.Left != left) cards.Padding = new(left, 4, 16, 8);
+        }
+        finally { sizing = false; }
     }
     private void Render(bool showStorageMessage = false)
     {
@@ -107,7 +129,8 @@ internal sealed class WorkspaceStrip : UserControl
         var saved = g.Save(); g.TranslateTransform(-button.Left, -button.Top);
         using (var args = new PaintEventArgs(g, cards.ClientRectangle)) InvokePaintBackground(cards, args);
         g.Restore(saved); g.SmoothingMode = SmoothingMode.AntiAlias;
-        var body = new RectangleF(7, 3, button.Width - 14, button.Height - 36);
+        var captionHeight = TextRenderer.MeasureText(g, name, button.Font).Height + 8;
+        var body = new RectangleF(7, 3, button.Width - 14, Math.Max(20, button.Height - captionHeight - 22));
         var accent = selected ? ChromeTheme.Pink : ChromeTheme.Cyan;
         using var baseShape = ChromeTheme.Round(new(body.X + body.Width * .22f, body.Bottom + 4, body.Width * .56f, 11), 6);
         using var pedestal = new LinearGradientBrush(new RectangleF(body.X, body.Y, body.Width, body.Height + 18), Color.White, ChromeTheme.Purple, 90);
@@ -118,9 +141,9 @@ internal sealed class WorkspaceStrip : UserControl
         var screen = new RectangleF(body.X + 10, body.Y + 9, body.Width - 20, body.Height - 25);
         if (screen.Width > 8 && screen.Height > 8)
         {
-            using var bezel = ChromeTheme.Round(screen, 10); using var dark = new SolidBrush(Color.FromArgb(54, 40, 89)); g.FillPath(dark, bezel);
+            using var bezel = ChromeTheme.Round(screen, 10); using var dark = new SolidBrush(ChromeTheme.Mix(ChromeTheme.Purple, Color.Black, .65f)); g.FillPath(dark, bezel);
             var clip = g.Save(); g.SetClip(bezel);
-            using var screenFill = new LinearGradientBrush(screen, Color.FromArgb(64, 74, 135), Color.FromArgb(112, 58, 159), 35); g.FillPath(screenFill, bezel);
+            using var screenFill = new LinearGradientBrush(screen, ChromeTheme.Mix(ChromeTheme.Cyan, Color.Black, .55f), ChromeTheme.Mix(ChromeTheme.Purple, Color.Black, .4f), 35); g.FillPath(screenFill, bezel);
             var scale = Math.Min((screen.Width - 8) / viewport.Width, (screen.Height - 8) / viewport.Height);
             var ox = screen.X + (screen.Width - viewport.Width * scale) / 2;
             var oy = screen.Y + (screen.Height - viewport.Height * scale) / 2;
@@ -139,8 +162,8 @@ internal sealed class WorkspaceStrip : UserControl
             using var reflection = new LinearGradientBrush(screen, Color.FromArgb(75, Color.White), Color.Transparent, 75); g.FillPath(reflection, bezel);
         }
         using var light = new SolidBrush(selected ? ChromeTheme.Pink : ChromeTheme.Lime); g.FillEllipse(light, body.Right - 17, body.Bottom - 11, 5, 5);
-        TextRenderer.DrawText(g, name, button.Font, new Rectangle(4, button.Height - 22, button.Width - 8, 22), ChromeTheme.Text,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        TextRenderer.DrawText(g, name, button.Font, new Rectangle(4, button.Height - captionHeight, button.Width - 8, captionHeight), ChromeTheme.Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
         if (button.Focused) ControlPaint.DrawFocusRectangle(g, new(2, 1, button.Width - 4, button.Height - 2), ChromeTheme.Purple, Color.Transparent);
     }
     protected override void Dispose(bool disposing) { if (disposing) hints.Dispose(); base.Dispose(disposing); }

@@ -49,6 +49,25 @@ internal static class Program
             Require(changed.Observation.Bounds?.Position.X == normal.Left, "Physical bounds do not match.");
         });
         DisplayChecks.Run(normal, Check);
+        Check("Read-only Windows wallpaper metadata matches the physical monitor without activating windows", () =>
+        {
+            var screen = Screen.PrimaryScreen!.Bounds;
+            var foreground = WindowEventListener.ForegroundWindow;
+            var wallpaper = DesktopWallpaperSource.Read(new(screen.Left, screen.Top, screen.Right, screen.Bottom));
+            Require(wallpaper is not null && wallpaper.Monitor.Position.X == screen.Left && wallpaper.Monitor.Size.Width == screen.Width
+                && wallpaper.Monitor.Size.Height == screen.Height, "Wallpaper monitor metadata unavailable or inconsistent.");
+            Require(Enum.IsDefined(wallpaper!.Placement), "Unknown wallpaper placement.");
+            Require(WindowEventListener.ForegroundWindow == foreground, "Wallpaper inspection changed foreground.");
+        });
+        Check("Wallpaper inspection rejects MTA before accessing COM or image files", () =>
+        {
+            var rejected = Task.Run(() =>
+            {
+                try { DesktopWallpaperSource.Read(new(0, 0, 100, 100)); return false; }
+                catch (InvalidOperationException) { return true; }
+            }).GetAwaiter().GetResult();
+            Require(rejected, "MTA wallpaper access was accepted.");
+        });
         LifecycleChecks.Run(Check);
         RecoveryChecks.Run(Check);
         OffscreenChecks.Run(Check);
@@ -76,12 +95,16 @@ internal static class Program
                 os = Environment.OSVersion.VersionString,
                 fixture = new
                 {
-                    reason = first.Admission.Reason.ToString(), first.Observation.MetadataAvailable,
+                    reason = first.Admission.Reason.ToString(),
+                    first.Observation.MetadataAvailable,
                     identityVerified = first.Observation.Identity is not null,
-                    first.Observation.IsCloaked, first.Observation.IsOnCurrentDesktop,
+                    first.Observation.IsCloaked,
+                    first.Observation.IsOnCurrentDesktop,
                     owner = first.Observation.OwnerHandle.ToString()
                 },
-                results, failures, desktopMutationEnabled = false
+                results,
+                failures,
+                desktopMutationEnabled = false
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"{results.Count - failures}/{results.Count} native checks passed.");
         return failures == 0 ? 0 : 1;

@@ -22,7 +22,8 @@ internal static class Program
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");
             journalPath = Path.Combine(fixture, "recovery.json");
         }
-        using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath);
+        using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath,
+            reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal));
         if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.
@@ -88,6 +89,23 @@ internal static class Program
             { form.DrawToBitmap(compact, new Rectangle(Point.Empty, form.Size)); compact.Save(Path.Combine(output, "runtime-compact-smoke.png")); }
             form.ClientSize = regularSize;
             form.CheckTraySmoke();
+            form.PreparePopupSmoke();
+            foreach (var page in new (string Name, int Index, int Sub)[] { ("console-home", 0, 0), ("console-windows", 1, 0), ("console-displays", 1, 1), ("console-map", 1, 2), ("console-recovery", 2, 0) })
+            {
+                form.PrepareRuntimePageSmoke(page.Index, page.Sub); System.Windows.Forms.Application.DoEvents();
+                using var portrait = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(portrait, new Rectangle(Point.Empty, form.Size)); portrait.Save(Path.Combine(output, page.Name + "-smoke.png"));
+            }
+            form.PrepareRuntimePageSmoke(0);
+            foreach (var warm in new[] { true, false })
+            {
+                ChromeTheme.SetPalette(BorderlessFlatWindow.Core.Appearance.CandyPalette.FromSamples(warm
+                    ? [new(230, 95, 30), new(210, 80, 20), new(230, 160, 60)] : [new(20, 90, 220), new(35, 110, 210), new(75, 40, 190)]));
+                ChromeTheme.Apply(form); System.Windows.Forms.Application.DoEvents();
+                using var colored = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(colored, new Rectangle(Point.Empty, form.Size)); colored.Save(Path.Combine(output, warm ? "console-warm-smoke.png" : "console-cool-smoke.png"));
+            }
+            ChromeTheme.SetPalette(BorderlessFlatWindow.Core.Appearance.CandyPalette.Default); ChromeTheme.Apply(form);
             using (var hud = new NavigationHud { Opacity = 0 })
             {
                 hud.Present("Ctrl+Alt+Space", new(-12000, 8500));
@@ -114,13 +132,17 @@ internal static class Program
                 new(Guid.NewGuid(), "浏览器", new(new(0, 0), new(800, 600))),
                 new(Guid.NewGuid(), "资料", new(new(0, -700), new(640, 480))),
                 new(Guid.NewGuid(), "聊天", new(new(1000, 100), new(480, 700)))],
-                new(new(-200, 100), new(1920, 1080)), new(0, 0, 1200, 800), showWithoutActivation: true, bookmarks: previewLabels) { Opacity = 0 })
+                new(new(-200, 100), new(1920, 1080)), new(0, 0, 1200, 800), showWithoutActivation: true, bookmarks: previewLabels)
+            { Opacity = 0 })
             {
                 overview.Show();
                 System.Windows.Forms.Application.DoEvents();
                 using var overviewBitmap = new Bitmap(overview.Width, overview.Height);
                 overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size));
                 overviewBitmap.Save(Path.Combine(output, "overview-smoke.png"));
+                overview.SetSmokeEntrance(.45); System.Windows.Forms.Application.DoEvents();
+                overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size)); overviewBitmap.Save(Path.Combine(output, "overview-transition-smoke.png"));
+                overview.EndSmokeEntrance();
                 overview.SetSmokeQuery("资料");
                 System.Windows.Forms.Application.DoEvents();
                 overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size));
@@ -129,6 +151,9 @@ internal static class Program
                 System.Windows.Forms.Application.DoEvents();
                 using (var compact = new Bitmap(overview.Width, overview.Height))
                 { overview.DrawToBitmap(compact, new Rectangle(Point.Empty, overview.Size)); compact.Save(Path.Combine(output, "overview-compact-smoke.png")); }
+                overview.Font = new Font("Microsoft YaHei UI", 14); System.Windows.Forms.Application.DoEvents();
+                using (var largeText = new Bitmap(overview.Width, overview.Height))
+                { overview.DrawToBitmap(largeText, new Rectangle(Point.Empty, overview.Size)); largeText.Save(Path.Combine(output, "overview-large-text-smoke.png")); }
                 overview.Hide();
             }
             var inspection = new DesktopWindowCatalog().Inspect();
@@ -140,8 +165,9 @@ internal static class Program
             {
                 form.PresentOverview(embedded, () => hostReturned = true);
                 System.Windows.Forms.Application.DoEvents();
-                using var hostBitmap = new Bitmap(form.Width, form.Height);
-                form.DrawToBitmap(hostBitmap, new Rectangle(Point.Empty, form.Size));
+                if (!embedded.TopLevel || embedded.Parent is not null) throw new InvalidOperationException("Overview is not an independent top-level surface.");
+                using var hostBitmap = new Bitmap(embedded.Width, embedded.Height);
+                embedded.DrawToBitmap(hostBitmap, new Rectangle(Point.Empty, embedded.Size));
                 hostBitmap.Save(Path.Combine(output, "overview-host-smoke.png"));
                 embedded.CancelOverview();
                 System.Windows.Forms.Application.DoEvents();

@@ -10,18 +10,19 @@ using BorderlessFlatWindow.Windows.Bookmarks;
 
 namespace BorderlessFlatWindow.App;
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Form
 {
     private readonly CanvasWorkspace workspace = new(new SizeD(1280, 720));
     private readonly ITrackedDesktopWindowCatalog catalog;
     private readonly CanvasWorkspace liveWorkspace = new(new SizeD(1280, 720));
     private readonly DesktopSpatialModel spatial;
     private readonly CanvasPreviewControl livePreview;
-    private readonly Label liveStatus = new() { Dock = DockStyle.Bottom, Height = 88, Padding = new(10) };
+    private readonly WrapLabel liveStatus = new() { Dock = DockStyle.Bottom, Padding = new(10) };
     private readonly WindowEventBuffer eventBuffer = new();
     private readonly System.Windows.Forms.Timer eventTimer = new() { Interval = 40 };
     private WindowEventListener? listener;
     private readonly bool showWithoutActivation;
+    private readonly bool reviewPanel;
     protected override bool ShowWithoutActivation => showWithoutActivation;
     private readonly CanvasPreviewControl preview;
     private readonly ToolStripStatusLabel cameraStatus = new();
@@ -47,13 +48,14 @@ internal sealed class MainForm : Form
         FullRowSelect = true
     };
 
-    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null)
+    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null, bool reviewPanel = false)
     {
+        this.reviewPanel = reviewPanel;
         this.catalog = catalog;
         this.showWithoutActivation = showWithoutActivation;
         Text = "Borderless Flat Window · 无限桌面";
-        ClientSize = new Size(1100, 740);
-        MinimumSize = new Size(800, 560);
+        ClientSize = showWithoutActivation ? new Size(1100, 740) : new Size(432, 700);
+        MinimumSize = showWithoutActivation ? new Size(800, 560) : new Size(360, 540);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Microsoft YaHei UI", 10);
         KeyPreview = true;
@@ -79,6 +81,8 @@ internal sealed class MainForm : Form
         { Dock = DockStyle.Fill };
         management.StatusChanged += UpdateCameraStatus;
         management.StatusChanged += bookmarkControl.RefreshNavigationState;
+        management.WallpaperColorsChanged += enabled => { followWallpaper = enabled; _ = RefreshPaletteAsync(); };
+        management.WallpaperRefreshRequested += () => _ = RefreshPaletteAsync();
         tabs.SelectedIndexChanged += (_, _) =>
         {
             if (tabs.SelectedIndex == 6) { management.EndNavigationForEditing(); bookmarkControl.RefreshNavigationState(); }
@@ -109,7 +113,7 @@ internal sealed class MainForm : Form
         var liveTab = new TabPage("真实空间地图（只读）");
         liveTab.Controls.Add(livePreview);
         liveTab.Controls.Add(liveStatus);
-        var liveActions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new(6) };
+        var liveActions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6) };
         var fit = new Button { Text = "适配全部窗口", AutoSize = true };
         fit.Click += (_, _) => livePreview.FitToContent();
         var home = new Button { Text = "返回原点视角", AutoSize = true };
@@ -158,7 +162,7 @@ internal sealed class MainForm : Form
         windowList.Columns.Add("模型 ID", 110);
         windowList.Columns.Add("窗口类", 210);
         catalogTab.Controls.Add(windowList);
-        var catalogActions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new Padding(6) };
+        var catalogActions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(6) };
         var refresh = new Button { Text = "检查窗口（只读）", AutoSize = true };
         refresh.Click += (_, _) => RefreshCatalog();
         showExcluded.CheckedChanged += (_, _) => RenderSnapshot();
@@ -184,6 +188,7 @@ internal sealed class MainForm : Form
         Controls.Add(intro);
         Controls.Add(status);
         ChromeTheme.Apply(this);
+        if (!showWithoutActivation) ConfigurePopup(intro);
         UpdateCameraStatus();
         displays.RefreshDisplays();
         recovery.RefreshJournal();
@@ -231,7 +236,7 @@ internal sealed class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (!showWithoutActivation) { InitializeTray(); management.InitializeGlobalInput(); }
+        if (!showWithoutActivation) { InitializeTray(); management.InitializeGlobalInput(); StartPopupServices(); }
         try
         {
             listener = new();
@@ -275,6 +280,7 @@ internal sealed class MainForm : Form
         if (disposing)
         {
             eventTimer.Dispose();
+            StopPopupServices();
             listener?.Dispose();
             listener = null;
             if (tray is not null) { tray.Visible = false; tray.Dispose(); tray = null; }
@@ -306,6 +312,11 @@ internal sealed class MainForm : Form
         tabs.TabPages.AddRange([pages[0], diagnostics, pages[5]]); pages[5].Text = "恢复中心";
         verificationPages.AddRange([pages[1], pages[6]]); ChromeTheme.Apply(diagnostics);
         if (tabs.TabCount != 3 || children.TabCount != 3) throw new InvalidOperationException("Runtime page hierarchy is invalid.");
+    }
+    internal void PrepareRuntimePageSmoke(int index, int diagnostic = 0)
+    {
+        tabs.SelectedIndex = index;
+        if (index == 1) tabs.TabPages[1].Controls.OfType<TabControl>().Single().SelectedIndex = diagnostic;
     }
     internal void CheckTraySmoke()
     {
@@ -418,29 +429,18 @@ internal sealed class MainForm : Form
 
     internal void PresentOverview(SpatialOverviewForm overview, Action completed)
     {
+        overview.ShowInTaskbar = reviewPanel;
         overview.CaptureBackdrop();
         var wasVisible = Visible;
-        if (!wasVisible) Show();
-        var oldBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-        var oldState = WindowState; var oldBorder = FormBorderStyle; var oldTopMost = TopMost; var oldTitle = Text;
-        var visible = Controls.Cast<Control>().Where(control => control.Visible).ToArray();
-        var oldControl = ActiveControl;
         var restored = false;
         void Restore()
         {
             if (restored) return; restored = true;
             try
             {
-                var activate = ForegroundWindowBookmark.IsApplicationForeground;
-                if (!IsDisposed && !Disposing)
+                if (!IsDisposed && !Disposing && (showWithoutActivation || reviewPanel))
                 {
-                    Controls.Remove(overview);
-                    WindowState = FormWindowState.Normal; FormBorderStyle = oldBorder; Bounds = oldBounds;
-                    TopMost = oldTopMost; Text = oldTitle;
-                    foreach (var control in visible) if (!control.IsDisposed) control.Show();
-                    WindowState = oldState;
-                    if (!wasVisible) Hide();
-                    if (wasVisible && activate && !showWithoutActivation && oldState != FormWindowState.Minimized) { Activate(); oldControl?.Select(); }
+                    if (wasVisible) Show(); else Hide();
                 }
             }
             finally { completed(); }
@@ -448,11 +448,9 @@ internal sealed class MainForm : Form
         overview.FormClosed += (_, _) => Restore();
         try
         {
-            foreach (var control in visible) control.Hide();
-            WindowState = FormWindowState.Normal; FormBorderStyle = FormBorderStyle.None;
-            Bounds = overview.Bounds; Text = "BFW 空间总览"; TopMost = true;
-            overview.TopMost = false; overview.TopLevel = false; overview.Dock = DockStyle.Fill;
-            Controls.Add(overview); overview.BringToFront(); overview.Show(); if (!showWithoutActivation) Activate();
+            // An independent, fully composed top-level host avoids stretching/recreating the popup HWND.
+            if (!showWithoutActivation) Hide();
+            overview.Show(); if (!showWithoutActivation) overview.Activate();
         }
         catch { Restore(); throw; }
     }
@@ -470,7 +468,7 @@ internal sealed class MainForm : Form
         if (!showWithoutActivation && WindowState == FormWindowState.Minimized && tray is not null && management?.HasOverview != true) Hide();
     }
     private void ShowManager()
-    { management.CancelOverview(); Show(); WindowState = FormWindowState.Normal; if (!showWithoutActivation) Activate(); }
+    { management.CancelOverview(); if (!showWithoutActivation) DockPopup(Screen.FromPoint(Cursor.Position)); Show(); WindowState = FormWindowState.Normal; if (!showWithoutActivation) Activate(); }
     private void InitializeTray()
     {
         if (tray is not null) return;
