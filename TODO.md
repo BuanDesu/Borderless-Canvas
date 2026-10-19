@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：M0 基础项目已完成。下面按依赖顺序推进；完成条件以[需求规格](windows-spatial-canvas-requirements.zh-CN.md)和[验收文档](docs/acceptance.md)为准。
+当前状态：M0 已完成，M1 推进中；T01 已实现并验证，待合并后勾选。下面按依赖顺序推进；完成条件以[需求规格](windows-spatial-canvas-requirements.zh-CN.md)和[验收文档](docs/acceptance.md)为准。
 
 ## 已完成：M0 基础项目
 

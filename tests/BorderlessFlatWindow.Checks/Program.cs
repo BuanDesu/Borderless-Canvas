@@ -13,12 +13,13 @@ var cases = new (string Name, Action Run)[]
     ("Missing and closed targets do not move the camera", MissingTargets)
 };
 var failed = 0;
-foreach (var (name, run) in cases)
+var allCases = cases.Concat(DiscoveryChecks.Cases()).ToArray();
+foreach (var (name, run) in allCases)
 {
     try { run(); Console.WriteLine($"PASS {name}"); }
     catch (Exception exception) { failed++; Console.Error.WriteLine($"FAIL {name}: {exception.Message}"); }
 }
-Console.WriteLine($"{cases.Length - failed}/{cases.Length} checks passed.");
+Console.WriteLine($"{allCases.Length - failed}/{allCases.Length} checks passed.");
 return failed == 0 ? 0 : 1;
 
 static CanvasWindow Window(string name, double x, double y) =>

@@ -21,12 +21,19 @@ internal static class Program
             var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
             Directory.CreateDirectory(output);
             bitmap.Save(Path.Combine(output, "shell-smoke.png"));
-            var candidateCount = new DesktopWindowCatalog().GetWindows().Count;
+            form.PrepareCatalogSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "catalog-smoke.png"));
+            var inspection = new DesktopWindowCatalog().Inspect();
             File.WriteAllText(Path.Combine(output, "shell-smoke.json"),
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
                     os = Environment.OSVersion.VersionString,
-                    candidateCount,
+                    candidateCount = inspection.AdmittedWindows.Count,
+                    inspectedCount = inspection.Entries.Count,
+                    reasons = inspection.Entries.GroupBy(entry => entry.Admission.Reason.ToString())
+                        .ToDictionary(group => group.Key, group => group.Count()),
                     sampleWindows = 4,
                     desktopMutationEnabled = false
                 }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));

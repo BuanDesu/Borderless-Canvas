@@ -1,4 +1,4 @@
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi)
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
@@ -9,5 +9,9 @@ try {
     if ($SmokeUi) {
         dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --smoke-check
         if ($LASTEXITCODE -ne 0) { throw "UI smoke check failed: $LASTEXITCODE" }
+    }
+    if ($NativeChecks) {
+        dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build
+        if ($LASTEXITCODE -ne 0) { throw "Native discovery checks failed: $LASTEXITCODE" }
     }
 } finally { Pop-Location }

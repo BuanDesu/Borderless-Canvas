@@ -7,5 +7,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BorderlessFlatWindow.Checks/BorderlessFlatWindow.Checks.csproj" />
+    <Project Path="tests/BorderlessFlatWindow.Windows.Checks/BorderlessFlatWindow.Windows.Checks.csproj" />
   </Folder>
 </Solution>
