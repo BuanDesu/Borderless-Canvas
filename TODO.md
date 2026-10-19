@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：M0 已完成，M1 推进中；T01、T02 已实现并验证，待各自 PR 合并后勾选。T02 的负坐标与 100% DPI 基线由模型检查覆盖，本机为 150% DPI，只读实测范围见[坐标说明](docs/display-coordinates.md)。下一步为 T03 事件同步与真实地图。完成条件以[需求规格](windows-spatial-canvas-requirements.zh-CN.md)和[验收文档](docs/acceptance.md)为准。
+当前状态：M0 已完成，M1 的 T01–T03 已实现并验证，待各自 PR 合并后勾选。真实地图已通过 WinEvent 增量更新；下一步 T04 恢复日志和独立恢复入口。持续目标为[可试用原型](docs/prototype-plan.md)。负坐标与 100% DPI 基线由模型检查覆盖，本机为 150% DPI，只读实测范围见[坐标说明](docs/display-coordinates.md)。完成条件以[需求规格](windows-spatial-canvas-requirements.zh-CN.md)和[验收文档](docs/acceptance.md)为准。
 
 ## 已完成：M0 基础项目
 

@@ -4,13 +4,23 @@ using BorderlessFlatWindow.Application.Discovery;
 using BorderlessFlatWindow.Application.Ports;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Windows;
 
 namespace BorderlessFlatWindow.App;
 
 internal sealed class MainForm : Form
 {
     private readonly CanvasWorkspace workspace = new(new SizeD(1280, 720));
-    private readonly IDesktopWindowCatalog catalog;
+    private readonly ITrackedDesktopWindowCatalog catalog;
+    private readonly CanvasWorkspace liveWorkspace = new(new SizeD(1280, 720));
+    private readonly DesktopSpatialModel spatial;
+    private readonly CanvasPreviewControl livePreview;
+    private readonly Label liveStatus = new() { Dock = DockStyle.Bottom, Height = 88, Padding = new(10) };
+    private readonly WindowEventBuffer eventBuffer = new();
+    private readonly System.Windows.Forms.Timer eventTimer = new() { Interval = 40 };
+    private WindowEventListener? listener;
+    private readonly bool showWithoutActivation;
+    protected override bool ShowWithoutActivation => showWithoutActivation;
     private readonly CanvasPreviewControl preview;
     private readonly ToolStripStatusLabel cameraStatus = new();
     private readonly Label catalogSummary = new() { AutoSize = true, Margin = new Padding(12, 9, 0, 0) };
@@ -23,9 +33,10 @@ internal sealed class MainForm : Form
         Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true
     };
 
-    internal MainForm(IDesktopWindowCatalog catalog)
+    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false)
     {
         this.catalog = catalog;
+        this.showWithoutActivation = showWithoutActivation;
         Text = "Borderless Flat Window · 空间画布基础项目";
         ClientSize = new Size(1100, 740);
         MinimumSize = new Size(800, 560);
@@ -40,6 +51,11 @@ internal sealed class MainForm : Form
         preview = new(workspace) { Dock = DockStyle.Fill };
         preview.WindowChosen += id => Navigate(() => workspace.FocusWindow(id));
         preview.CameraPanRequested += delta => Navigate(() => workspace.PanBy(delta));
+        spatial = new(liveWorkspace, new PixelRect(0, 0, 1280, 720));
+        livePreview = new(liveWorkspace) { Dock = DockStyle.Fill, AutoFit = false };
+        livePreview.WindowChosen += id => { liveWorkspace.FocusWindow(id); livePreview.Invalidate(); };
+        livePreview.CameraPanRequested += delta => { liveWorkspace.PanBy(delta); livePreview.Invalidate(); };
+        eventTimer.Tick += (_, _) => FlushEvents();
 
         var canvasTab = new TabPage("空间模型预览");
         var catalogTab = new TabPage("Windows 窗口候选（只读）");
@@ -49,11 +65,27 @@ internal sealed class MainForm : Form
         displays = new(new BorderlessFlatWindow.Windows.DesktopDisplayCatalog(), layout =>
         {
             workspace.SetViewportSize(layout.Primary.WorkArea.Size);
+            liveWorkspace.SetViewportSize(layout.Primary.WorkArea.Size);
+            spatial.WorkArea = layout.Primary.WorkArea;
+            if (snapshot is not null) UpdateLiveMap();
             UpdateCameraStatus();
             preview.Invalidate();
         }) { Dock = DockStyle.Fill };
         displayTab.Controls.Add(displays);
         tabs.TabPages.Add(displayTab);
+        var liveTab = new TabPage("真实空间地图（只读）");
+        liveTab.Controls.Add(livePreview);
+        liveTab.Controls.Add(liveStatus);
+        var liveActions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 48, Padding = new(6) };
+        var fit = new Button { Text = "适配全部窗口", AutoSize = true };
+        fit.Click += (_, _) => livePreview.FitToContent();
+        var home = new Button { Text = "返回原点视角", AutoSize = true };
+        home.Click += (_, _) => { liveWorkspace.ReturnHome(); livePreview.Invalidate(); };
+        var reconcile = new Button { Text = "重新检查桌面", AutoSize = true };
+        reconcile.Click += (_, _) => RefreshCatalog();
+        liveActions.Controls.AddRange([fit, home, reconcile]);
+        liveTab.Controls.Add(liveActions);
+        tabs.TabPages.Add(liveTab);
         canvasTab.Controls.Add(preview);
 
         var navigation = new FlowLayoutPanel
@@ -92,7 +124,7 @@ internal sealed class MainForm : Form
         var intro = new Label
         {
             Dock = DockStyle.Top, Height = 96, Padding = new Padding(14),
-            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM1：窗口身份、显示器工作区与物理坐标诊断。尚未移动真实窗口。"
+            Text = "连续二维空间 / 原生比例操作 / 保留位置的总览\nM1：窗口事件同步与真实空间地图。当前仅观察，尚未移动真实窗口。"
         };
         var status = new StatusStrip();
         status.Items.Add(cameraStatus);
@@ -128,12 +160,64 @@ internal sealed class MainForm : Form
         try
         {
             snapshot = catalog.Inspect();
+            UpdateLiveMap();
             RenderSnapshot();
         }
-        catch (Win32Exception exception)
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
         {
-            catalogSummary.Text = $"读取失败 {exception.NativeErrorCode}；保留上次结果。";
+            catalogSummary.Text = $"读取失败；保留上次结果：{exception.Message}";
+            liveStatus.Text = catalogSummary.Text;
         }
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        try
+        {
+            listener = new();
+            listener.EventReceived += change =>
+            {
+                eventBuffer.Add(change);
+                if (!eventTimer.Enabled) eventTimer.Start();
+            };
+            RefreshCatalog();
+        }
+        catch (Win32Exception exception) { liveStatus.Text = $"事件监听未启动：{exception.Message}；可手动检查。"; }
+    }
+
+    private void FlushEvents()
+    {
+        eventTimer.Stop();
+        try
+        {
+            snapshot = eventBuffer.Drain(catalog);
+            if (IsDisposed) return;
+            UpdateLiveMap();
+            RenderSnapshot();
+        }
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
+        { liveStatus.Text = $"事件更新失败：{exception.Message}；保留地图，可重新检查桌面。"; }
+    }
+
+    private void UpdateLiveMap()
+    {
+        if (snapshot is null) return;
+        spatial.Synchronize(snapshot, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
+        livePreview.ActiveWindowId = spatial.ActiveWindowId;
+        livePreview.Invalidate();
+        liveStatus.Text = $"真实窗口 {liveWorkspace.Windows.Count} · {(listener?.IsRunning == true ? "WinEvent 实时监听" : "手动快照")} · {snapshot.CapturedAt.ToLocalTime():HH:mm:ss}\n点击只改变地图视角；窗口相对位置保持。金框标记前台窗口，适配按钮可找回范围外的窗口。";
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            eventTimer.Dispose();
+            listener?.Dispose();
+            listener = null;
+        }
+        base.Dispose(disposing);
     }
 
     internal void PrepareCatalogSmoke()
@@ -148,6 +232,16 @@ internal sealed class MainForm : Form
         tabs.SelectedIndex = 2;
         displays.RefreshDisplays();
     }
+
+    internal void PrepareLiveSmoke()
+    {
+        tabs.SelectedIndex = 3;
+        RefreshCatalog();
+        livePreview.FitToContent();
+    }
+
+    internal (int WindowCount, bool Watching) GetTrackingDiagnostics() =>
+        (liveWorkspace.Windows.Count, listener?.IsRunning == true);
 
     private void RenderSnapshot()
     {

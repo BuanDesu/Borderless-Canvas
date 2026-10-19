@@ -10,6 +10,14 @@ public interface IDesktopWindowCatalog
     WindowCatalogSnapshot Inspect();
 }
 
+/// <summary>Incremental state; all operations run on the owning STA thread.</summary>
+public interface ITrackedDesktopWindowCatalog : IDesktopWindowCatalog
+{
+    WindowCatalogSnapshot Current { get; }
+    void RefreshWindow(nint handle);
+    void ForgetWindow(nint handle);
+}
+
 /// <summary>Bounds are Win32 physical screen pixels, not canvas coordinates.</summary>
 public sealed record DesktopWindowInfo(Guid Id, NativeWindowIdentity Identity, string Title, string ClassName, RectD Bounds)
 {
