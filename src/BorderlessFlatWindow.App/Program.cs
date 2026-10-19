@@ -15,7 +15,13 @@ internal static class Program
         var bookmarkIndex = Array.IndexOf(args, "--bookmarks");
         if (bookmarkIndex >= 0 && bookmarkIndex + 1 >= args.Length) return 1;
         var bookmarkPath = bookmarkIndex < 0 ? null : args[bookmarkIndex + 1];
-        if (smoke) bookmarkPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/bookmark-smoke", Guid.NewGuid().ToString("N"), "bookmarks.json"));
+        if (smoke)
+        {
+            var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-smoke", Guid.NewGuid().ToString("N")));
+            Directory.CreateDirectory(fixture);
+            bookmarkPath = Path.Combine(fixture, "bookmarks.json");
+            journalPath = Path.Combine(fixture, "recovery.json");
+        }
         using var form = new MainForm(new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath);
         if (smoke)
         {
@@ -49,6 +55,10 @@ internal static class Program
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             bitmap.Save(Path.Combine(output, "recovery-smoke.png"));
+            form.CheckRecoveryErrorSmoke();
+            System.Windows.Forms.Application.DoEvents();
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(Path.Combine(output, "recovery-error-smoke.png"));
             form.PrepareBookmarkSmoke();
             System.Windows.Forms.Application.DoEvents();
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));

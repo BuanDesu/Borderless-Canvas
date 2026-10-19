@@ -12,6 +12,7 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
     private readonly Button recover = new() { Text = "启动独立恢复程序", AutoSize = true, Enabled = false };
     private readonly Button refresh = new() { Text = "检查恢复日志", AutoSize = true };
     private bool running;
+    internal bool RequiresAttention { get; private set; }
 
     internal RecoveryDiagnosticsControl(string? journalPath = null)
     {
@@ -29,10 +30,11 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
     internal int RefreshJournal()
     {
         if (running) return 0;
+        RequiresAttention = false;
         recover.Enabled = false;
         if (!File.Exists(journalPath))
         {
-            summary.Text = "没有待恢复日志。\n\n真实窗口接管尚未开放；后续接管会先保存恢复记录。";
+            summary.Text = "没有待恢复日志。\n\n开始画布管理时会先保存每扇窗口的恢复记录。";
             return 0;
         }
         try
@@ -40,15 +42,26 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
             using var store = new JsonRecoveryJournalStore(journalPath);
             var journal = store.Load()!;
             recover.Enabled = journal.Entries.Count > 0;
+            RequiresAttention = recover.Enabled;
             summary.Text = $"待处理记录：{journal.Entries.Count}，其中已完成接管登记：{journal.Entries.Count(entry => entry.Armed)}。\n\n"
                 + "点击恢复会启动独立程序，已验证的旧会话窗口将回到原始位置；未完成登记的记录只清理标记。";
             return journal.Entries.Count;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
         {
+            RequiresAttention = true;
             summary.Text = $"无法读取或日志正被使用；文件已保留。\n\n{exception.Message}";
             return 0;
         }
+    }
+
+    internal void CheckCorruptJournalSmoke()
+    {
+        const string fixture = "{intentionally-invalid-gui-recovery-fixture";
+        File.WriteAllText(journalPath, fixture);
+        if (RefreshJournal() != 0 || !RequiresAttention || recover.Enabled || !summary.Text.Contains("文件已保留")
+            || File.ReadAllText(journalPath) != fixture)
+            throw new InvalidOperationException("Corrupt recovery data did not remain visible, disabled and preserved.");
     }
 
     private async Task RecoverAsync()

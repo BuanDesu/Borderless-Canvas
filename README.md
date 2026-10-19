@@ -4,7 +4,7 @@
 
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
-当前已补齐 **FR-02 运行中新窗口接入**：支持手动加入及可选自动接入新窗，优先放在视口附近空位，保留既有布局、相机和标签；五窗主程序强制结束及独立恢复实测通过。191 模型、15 文件、48 原生检查通过。下一步普通应用兼容、任务栏与组合手势验收及试用打包。操作与边界见[运行中接入](docs/runtime-window-admission.md)、[位置标签](docs/location-bookmarks.md)和[原型交付检查](docs/prototype-plan.md)。
+已生成 **本地 win-x64 试用目录与 ZIP**，包内直接启动、计算器/记事本/Probe 四窗操作及主 GUI 故障后的独立恢复实测通过。191 模型、15 文件、48 原生检查通过。物理 Shift/双键手势和任务栏实际点击/hover 仍待验证；目标尚未标记完成。操作见[试用指南](docs/trial-guide.zh-CN.md)，证据见[试用验证](docs/trial-validation.md)与[原型交付检查](docs/prototype-plan.md)。
 
 ## 快速开始
 
@@ -30,6 +30,9 @@ Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作
 
 # 运行自己的测试窗口，验证停放、预览、恢复与原生输入
 dotnet run --project tests/BorderlessFlatWindow.Probe --configuration Release
+
+# 检查后生成包含 GUI、独立恢复、测试窗口及中文说明的试用目录和 ZIP
+.\scripts\package-trial.ps1 -NativeChecks
 ```
 
 也可以直接用 SDK：
@@ -41,6 +44,8 @@ dotnet run --project src/BorderlessFlatWindow.App
 ```
 
 脚本将 CLI 临时状态写入忽略目录 `.local/`，并关闭与本项目无关的工作负载探测。若受限环境中的默认构建遇到 SDK 探测问题，优先使用脚本。`global.json` 允许已安装的 .NET 10 稳定版 SDK feature band。
+
+试用目录无需源码或 SDK，双击 `Start.cmd` 即可；需已安装 .NET 10 Windows Desktop Runtime x64。`Recover.cmd` 独立恢复，`Inspect-Recovery.cmd` 仅检查。`manifest.json` 记录版本和文件 SHA-256；包不含运行时，生成物位于 ignored `artifacts/trial/`。
 
 ## 当前可以操作什么
 
@@ -101,6 +106,7 @@ docs/
 - [位置标签与存储](docs/location-bookmarks.md)：T10 命名位置、重名区分、真实跳转、重启及文件损坏处理。
 - [运行中新窗口接入](docs/runtime-window-admission.md)：FR-02 手动/自动接入、空位放置、失败恢复及五窗故障演练。
 - [可试用原型交付检查](docs/prototype-plan.md)：持续目标的实际功能与验收边界。
+- [本地试用指南](docs/trial-guide.zh-CN.md)与[试用产物验证](docs/trial-validation.md)：启动、操作、恢复、兼容证据及剩余人工验收。
 - [开发路线图](docs/roadmap.md)：从 M0 骨架到真实桌面接管的顺序。
 - [验收与验证记录](docs/acceptance.md)：模型检查、UI 冒烟检查和后续桌面验收。
 - [技术选型记录](docs/adr/0001-native-windows-foundation.md)：为什么选择 .NET/WinForms/Win32。

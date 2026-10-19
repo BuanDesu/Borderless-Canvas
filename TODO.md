@@ -2,7 +2,7 @@
 
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：T01–T10 及 FR-02 运行中新窗口接入已实现，待各自验证与 PR 合并后勾选。手动/自动接入、空位放置和五窗主 GUI 强制结束后独立恢复已有实测，见[接入说明](docs/runtime-window-admission.md)。191 模型、15 文件（7 恢复 + 8 标签）、48 原生检查通过。下一步普通应用兼容、任务栏/组合手势验收和试用打包。真实多屏仍未验收；持续目标为[可试用原型](docs/prototype-plan.md)。
+当前状态：T01–T10、FR-02 及本地试用打包已推进，待各自验证与 PR 合并后勾选。包内计算器/记事本/Probe 四窗操作、总览和 GUI 故障独立恢复已有实测，见[试用验证](docs/trial-validation.md)。191 模型、15 文件（7 恢复 + 8 标签）、48 原生检查通过。剩余物理 Shift/双键、任务栏实际路径，以及更广应用/硬件兼容；持续目标为[可试用原型](docs/prototype-plan.md)。
 
 ## 已完成：M0 基础项目
 

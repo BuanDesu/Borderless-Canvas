@@ -162,7 +162,8 @@ internal sealed class MainForm : Form
         Controls.Add(status);
         UpdateCameraStatus();
         displays.RefreshDisplays();
-        if (recovery.RefreshJournal() > 0 && !showWithoutActivation) tabs.SelectedIndex = 5;
+        recovery.RefreshJournal();
+        if (recovery.RequiresAttention && !showWithoutActivation) tabs.SelectedIndex = 5;
     }
 
     private static CanvasWindow Sample(string title, double x, double y, double width, double height) =>
@@ -296,6 +297,7 @@ internal sealed class MainForm : Form
         tabs.SelectedIndex = 5;
         recovery.RefreshJournal();
     }
+    internal void CheckRecoveryErrorSmoke() { tabs.SelectedIndex = 5; recovery.CheckCorruptJournalSmoke(); }
     internal void PrepareBookmarkSmoke()
     {
         bookmarks.Add("工作区", new(0, 0)); bookmarks.Add("工作区", new(-4800, 2700));
