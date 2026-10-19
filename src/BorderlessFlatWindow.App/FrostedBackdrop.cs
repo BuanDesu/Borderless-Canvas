@@ -21,7 +21,7 @@ internal static class FrostedBackdrop
             using (var g = Graphics.FromImage(result))
             {
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(small, new Rectangle(Point.Empty, result.Size));
-                using var tint = new SolidBrush(Color.FromArgb(165, ChromeTheme.Ink)); g.FillRectangle(tint, 0, 0, result.Width, result.Height);
+                using var tint = new SolidBrush(Color.FromArgb(100, ChromeTheme.Ink)); g.FillRectangle(tint, 0, 0, result.Width, result.Height);
             }
             return result;
         }

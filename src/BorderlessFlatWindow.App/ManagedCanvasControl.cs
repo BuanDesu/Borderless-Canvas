@@ -21,9 +21,13 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private readonly BookmarkLibrary bookmarks;
     private readonly CheckedListBox candidates = new() { Dock = DockStyle.Fill, CheckOnClick = true, HorizontalScrollbar = true };
     private readonly Panel map = new() { Dock = DockStyle.Fill };
-    private readonly Label status = new() { Dock = DockStyle.Bottom, Height = 112, Padding = new(10) };
-    private readonly Button start = new() { Text = "开始 / 恢复画布", AutoSize = true };
-    private readonly Button pause = new() { Text = "暂停并恢复原位", AutoSize = true, Enabled = false };
+    private readonly Label status = new() { Dock = DockStyle.Bottom, Height = 42, Padding = new(18, 8, 18, 0) };
+    private readonly Button start = new() { Text = "开始画布", AutoSize = true };
+    private readonly Button pause = new() { Text = "暂停并恢复", AutoSize = true, Enabled = false };
+    private readonly Panel selector = new() { Dock = DockStyle.Left, Width = 272, Padding = new(14) };
+    private readonly ContextMenuStrip moreMenu = new();
+    private readonly ToolTip hints = new();
+    private bool showWindowPicker;
     private readonly System.Windows.Forms.Timer verify = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer navigationTimer = new() { Interval = 16 };
     private readonly Label navigationStatus = new() { AutoSize = true, Padding = new(4) };
@@ -56,20 +60,26 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         this.bookmarks = bookmarks;
         this.catalog = catalog; this.journalPath = journalPath ?? JsonRecoveryJournalStore.DefaultPath;
-        var selector = new Panel { Dock = DockStyle.Left, Width = 270, Padding = new(6) };
         selector.Controls.Add(candidates);
-        selector.Controls.Add(new Label { Text = "已接入项保持勾选；\n新窗口可在运行中加入", Dock = DockStyle.Top, Height = 54 });
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6), WrapContents = true };
+        selector.Controls.Add(new Label { Text = "选择窗口", Dock = DockStyle.Top, Height = 44, Padding = new(0, 10, 0, 0) });
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(14, 10, 14, 8), WrapContents = true };
         toolbar.Controls.AddRange([start, pause]);
-        InitializeAdmissionControls(toolbar);
-        Add(toolbar, "返回原点", () => session?.Home(DateTimeOffset.UtcNow));
-        Add(toolbar, "上一视角", () => session?.Back(DateTimeOffset.UtcNow));
-        Add(toolbar, "适配全部", () => preview?.FitToContent());
-        Add(toolbar, "刷新窗口", RefreshCandidates);
-        Add(toolbar, "恢复日志", () => RecoveryRequested?.Invoke());
-        Add(toolbar, "空间总览 / 工作区", RequestOverview);
-        Add(toolbar, "手动导航", () => globalInput?.Toggle());
-        Add(toolbar, "导航设置…", () =>
+        var admission = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new(0, 8, 0, 0) };
+        InitializeAdmissionControls(admission); selector.Controls.Add(admission);
+        Add(toolbar, "空间总览", RequestOverview);
+        var more = new Button { Text = "•••", AccessibleName = "更多操作", Size = new(54, 46) };
+        more.Click += (_, _) => moreMenu.Show(more, new Point(0, more.Height)); toolbar.Controls.Add(more);
+        var navigation = new ToolStripMenuItem("视角");
+        navigation.DropDownItems.Add("返回原点    Home", null, (_, _) => Act(() => session?.Home(DateTimeOffset.UtcNow)));
+        navigation.DropDownItems.Add("上一视角    Backspace", null, (_, _) => Act(() => session?.Back(DateTimeOffset.UtcNow)));
+        navigation.DropDownItems.Add("适配地图", null, (_, _) => preview?.FitToContent());
+        navigation.DropDownItems.Add("手动导航", null, (_, _) => globalInput?.Toggle());
+        ChromeTheme.StyleMenu(navigation.DropDown);
+        moreMenu.Items.Add(navigation);
+        moreMenu.Items.Add("管理窗口", null, (_, _) => { showWindowPicker = !selector.Visible; RefreshState(); });
+        moreMenu.Items.Add("刷新窗口", null, (_, _) => RefreshCandidates());
+        moreMenu.Items.Add(new ToolStripSeparator());
+        moreMenu.Items.Add("导航设置…", null, (_, _) =>
         {
             globalInput?.Exit();
             using var dialog = new NavigationSettingsDialog(inputOptions, hotkey: globalInput?.State.Hotkey);
@@ -79,15 +89,21 @@ internal sealed partial class ManagedCanvasControl : UserControl
             globalInput?.Configure(inputOptions);
             if (globalInput is not null && dialog.Hotkey != globalInput.State.Hotkey) globalInput.ChangeHotkey(dialog.Hotkey);
         });
-        var inputStatus = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new(8), WrapContents = true };
-        navigationStatus.MaximumSize = new(900, 0); overviewShortcutStatus.MaximumSize = new(900, 0);
-        inputStatus.Controls.AddRange([navigationStatus, overviewShortcutStatus]);
+        moreMenu.Items.Add("恢复中心", null, (_, _) => RecoveryRequested?.Invoke());
+        moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
+            "桌面空白处：滚轮移动，Shift 横移，左右双键拖动。\nTab 打开总览，Ctrl+滚轮轮选窗口。\n应用窗口内直接操作；Esc 可暂停自动导航。\n关闭管理器收入托盘，托盘菜单可退出并恢复。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
+            $"{navigationStatus.Text}\n{overviewShortcutStatus.Text}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        ChromeTheme.StyleMenu(moreMenu); ChromeTheme.Accent(start, ChromeTheme.Purple);
+        hints.SetToolTip(start, "接管勾选的普通窗口，记录原位以便恢复");
+        hints.SetToolTip(pause, "暂停画布并恢复全部接管窗口的原始位置");
+        hints.SetToolTip(more, "窗口、视角、设置与恢复");
         start.Click += (_, _) => Begin();
         pause.Click += (_, _) => Pause();
         candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
         navigationTimer.Tick += (_, _) => NavigationFrame();
-        Controls.Add(map); Controls.Add(selector); Controls.Add(inputStatus); Controls.Add(status); Controls.Add(toolbar);
+        Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(toolbar);
     }
 
     internal void InitializeGlobalInput()
@@ -344,13 +360,16 @@ internal sealed partial class ManagedCanvasControl : UserControl
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());
         candidates.Enabled = !reading && overview is null; start.Enabled = !running;
-        pause.Enabled = running;
+        start.Visible = !running; pause.Visible = running; pause.Enabled = running;
+        selector.Visible = !running || showWindowPicker;
         if (running && session!.HasPending) verify.Start(); else verify.Stop();
         if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
         var camera = session?.Workspace.Camera;
         var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
-        status.Text = $"状态：{state} · 窗口 {session?.Workspace.Windows.Count ?? 0} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n"
-            + (notice ?? session?.Message ?? "") + "\n桌面空白处自动导航，应用窗口内正常操作。Tab 总览 / Ctrl+滚轮轮选。支持同 DPI 多屏；暂停恢复原位。";
+        var attention = notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null);
+        status.Text = attention ?? (running ? "桌面空白处移动视角 · 应用窗口内直接操作" : "勾选需要的窗口，开始画布");
+        status.Height = attention is null ? 42 : 76;
+        hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");
         StatusChanged?.Invoke();
         ScheduleOverview();
     }
@@ -378,7 +397,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { overviewRequested = false; overview?.CancelOverview(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }
 }
