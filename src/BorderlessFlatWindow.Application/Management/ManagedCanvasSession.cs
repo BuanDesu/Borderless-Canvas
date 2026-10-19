@@ -19,6 +19,7 @@ public sealed class ManagedCanvasSession : IDisposable
     private readonly Dictionary<Guid, Managed> managed = [];
     private RecoverySession? recovery;
     private Guid? activation;
+    private Guid? cycleTarget;
     private nint lastForeground;
     private bool busy;
     private bool disposed, disposeRequested;
@@ -37,8 +38,8 @@ public sealed class ManagedCanvasSession : IDisposable
     public ManagedCanvasSession(Func<RecoverySession> createRecovery, IWindowMotionPort motion, DisplayLayout layout, BookmarkCollection? bookmarks = null)
     {
         this.createRecovery = createRecovery; this.motion = motion; this.layout = layout;
-        planner = new(layout.Primary.WorkArea, layout.Monitors.Select(monitor => monitor.Bounds));
-        Workspace = new(layout.Primary.WorkArea.Size, bookmarks);
+        planner = new(layout.CanvasWorkArea, layout.Monitors.Select(monitor => monitor.Bounds), layout.Monitors.Select(monitor => monitor.WorkArea));
+        Workspace = new(layout.CanvasWorkArea.Size, bookmarks);
     }
     public CanvasWorkspace Workspace { get; }
     public CanvasSessionStatus Status { get; private set; }
@@ -69,8 +70,8 @@ public sealed class ManagedCanvasSession : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (busy || IsRunning) return false;
-        if (layout.Monitors.Count != 1 || layout.Primary.EffectiveDpi is null)
-        { Message = "原型仅在 DPI 已知的单显示器配置上开放管理。"; return false; }
+        if (!layout.SupportsCanvas)
+        { Message = "请将所有显示器设置为相同缩放比例；混合或未知 DPI 暂不接管。"; return false; }
         if (selection.Count == 0 || selection.Select(entry => entry.Id).Distinct().Count() != selection.Count)
         { Message = "请选择至少一个不同的普通窗口。"; return false; }
         var unsupported = selection.Select(entry => Unsupported(entry, layout)).FirstOrDefault(reason => reason is not null);
@@ -101,7 +102,7 @@ public sealed class ManagedCanvasSession : IDisposable
                 if (original.Original.Placement.ShowCommand != 1) throw new InvalidOperationException("窗口已改变显示状态，请恢复普通窗口后重试。");
                 var id = entry.Id!.Value;
                 var physical = original.Original.PhysicalBounds;
-                var position = resume ? previous[id].Bounds.Position : physical.Position - layout.Primary.WorkArea.Position;
+                var position = resume ? previous[id].Bounds.Position : physical.Position - layout.CanvasWorkArea.Position;
                 Workspace.UpsertWindow(new(id, entry.Observation.Title, new(position, physical.Size)));
                 managed.Add(id, new(id, identity, original.Id, physical));
             }
@@ -122,7 +123,7 @@ public sealed class ManagedCanvasSession : IDisposable
     {
         if (!IsRunning || busy || NavigationSuspended) return false;
         busy = true;
-        activation = null;
+        activation = null; cycleTarget = null;
         try { return ApplyCamera(camera, now, recordHistory); }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"平移失败：{exception.Message}"); return false; }
         finally { ExitBusy(); }
@@ -150,7 +151,7 @@ public sealed class ManagedCanvasSession : IDisposable
                 var original = recovery!.Register(entry.Observation.Identity!.Value);
                 ThrowIfClosing();
                 if (original.Original.Placement.ShowCommand != 1) throw new InvalidOperationException("新窗口已改变显示状态，请恢复普通窗口后重试。");
-                if (!NearbyWindowPlacement.TryPlace(original.Original.PhysicalBounds.Size, Workspace.Camera.Bounds, occupied, out var bounds)
+                if (!TryPlaceNewWindow(original.Original.PhysicalBounds.Size, occupied, out var bounds)
                     || !planner.TryPlan(bounds, Workspace.Camera.Position, out var plan))
                     throw new InvalidOperationException("无法为新窗口规划可恢复的空闲位置。");
                 var id = entry.Id!.Value;
@@ -202,10 +203,33 @@ public sealed class ManagedCanvasSession : IDisposable
     {
         if (!IsRunning || busy || !managed.ContainsKey(id)) return false;
         var target = Workspace.Windows.Single(window => window.Id == id);
-        if (!Navigate(Workspace.Camera.CenterOn(target.Bounds).Position, now)) return false;
+        if (!Navigate(FocusPosition(target.Bounds), now)) return false;
         activation = activate ? id : null;
         if (managed[id].Deadline is null) CompleteActivation();
         return true;
+    }
+
+    public bool CycleWindow(int direction, DateTimeOffset now)
+    {
+        if (!IsRunning || busy || NavigationSuspended || direction == 0 || managed.Count == 0) return false;
+        var ids = Workspace.Windows.Select(w => w.Id).Where(managed.ContainsKey).ToArray();
+        var index = Array.IndexOf(ids, activation ?? cycleTarget ?? ActiveWindowId ?? Guid.Empty);
+        var next = index < 0 ? direction > 0 ? 0 : ids.Length - 1 : (index + Math.Sign(direction) + ids.Length) % ids.Length;
+        var accepted = Focus(ids[next], now);
+        if (accepted) cycleTarget = ids[next];
+        return accepted;
+    }
+    private PointD FocusPosition(RectD bounds) => bounds.Center - (layout.Primary.WorkArea.Position - layout.CanvasWorkArea.Position)
+        - new PointD(layout.Primary.WorkArea.Width / 2d, layout.Primary.WorkArea.Height / 2d);
+    private bool TryPlaceNewWindow(SizeD size, IReadOnlyList<RectD> occupied, out RectD bounds)
+    {
+        foreach (var monitor in layout.Monitors.OrderByDescending(m => m.IsPrimary))
+        {
+            var viewport = new RectD(Workspace.Camera.Position + monitor.WorkArea.Position - layout.CanvasWorkArea.Position, monitor.WorkArea.Size);
+            if (NearbyWindowPlacement.TryPlace(size, viewport, occupied, out bounds) && NearbyWindowPlacement.FitsInside(bounds, viewport)) return true;
+        }
+        var primary = new RectD(Workspace.Camera.Position + layout.Primary.WorkArea.Position - layout.CanvasWorkArea.Position, layout.Primary.WorkArea.Size);
+        return NearbyWindowPlacement.TryPlace(size, primary, occupied, out bounds);
     }
 
     private bool ApplyCamera(PointD camera, DateTimeOffset now, bool recordHistory)
@@ -261,6 +285,7 @@ public sealed class ManagedCanvasSession : IDisposable
             }
             // Foreground is handled before geometry: shells/apps may reposition an activated parked window.
             var active = managed.Values.FirstOrDefault(window => window.Identity.Handle == foreground);
+            if (foreground != lastForeground && active?.Id != cycleTarget) cycleTarget = null;
             ActiveWindowId = active?.Id;
             if (!NavigationSuspended && foreground != lastForeground && active is { Parked: true })
             {
@@ -275,11 +300,11 @@ public sealed class ManagedCanvasSession : IDisposable
                     active.Observed = new(checked((int)current.Position.X), checked((int)current.Position.Y),
                         checked((int)current.Right), checked((int)current.Bottom));
                 }
-                if (!ApplyCamera(Workspace.Camera.CenterOn(window.Bounds).Position, now, recordHistory: true)) return;
+                if (!ApplyCamera(FocusPosition(window.Bounds), now, recordHistory: true)) return;
                 activation = null;
             }
             lastForeground = foreground;
-            var mapper = new DesktopCoordinateMapper(Workspace.Camera.Position, layout.Primary.WorkArea);
+            var mapper = new DesktopCoordinateMapper(Workspace.Camera.Position, layout.CanvasWorkArea);
             foreach (var state in managed.Values.ToArray())
             {
                 if (!byHandle.TryGetValue(state.Identity.Handle, out var entry) || entry.Id != state.Id
@@ -307,7 +332,7 @@ public sealed class ManagedCanvasSession : IDisposable
                 {
                     if (state.Parked) { PauseInternal("离屏窗口被外部移动，已暂停恢复。"); return; }
                     state.Observed = actual; state.Desired = actual;
-                    state.Parked = !WindowPlacementPlanner.Intersects(actual, layout.Primary.WorkArea);
+                    state.Parked = !layout.Monitors.Any(m => WindowPlacementPlanner.Intersects(actual, m.WorkArea));
                     world = world with { Bounds = new(mapper.PhysicalToWorld(actual.Position), actual.Size) };
                 }
                 Workspace.UpsertWindow(world with { Title = entry.Observation.Title });

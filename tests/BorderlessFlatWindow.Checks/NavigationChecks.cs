@@ -6,6 +6,10 @@ internal static class NavigationChecks
 {
     internal static IEnumerable<(string Name, Action Run)> Cases()
     {
+        yield return ("Automatic navigation follows desktop boundaries and preserves a captured gesture", AutomaticBoundary);
+        yield return ("An application drag crossing the desktop cannot become a navigation drag", ApplicationDrag);
+        yield return ("Escape suspends automatic navigation until an application boundary is crossed", AutomaticEscape);
+        yield return ("Desktop Tab accepts Shift but excludes application input, other modifiers and overview", DesktopTab);
         yield return ("Navigation gate leaves ordinary application input untouched", PassThrough);
         yield return ("Navigation cannot start with a physical or swallowed button held", HeldEntry);
         yield return ("Navigation swallows complete left/right pairs and wheel input", Suppression);
@@ -27,6 +31,38 @@ internal static class NavigationChecks
         yield return ("Disabled chord navigation passes ordinary buttons without queueing", DragOptions);
         yield return ("Configured wheel distance scales full and partial notches", WheelDistance);
         yield return ("Invalid wheel distance is rejected before capturing input", InvalidDistance);
+    }
+    private static void AutomaticBoundary()
+    {
+        var policy = new DesktopNavigationPolicy();
+        Require(policy.ShouldNavigate(true, true, false, false, false), "Desktop failed to enter.");
+        Require(!policy.ShouldNavigate(false, true, false, false, false), "Application input captured.");
+        Require(policy.ShouldNavigate(false, true, false, true, true), "Captured drag stopped over an application.");
+        Require(!policy.ShouldNavigate(true, false, false, true, true) && !policy.ShouldNavigate(true, true, true, true, true), "Unavailable/overview captured input.");
+    }
+    private static void ApplicationDrag()
+    {
+        var policy = new DesktopNavigationPolicy(); policy.ObserveButton(NavigationInputKind.LeftDown, false);
+        Require(!policy.ShouldNavigate(true, true, false, false, false), "Crossing drag was captured.");
+        policy.ObserveButton(NavigationInputKind.LeftUp, false);
+        Require(policy.ShouldNavigate(true, true, false, false, false), "Release did not restore desktop navigation.");
+    }
+    private static void AutomaticEscape()
+    {
+        var policy = new DesktopNavigationPolicy(); policy.Suspend();
+        Require(!policy.ShouldNavigate(true, true, false, false, false), "Escape immediately reentered.");
+        policy.ShouldNavigate(false, true, false, false, false);
+        Require(policy.ShouldNavigate(true, true, false, false, false), "Application visit did not reset Escape.");
+    }
+    private static void DesktopTab()
+    {
+        Require(DesktopNavigationPolicy.OpensOverview(true, true, false, false, false, false), "Plain desktop Tab rejected.");
+        Require(!DesktopNavigationPolicy.OpensOverview(false, true, false, false, false, false)
+            && !DesktopNavigationPolicy.OpensOverview(true, false, false, false, false, false)
+            && !DesktopNavigationPolicy.OpensOverview(true, true, true, false, false, false)
+            && !DesktopNavigationPolicy.OpensOverview(true, true, false, true, false, false)
+            && !DesktopNavigationPolicy.OpensOverview(true, true, false, false, true, false)
+            && !DesktopNavigationPolicy.OpensOverview(true, true, false, false, false, true), "Tab leaked through a context boundary.");
     }
     private static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch;
     private sealed class Harness

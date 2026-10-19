@@ -35,7 +35,9 @@ internal static class ManagementChecks
         yield return ("Closing reentrantly during late registration cannot move new windows or leak recovery ownership", RuntimeDispose);
         yield return ("Pause/resume preserves the logical layout, camera and bookmarks", Resume);
         yield return ("Beginning management cannot silently recover an inherited journal", Inherited);
-        yield return ("Unsupported native state and multiscreen configuration cannot start management", Unsupported);
+        yield return ("Unsupported native state and mixed DPI cannot start management", Unsupported);
+        yield return ("Same DPI multiscreen pans, primary-screen focus and recovery preserve world layout", MultipleScreens);
+        yield return ("Rapid window cycling advances even before foreground callbacks arrive", Cycle);
         yield return ("Display geometry and DPI changes invalidate the active baseline", Displays);
     }
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 0, 0, 0, TimeSpan.FromHours(8));
@@ -60,12 +62,12 @@ internal static class ManagementChecks
         private readonly HashSet<Guid> markers = [];
         private RecoverySession? lastRecovery;
         internal readonly DisplayLayout Layout;
-        internal Harness(bool multiple = false)
+        internal Harness(bool multiple = false, bool sameDpi = false)
         {
             Native[42] = Window(42, Rect(100, 140)); Native[43] = Window(43, Rect(900, 140));
             Inspection = new(this, new(999));
             DisplayMonitor[] monitors = multiple
-                ? [new("primary", true, new(0, 0, 1920, 1080), new(0, 40, 1920, 1080), 96), new("other", false, new(1920, 0, 3840, 1080), new(1920, 0, 3840, 1040), 144)]
+                ? [new("primary", true, new(0, 0, 1920, 1080), new(0, 40, 1920, 1080), 96), new("other", false, new(-1920, -200, 0, 880), new(-1920, -200, 0, 840), sameDpi ? 96u : 144u)]
                 : [new("primary", true, new(0, 0, 1920, 1080), new(0, 40, 1920, 1080), 96)];
             Layout = new(monitors);
             Session = new(() => lastRecovery = new(new Store(this), this), this, Layout);
@@ -346,9 +348,34 @@ internal static class ManagementChecks
     }
     private static void Unsupported()
     {
-        using var multi = new Harness(true); Require(!multi.Session.Start(multi.Selected(), Now) && multi.Batches == 0, "Multiscreen started.");
+        using var multi = new Harness(true); Require(!multi.Session.Start(multi.Selected(), Now) && multi.Batches == 0, "Mixed DPI started.");
         using var top = new Harness(); top.Native[42] = top.Native[42] with { IsTopMost = true };
         Require(!top.Session.Start(top.Selected(), Now) && top.Saved is null, "Topmost selection registered.");
+    }
+    private static void MultipleScreens()
+    {
+        using var h = new Harness(true, true);
+        h.Native[43] = Window(43, Rect(-1700, -100));
+        var originals = h.Native.ToDictionary(p => p.Key, p => p.Value.Bounds);
+        h.Begin(); var world = h.Session.Workspace.Windows.ToArray();
+        Require(h.Session.ParkedCount == 0 && h.Layout.SupportsCanvas, "Secondary screen was parked at start.");
+        Require(h.Session.Pan(new(240, -80), Now), h.Session.Message); h.Tick();
+        Require(h.Session.Workspace.Windows.SequenceEqual(world) && h.Native[43].Bounds!.Value.Position == new PointD(-1940, -20), "Secondary pan changed logical layout.");
+        var id = h.Inspection.Current.Entries.Single(e => e.Observation.Handle == 43).Id!.Value;
+        Require(h.Session.Focus(id, Now), h.Session.Message); h.Tick();
+        Require(h.Native[43].Bounds!.Value.Center == h.Layout.Primary.WorkArea.ToRectD().Center, "Focus landed in a bezel or secondary screen.");
+        h.Session.Navigate(new(100000, -100000), Now); h.Tick();
+        Require(h.Session.ParkedCount == 2 && h.Native.Values.All(w => h.Layout.Monitors.All(m => !BorderlessFlatWindow.Core.Canvas.WindowPlacementPlanner.Intersects(
+            new((int)w.Bounds!.Value.Position.X, (int)w.Bounds.Value.Position.Y, (int)w.Bounds.Value.Right, (int)w.Bounds.Value.Bottom), m.Bounds))), "Parking touched a physical screen.");
+        h.Session.Pause(); Require(h.Native.All(p => p.Value.Bounds == originals[p.Key]) && h.Saved!.Entries.Count == 0, "Multiscreen originals failed recovery.");
+    }
+    private static void Cycle()
+    {
+        using var h = new Harness(); h.Begin(); var ids = h.Session.Workspace.Windows.Select(w => w.Id).ToArray(); h.Delayed = true;
+        Require(h.Session.CycleWindow(1, Now), h.Session.Message); var first = h.Session.Workspace.Camera.Position;
+        Require(h.Session.CycleWindow(1, Now) && h.Session.Workspace.Camera.Position != first, "Repeated cycle selected the same pending target.");
+        Require(h.Session.CycleWindow(1, Now) && h.Session.Workspace.Camera.Position == first, "Cycle failed to wrap.");
+        h.Session.SuspendNavigation(true); Require(!h.Session.CycleWindow(-1, Now), "Overview allowed background cycling.");
     }
     private static void Displays()
     {

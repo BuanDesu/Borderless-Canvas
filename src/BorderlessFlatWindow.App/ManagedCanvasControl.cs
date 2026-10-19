@@ -27,7 +27,6 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private readonly System.Windows.Forms.Timer verify = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer navigationTimer = new() { Interval = 16 };
     private readonly Label navigationStatus = new() { AutoSize = true, Padding = new(4) };
-    private readonly ComboBox navigationShortcut = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 185 };
     private GlobalNavigationInput? globalInput;
     private NavigationGestureSession? gestures;
     private NavigationHud? hud;
@@ -50,7 +49,6 @@ internal sealed partial class ManagedCanvasControl : UserControl
     { public override string ToString() => Label; }
     internal event Action? StatusChanged;
     internal event Action? RecoveryRequested;
-    internal event Action? BookmarksRequested;
     internal PointD BookmarkPosition => session?.Workspace.Camera.Position ?? PointD.Zero;
     internal bool CanJumpToBookmark => session?.IsRunning == true && !reading && !session.IsBusy && overview is null;
 
@@ -61,46 +59,35 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var selector = new Panel { Dock = DockStyle.Left, Width = 270, Padding = new(6) };
         selector.Controls.Add(candidates);
         selector.Controls.Add(new Label { Text = "已接入项保持勾选；\n新窗口可在运行中加入", Dock = DockStyle.Top, Height = 54 });
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 180, Padding = new(6), AutoScroll = true };
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6), WrapContents = true };
         toolbar.Controls.AddRange([start, pause]);
         InitializeAdmissionControls(toolbar);
-        Add(toolbar, "←", () => session?.Pan(new(-240, 0), DateTimeOffset.UtcNow));
-        Add(toolbar, "↑", () => session?.Pan(new(0, -180), DateTimeOffset.UtcNow));
-        Add(toolbar, "↓", () => session?.Pan(new(0, 180), DateTimeOffset.UtcNow));
-        Add(toolbar, "→", () => session?.Pan(new(240, 0), DateTimeOffset.UtcNow));
         Add(toolbar, "返回原点", () => session?.Home(DateTimeOffset.UtcNow));
         Add(toolbar, "上一视角", () => session?.Back(DateTimeOffset.UtcNow));
         Add(toolbar, "适配全部", () => preview?.FitToContent());
         Add(toolbar, "刷新窗口", RefreshCandidates);
         Add(toolbar, "恢复日志", () => RecoveryRequested?.Invoke());
-        Add(toolbar, "空间总览（Ctrl+Alt+O）", RequestOverview);
-        Add(toolbar, "位置标签…", () => BookmarksRequested?.Invoke());
-        Add(toolbar, "进入导航（Esc 退出）", () => globalInput?.Toggle());
-        navigationShortcut.Items.AddRange([NavigationHotkey.Default,
-            new NavigationHotkey(3, 0x4E, "Ctrl+Alt+N"), new NavigationHotkey(3, 0x4D, "Ctrl+Alt+M")]);
-        navigationShortcut.DisplayMember = nameof(NavigationHotkey.Label); navigationShortcut.SelectedIndex = 0;
-        navigationShortcut.SelectedIndexChanged += (_, _) =>
-        {
-            if (navigationShortcut.SelectedItem is NavigationHotkey shortcut) globalInput?.ChangeHotkey(shortcut);
-        };
-        toolbar.Controls.Add(navigationShortcut);
+        Add(toolbar, "空间总览 / 工作区", RequestOverview);
+        Add(toolbar, "手动导航", () => globalInput?.Toggle());
         Add(toolbar, "导航设置…", () =>
         {
             globalInput?.Exit();
-            using var dialog = new NavigationSettingsDialog(inputOptions);
+            using var dialog = new NavigationSettingsDialog(inputOptions, hotkey: globalInput?.State.Hotkey);
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             gestures?.End(DateTimeOffset.UtcNow); inputOptions = dialog.Options;
             if (gestures is not null) gestures.Options = inputOptions;
             globalInput?.Configure(inputOptions);
+            if (globalInput is not null && dialog.Hotkey != globalInput.State.Hotkey) globalInput.ChangeHotkey(dialog.Hotkey);
         });
-        toolbar.Controls.Add(navigationStatus);
-        toolbar.Controls.Add(overviewShortcutStatus);
+        var inputStatus = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new(8), WrapContents = true };
+        navigationStatus.MaximumSize = new(900, 0); overviewShortcutStatus.MaximumSize = new(900, 0);
+        inputStatus.Controls.AddRange([navigationStatus, overviewShortcutStatus]);
         start.Click += (_, _) => Begin();
         pause.Click += (_, _) => Pause();
         candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
         navigationTimer.Tick += (_, _) => NavigationFrame();
-        Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(toolbar);
+        Controls.Add(map); Controls.Add(selector); Controls.Add(inputStatus); Controls.Add(status); Controls.Add(toolbar);
     }
 
     internal void InitializeGlobalInput()
@@ -139,14 +126,21 @@ internal sealed partial class ManagedCanvasControl : UserControl
                 gestures?.Accept(new(NavigationInputKind.Exit, PointD.Zero), item.At);
                 if (item.Input.Kind == NavigationInputKind.Home) session?.Home(item.At); else session?.Back(item.At);
             }
+            else if (item.Input.Kind == NavigationInputKind.CycleWindow)
+            {
+                gestures?.End(item.At);
+                var steps = Math.Clamp(Math.Abs(item.Input.WheelDelta) / 120, 1, 12);
+                for (var step = 0; step < steps; step++) session?.CycleWindow(item.Input.WheelDelta < 0 ? 1 : -1, item.At);
+            }
             else gestures?.Accept(item.Input, item.At);
         }
         gestures?.Tick(DateTimeOffset.UtcNow);
         if (navigationState?.Active == true && session?.IsRunning == true)
         {
-            navigationTimer.Start(); hud ??= new();
-            var camera = session.Workspace.Camera.Position;
-            hud.Present(navigationState.Hotkey.Label, camera, inputOptions);
+            navigationTimer.Start();
+            if (navigationState.Manual)
+            { hud ??= new(); hud.Present(navigationState.Hotkey.Label, session.Workspace.Camera.Position, inputOptions); }
+            else hud?.Hide();
         }
         else
         {
@@ -170,14 +164,15 @@ internal sealed partial class ManagedCanvasControl : UserControl
         gestures?.End(DateTimeOffset.UtcNow); overviewRequested = true;
         globalInput?.SetOverviewOpen(true); ScheduleOverview();
     }
+    internal void ShowOverview() => RequestOverview();
     private IEnumerable<SpatialOverviewForm.PreviewSource> OverviewPreviewSources()
     {
         if (lastSnapshot is null || layout is null) return [];
         var managedIds = OverviewWindows().Select(window => window.Id).ToHashSet();
         return lastSnapshot.Entries.Where(entry => entry.Id is { } id && managedIds.Contains(id) && entry.Observation.Identity is not null)
             .Select(entry => new SpatialOverviewForm.PreviewSource(entry.Id!.Value, entry.Observation.Identity!.Value,
-                entry.Observation.Bounds is { } bounds && bounds.Position.X >= layout.Primary.WorkArea.Left && bounds.Position.Y >= layout.Primary.WorkArea.Top
-                && bounds.Right <= layout.Primary.WorkArea.Right && bounds.Bottom <= layout.Primary.WorkArea.Bottom)).ToArray();
+                entry.Observation.Bounds is { } bounds && layout.Monitors.Any(m => bounds.Position.X >= m.WorkArea.Left && bounds.Position.Y >= m.WorkArea.Top
+                && bounds.Right <= m.WorkArea.Right && bounds.Bottom <= m.WorkArea.Bottom))).ToArray();
     }
     private void ScheduleOverview()
     {
@@ -202,7 +197,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
             var area = layout.Primary.WorkArea;
             if (FindForm() is not MainForm host) throw new InvalidOperationException("总览主窗口不可用。");
             var dialog = new SpatialOverviewForm(OverviewWindows(), managed.Workspace.Camera,
-                new(area.Left, area.Top, area.Width, area.Height), managed.ActiveWindowId);
+                new(area.Left, area.Top, area.Width, area.Height), managed.ActiveWindowId, bookmarks: bookmarks,
+                viewports: layout.Monitors.Select(m => new RectD(managed.Workspace.Camera.Position + m.WorkArea.Position - layout.CanvasWorkArea.Position, m.WorkArea.Size)));
             overview = dialog; var retainedFocus = focus;
             dialog.SetPreviewSources(OverviewPreviewSources());
             host.PresentOverview(dialog, () => FinishOverview(dialog, managed, retainedFocus));
@@ -226,7 +222,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         try
         {
             if (IsDisposed || Disposing) return;
-            if (dialog.ConfirmedTarget is { } selected && ReferenceEquals(session, managed) && managed.IsRunning)
+            if (dialog.ConfirmedCameraPosition is { } position && ReferenceEquals(session, managed) && managed.IsRunning)
+            { if (!managed.Navigate(position, DateTimeOffset.UtcNow)) notice = managed.Message; }
+            else if (dialog.ConfirmedTarget is { } selected && ReferenceEquals(session, managed) && managed.IsRunning)
             {
                 lastSnapshot = catalog.Inspect();
                 if (!OverviewWindows().Any(window => window.Id == selected.Id))
@@ -269,7 +267,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
                 PointD.Zero, checked((int)(delta.X != 0 ? delta.X : -delta.Y))), DateTimeOffset.UtcNow);
             navigationTimer.Start();
         };
-        map.Controls.Add(preview); RefreshState();
+        ChromeTheme.Apply(preview); map.Controls.Add(preview); RefreshState();
     }
 
     internal void Observe(WindowCatalogSnapshot snapshot, nint foreground)
@@ -352,7 +350,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var camera = session?.Workspace.Camera;
         var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
         status.Text = $"状态：{state} · 窗口 {session?.Workspace.Windows.Count ?? 0} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n"
-            + (notice ?? session?.Message ?? "") + "\n地图内滚轮或进入全局导航后平移；Esc 退出导航。当前仅开放单屏普通窗口；暂停恢复原位。";
+            + (notice ?? session?.Message ?? "") + "\n桌面空白处自动导航，应用窗口内正常操作。Tab 总览 / Ctrl+滚轮轮选。支持同 DPI 多屏；暂停恢复原位。";
         StatusChanged?.Invoke();
         ScheduleOverview();
     }

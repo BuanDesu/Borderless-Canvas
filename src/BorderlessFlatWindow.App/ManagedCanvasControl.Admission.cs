@@ -8,7 +8,7 @@ internal sealed partial class ManagedCanvasControl
     private readonly RuntimeAdmissionTracker admissionTracker = new();
     private readonly System.Windows.Forms.Timer admissionTimer = new() { Interval = 220 };
     private readonly Button addWindows = new() { Text = "将勾选新窗口加入画布", AutoSize = true, Enabled = false };
-    private readonly CheckBox automaticAdmission = new() { Text = "自动接入之后新开的窗口", AutoSize = true };
+    private readonly CheckBox automaticAdmission = new() { Text = "自动接入之后新开的窗口", AutoSize = true, Checked = true };
     private readonly HashSet<nint> admissionDestroyedHints = [];
     private bool admissionIdentityGap, renderingCandidates;
     private void InitializeAdmissionControls(FlowLayoutPanel toolbar)
@@ -112,7 +112,7 @@ internal sealed partial class ManagedCanvasControl
     {
         if (!automaticAdmission.Checked || session?.IsRunning != true) { admissionTimer.Stop(); return; }
         if (reading || session.IsBusy || session.HasPending || overview is not null || openingOverview
-            || gestures?.HasGesture == true || navigationState?.Active == true) return;
+            || gestures?.HasGesture == true || navigationState is { Active: true, Manual: true }) return;
         admissionTimer.Stop();
         try
         {
