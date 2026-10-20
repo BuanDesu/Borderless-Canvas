@@ -22,11 +22,12 @@ internal sealed class WorkspaceStrip : UserControl
     private readonly Dictionary<(Button Card, Guid Window, int Monitor), Guid> previewIds = [];
     private Bitmap? wallpaper;
     internal event Action? GeometryChanged;
+    internal event Action? AppearanceChanged;
     internal async Task LoadWallpaperAsync()
     {
         var next = await WallpaperPaletteReader.ReadPreviewAsync();
         if (IsDisposed || Disposing) { next?.Dispose(); return; }
-        wallpaper?.Dispose(); wallpaper = next; cards.Invalidate(true);
+        wallpaper?.Dispose(); wallpaper = next; cards.Invalidate(true); AppearanceChanged?.Invoke();
     }
     internal event Action<PointD>? JumpRequested;
     internal WorkspaceStrip(BookmarkLibrary? library, PointD camera, Func<IReadOnlyList<CanvasWindow>> windows, SizeD viewport, Control tools, RectD[]? viewports = null)

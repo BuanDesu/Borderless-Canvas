@@ -13,9 +13,27 @@ internal sealed partial class MainForm
     {
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = reviewPanel; TopMost = true;
         StartPosition = FormStartPosition.Manual; DoubleBuffered = true; Padding = new(6);
-        var collapse = new ChromeButton { Text = "×", AccessibleName = "收起面板", Size = new(38, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
-        header.Controls.Add(collapse); collapse.Location = new(header.Width - 48, 17);
-        header.SizeChanged += (_, _) => collapse.Location = new(header.Width - collapse.Width - 12, Math.Max(8, (header.Height - collapse.Height) / 2 - 3));
+        var collapse = new ChromeButton { Text = "×", AccessibleName = "收起面板", Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        void FitCollapse()
+        {
+            var s = header.DeviceDpi / 96f;
+            var size = (int)(48 * s); collapse.Size = new(size, size);
+            // The center shares the display's vertical axis (16 + 40/2 logical pixels).
+            collapse.Location = new(header.Width - (int)(56 * s), (int)(12 * s));
+        }
+        header.Controls.Add(collapse); FitCollapse();
+        collapse.Artwork = graphics =>
+        {
+            var inset = 4 * collapse.DeviceDpi / 96f;
+            ChromeTheme.Glass(graphics, new RectangleF(inset, inset, collapse.Width - inset * 2, collapse.Height - inset * 2), ChromeTheme.Purple, collapse.Focused);
+            var half = 7 * collapse.DeviceDpi / 96f; var cx = collapse.Width / 2f; var cy = collapse.Height / 2f;
+            using var stroke = new Pen(ChromeTheme.Text, 2 * collapse.DeviceDpi / 96f)
+            { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+            graphics.DrawLine(stroke, cx - half, cy - half, cx + half, cy + half);
+            graphics.DrawLine(stroke, cx + half, cy - half, cx - half, cy + half);
+        };
+        collapse.UpdateShape();
+        header.SizeChanged += (_, _) => FitCollapse(); collapse.DpiChangedAfterParent += (_, _) => FitCollapse();
         collapse.Click += (_, _) => Hide(); ChromeTheme.Apply(collapse);
         collapse.BackColor = Color.Transparent;
         Deactivate += (_, _) => { if (!IsDisposed) dismissPopup.Start(); };
@@ -69,7 +87,7 @@ internal sealed partial class MainForm
             var next = followWallpaper ? await WallpaperPaletteReader.ReadAsync(Screen.FromControl(this).Bounds) : CandyPalette.Default;
             if (IsDisposed || Disposing) return;
             if (!followWallpaper) next = CandyPalette.Default;
-            if (management.HasOverview) deferredPalette = next; else ApplyPalette(next);
+            if (management.HasOverview || pageTransitions.Any(transition => transition.IsActive)) deferredPalette = next; else ApplyPalette(next);
         }
         finally
         {
@@ -85,7 +103,7 @@ internal sealed partial class MainForm
     }
     internal void ApplyDeferredPalette()
     {
-        if (deferredPalette is not { } next || IsDisposed || Disposing) return;
+        if (deferredPalette is not { } next || IsDisposed || Disposing || management.HasOverview || pageTransitions.Any(transition => transition.IsActive)) return;
         deferredPalette = null; ApplyPalette(next);
     }
     internal void PreparePopupSmoke()

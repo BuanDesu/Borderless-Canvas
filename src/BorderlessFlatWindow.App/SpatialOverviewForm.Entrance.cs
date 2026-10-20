@@ -4,6 +4,7 @@ using BorderlessFlatWindow.Application.Overview;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Presentation;
+using BorderlessFlatWindow.Windows;
 
 namespace BorderlessFlatWindow.App;
 
@@ -20,6 +21,7 @@ internal sealed partial class SpatialOverviewForm
     private CompositionSurface? compositionSurface;
     private PreviewCard[]? animationCards;
     private bool exiting;
+    private bool overviewShown, desiredOpen = true, reversibleClose, sceneDirty, reusedScene;
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e); PerformLayout(); map.Refit();
@@ -68,6 +70,13 @@ internal sealed partial class SpatialOverviewForm
                 var uploadStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 compositionSurface = new(entranceBackground, entranceScene) { Bounds = ClientRectangle, Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
                 Controls.Add(compositionSurface); compositionSurface.BringToFront(); _ = compositionSurface.Handle;
+                if (focusFrame is not null && entranceStart is { } from && EntrancePreviewCard(1)?.ContentBounds is { } to)
+                {
+                    compositionSurface.SetMovingImage(focusFrame, new((float)from.Position.X, (float)from.Position.Y, (float)from.Size.Width, (float)from.Size.Height),
+                        new(to.Left, to.Top, to.Width, to.Height));
+                    compositorFocus = true;
+                }
+                focusFrame?.Dispose(); focusFrame = null;
                 compositionSurface.Frame += AdvanceComposition;
                 uploadMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(uploadStarted).TotalMilliseconds;
             }
@@ -85,20 +94,19 @@ internal sealed partial class SpatialOverviewForm
         animationPreviewCount = animationCards?.Length ?? 0;
         Update(); DwmFlush();
         prepareMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(prepareStarted).TotalMilliseconds;
+        sceneDirty = false;
     }
     private void AdvanceComposition(double progress)
     {
         if (closing || IsDisposed) { compositionSurface?.Stop(); return; }
         var frameStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        entranceProgress = progress;
         if (exiting)
         {
-            var returning = ConfirmedTarget is null && ConfirmedCameraPosition is null ? EntrancePreviewCard(progress, reverse: true) : null;
-            previews?.Animate(displayCards.Where(card => returning is null || card.Id != returning.Id), (byte)Math.Round((1 - OverviewMotion.Ease(progress)) * 255));
-            if (returning is not null) previews?.Animate([returning]);
-            if (progress >= 1) { compositionSurface?.Stop(); closing = true; Close(); }
+            AnimatePreviews();
+            if (progress <= 0) { compositionSurface?.Stop(); closing = true; Close(); }
             return;
         }
-        entranceProgress = progress;
         motionTimes.Add(System.Diagnostics.Stopwatch.GetElapsedTime(entranceStarted).TotalMilliseconds);
         if (entranceProgress >= 1) { CompleteEntrance(); return; }
         AnimatePreviews();
@@ -106,10 +114,10 @@ internal sealed partial class SpatialOverviewForm
     }
     private void CompleteEntrance()
     {
-        compositionSurface?.Seek(1); compositionSurface?.Stop(); entranceProgress = 1; AnimatePreviews(); DwmFlush(); entering = false;
+        compositionSurface?.Seek(1); compositionSurface?.Stop(); entranceProgress = 1; entering = false; AnimatePreviews(); DwmFlush();
         animationCards = null;
         transitionCover?.Dispose(); transitionCover = null;
-        compositionSurface?.Dispose(); compositionSurface = null;
+        if (compositionSurface is not null) compositionSurface.Visible = false;
         entranceScene?.Dispose(); entranceScene = null;
         WriteMotionMetrics();
         RefreshPreviews(); search.Focus();
@@ -118,32 +126,67 @@ internal sealed partial class SpatialOverviewForm
     {
         if (exiting) return true;
         if (!Visible || !SystemParametersInfo(0x1042, 0, out var enabled, 0) || enabled == 0) return false;
-        if (entering) CompleteEntrance();
-        if (entranceBackground is null || CompositionSurface.RenderingTier == 0) return false;
+        if (compositionSurface is null || CompositionSurface.RenderingTier == 0) return false;
         try
         {
-            using var scene = new Bitmap(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
-            DrawToBitmap(scene, ClientRectangle);
-            compositionSurface = new(entranceBackground, scene) { Bounds = ClientRectangle };
-            Controls.Add(compositionSurface); compositionSurface.BringToFront(); _ = compositionSurface.Handle;
-            compositionSurface.Frame += AdvanceComposition;
-            exiting = true; compositionSurface.Start(140, reverse: true); return true;
+            hints.Active = false; map.PauseTitles(true);
+            var returnImage = compositorFocus && canConfirm && ConfirmedTarget is null && ConfirmedCameraPosition is null
+                && entranceSource is { } source && previewSources.ContainsKey(source.Id);
+            if (!entering && returnImage) returnImage = RefreshReturnImage();
+            if (!entering && sceneDirty)
+            {
+                using var scene = new Bitmap(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
+                DrawToBitmap(scene, ClientRectangle); compositionSurface.ReplaceTarget(scene); sceneDirty = false;
+            }
+            animationCards ??= displayCards;
+            entering = false; exiting = true;
+            compositionSurface.ShowMovingImage(returnImage);
+            compositionSurface.Visible = true; compositionSurface.BringToFront();
+            AnimatePreviews();
+            compositionSurface.Retarget(false, 180); return true;
         }
         catch (Exception error) when (error is ExternalException or InvalidOperationException or OutOfMemoryException)
         { compositionSurface?.Dispose(); compositionSurface = null; return false; }
     }
+    internal void ToggleOverview()
+    {
+        if (!canConfirm || model.Status != OverviewStatus.Open) return;
+        desiredOpen = !desiredOpen;
+        if (!overviewShown) return;
+        if (!desiredOpen) { reversibleClose = true; Close(); return; }
+        if (!exiting || !reversibleClose || compositionSurface is null) return;
+        exiting = false; entering = true; reusedScene = true;
+        hints.Active = true; map.PauseTitles(false);
+        compositionSurface.ShowMovingImage(compositorFocus && entranceSource is { } source && previewSources.ContainsKey(source.Id));
+        entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); motionSamples.Clear(); motionTimes.Clear();
+        compositionSurface.Retarget(true, 220);
+    }
+    private bool RefreshReturnImage()
+    {
+        if (entranceSource is not { } source || compositionSurface is null || previews?.States.GetValueOrDefault(source.Id) != PreviewState.Preview
+            || displayCards.FirstOrDefault(card => card.Id == source.Id)?.ContentBounds is not { } area) return false;
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        var identity = new BorderlessFlatWindow.Application.Discovery.NativeWindowIdentity(Handle, (uint)Environment.ProcessId, process.StartTime.ToFileTimeUtc());
+        var expected = new PixelRect(Left, Top, Right, Bottom);
+        var crop = new PixelRect(Left + area.Left, Top + area.Top, Left + area.Right, Top + area.Bottom);
+        if (!DesktopCropEligibility.IsUnobscuredRegion(identity, expected, crop)) return false;
+        using var image = FrostedBackdrop.CaptureRaw(new(crop.Left, crop.Top, crop.Width, crop.Height));
+        if (image is null || !DesktopCropEligibility.IsUnobscuredRegion(identity, expected, crop)) return false;
+        compositionSurface.ReplaceMovingImage(image); return true;
+    }
     private void AnimatePreviews()
     {
         if (animationCards is null || previews is null) return;
-        var opacity = (byte)Math.Clamp((int)Math.Round(OverviewMotion.Ease(entranceProgress) * 255), 0, 255);
-        var selected = EntrancePreviewCard(entranceProgress);
+        var opacity = (byte)Math.Clamp((int)Math.Round(entranceProgress * 255), 0, 255);
+        var selected = exiting && (ConfirmedTarget is not null || ConfirmedCameraPosition is not null) ? null : EntrancePreviewCard(entranceProgress);
         previews.Animate(animationCards.Where(card => selected is null || card.Id != selected.Id), opacity);
-        if (selected is not null) previews.Animate([selected]);
+        if (selected is not null) previews.Animate([selected], IsTransitioning && compositionSurface?.HasMovingImage == true ? (byte)0 : (byte)255);
     }
-    private PreviewCard? EntrancePreviewCard(double progress, bool reverse = false)
+    private PreviewCard? EntrancePreviewCard(double progress)
     {
         if (entranceSource is null || entranceStart is not { } from || entranceContentEnd is not { } to) return null;
-        var r = reverse ? OverviewMotion.Between(to, from, progress) : OverviewMotion.Between(from, to, progress);
+        var r = new RectD(new(from.Position.X + (to.Position.X - from.Position.X) * progress, from.Position.Y + (to.Position.Y - from.Position.Y) * progress),
+            new(from.Size.Width + (to.Size.Width - from.Size.Width) * progress, from.Size.Height + (to.Size.Height - from.Size.Height) * progress));
         var size = previews?.SourceSize(entranceSource.Id);
         var bounds = new PixelRect((int)Math.Round(r.Position.X), (int)Math.Round(r.Position.Y), (int)Math.Round(r.Right), (int)Math.Round(r.Bottom));
         if (size is { IsPositive: true }) bounds = OverviewPreviewSession.Fit(size.Value, bounds);
@@ -172,7 +215,7 @@ internal sealed partial class SpatialOverviewForm
     internal void SetSmokeEntrance(double progress)
     {
         if (!showWithoutActivation) throw new InvalidOperationException("Synthetic rendering only.");
-        if (!entering) PrepareEntrance(); entranceProgress = progress; AnimatePreviews(); transitionCover?.Refresh();
+        if (!entering) PrepareEntrance(); entranceProgress = OverviewMotion.Ease(progress); AnimatePreviews(); transitionCover?.Refresh();
     }
     internal void EndSmokeEntrance() => CompleteEntrance();
     private sealed class TransitionCover : Control

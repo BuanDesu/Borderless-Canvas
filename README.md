@@ -8,6 +8,8 @@ Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作
 
 ## 快速开始
 
+本轮改进：总览进出途中再次按 Tab 可从当前位置反向；主标签与诊断子页加入短淡入；关闭键扩大、居中，文字区域保留上下留白。实现与未验收边界见[可中断总览与页面过渡](docs/responsive-transitions.md)。
+
 开发环境：Windows、.NET 10 SDK（含 Windows Desktop 引用包）。无需 WSL、Node.js 或第三方 NuGet 包。
 
 在项目根目录的 PowerShell 中运行：

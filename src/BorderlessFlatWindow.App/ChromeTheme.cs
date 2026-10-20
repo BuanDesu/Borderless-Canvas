@@ -64,16 +64,12 @@ internal static class ChromeTheme
                 if (first) tabs.DrawItem += DrawTab; break;
             case ToolStrip strip: StyleMenu(strip); break;
         }
-        if (root is TabPage or ChromeTabs or ListView)
+        // Round outer surfaces, not text-bearing HWNDs: a region on a ListView or
+        // TabPage cuts through its first header/row rather than providing inner padding.
+        if (root is TabPage page)
         {
-            void RoundControl()
-            {
-                if (root.Width < 2 || root.Height < 2) return;
-                using var path = Round(root.ClientRectangle, 16 * root.DeviceDpi / 96f);
-                var old = root.Region; root.Region = new Region(path); old?.Dispose();
-            }
-            if (first) root.SizeChanged += (_, _) => RoundControl();
-            RoundControl();
+            var scale = root.DeviceDpi / 96f;
+            page.Padding = new((int)(8 * scale), (int)(12 * scale), (int)(8 * scale), (int)(8 * scale));
         }
         foreach (Control child in root.Controls) Apply(child);
         if (root is GameCommandDeck) foreach (Control child in root.Controls) child.BackColor = Color.Transparent;
