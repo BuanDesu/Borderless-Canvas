@@ -15,7 +15,8 @@ internal sealed partial class SpatialOverviewForm : Form
     private readonly TextBox search = new() { Dock = DockStyle.Fill, PlaceholderText = "搜索窗口", AccessibleName = "搜索窗口" };
     private readonly Label summary = new InlineSelectionLabel { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleRight, Padding = new(6, 0, 12, 0) };
     private readonly ChromeButton confirm = new() { Text = "定位选中窗口", AutoSize = true };
-    private readonly OverviewMap map;
+    private readonly OverviewMap? legacyMap;
+    private OverviewMap map => legacyMap ?? throw new InvalidOperationException("Legacy map is synthetic-only.");
     private readonly bool showWithoutActivation;
     private bool canConfirm = true;
     private string? managementNotice;
@@ -29,7 +30,8 @@ internal sealed partial class SpatialOverviewForm : Form
     internal bool IsTransitioning => entering || exiting;
     internal CanvasWindow? ConfirmedTarget { get; private set; }
     internal PointD? ConfirmedCameraPosition { get; private set; }
-    private readonly WorkspaceStrip workspaces;
+    private readonly WorkspaceStrip? legacyWorkspaces;
+    private WorkspaceStrip workspaces => legacyWorkspaces ?? throw new InvalidOperationException("Legacy workspace strip is synthetic-only.");
     private Bitmap? backdrop;
     private Bitmap? focusFrame;
     private readonly Rectangle backdropBounds;
@@ -37,7 +39,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private readonly ToolTip hints = new();
 
     internal SpatialOverviewForm(IEnumerable<CanvasWindow> windows, Camera2D camera, Rectangle bounds, Guid? selected = null, bool showWithoutActivation = false,
-        BookmarkLibrary? bookmarks = null, IEnumerable<RectD>? viewports = null, bool animate = true)
+        BookmarkLibrary? bookmarks = null, IEnumerable<RectD>? viewports = null, bool animate = true, bool sceneFixture = false)
     {
         this.showWithoutActivation = showWithoutActivation;
         animateEntrance = animate && !showWithoutActivation;
@@ -48,7 +50,12 @@ internal sealed partial class SpatialOverviewForm : Form
         Bounds = bounds; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
         Font = new Font("Segoe UI", 12); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
         var monitorViewports = viewports?.ToArray() ?? [camera.Bounds];
-        map = new(model, monitorViewports) { Dock = DockStyle.Fill, PaintBackdrop = PaintScene };
+        ConfigureOptions();
+        if (!showWithoutActivation || sceneFixture)
+        {
+            ChromeTheme.Apply(this); ConfigureScene(bookmarks, camera, monitorViewports); RefreshSelection(); return;
+        }
+        legacyMap = new(model, monitorViewports) { Dock = DockStyle.Fill, PaintBackdrop = PaintScene };
         map.GeometryChanged += RefreshPreviews;
         map.ConfirmRequested += ConfirmSelection;
         var searchContainer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
@@ -59,22 +66,12 @@ internal sealed partial class SpatialOverviewForm : Form
         var more = new ChromeButton { Text = "⋯", AccessibleName = "总览选项", Dock = DockStyle.Fill };
         var cancel = new ChromeButton { Text = "×", AccessibleName = "关闭总览", Dock = DockStyle.Fill };
         confirm.Click += (_, _) => ConfirmSelection(); cancel.Click += (_, _) => CancelOverview();
-        options.Items.Add("适配全部    F5", null, (_, _) => { previews?.RetryFailed(); map.Refit(); RefreshSelection(); });
-        var previewsToggle = new ToolStripMenuItem("窗口预览") { Checked = true, CheckOnClick = true };
-        previewsToggle.CheckedChanged += (_, _) => showPreviews.Checked = previewsToggle.Checked;
-        options.Items.Add(previewsToggle);
-        var viewportToggle = new ToolStripMenuItem("显示当前视野") { CheckOnClick = true };
-        viewportToggle.CheckedChanged += (_, _) => { map.ShowViewport = viewportToggle.Checked; map.Invalidate(); };
-        options.Items.Add(viewportToggle);
-        options.Items.Add("操作提示", null, (_, _) => MessageBox.Show(TopLevelControl as Form, "Tab / Shift+Tab 返回，方向键 / Ctrl+Tab 选择窗口，Enter 定位。\n输入标题筛选，下方卡片切换工作区。", "空间总览"));
         more.Click += (_, _) => options.Show(more, new Point(0, more.Height));
-        ChromeTheme.StyleMenu(options);
-        showPreviews.CheckedChanged += (_, _) => RefreshSelection();
         searchContainer.Controls.Add(summary, 0, 0); searchContainer.Controls.Add(searchSurface, 1, 0);
         searchContainer.Controls.Add(more, 2, 0); searchContainer.Controls.Add(cancel, 3, 0);
         hints.SetToolTip(cancel, "关闭 · Tab / Esc"); hints.SetToolTip(more, "适配、预览与操作提示");
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
-        workspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer, monitorViewports) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, (int)(210 * DeviceDpi / 96f), (int)(320 * DeviceDpi / 96f)) };
+        legacyWorkspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer, monitorViewports) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, (int)(210 * DeviceDpi / 96f), (int)(320 * DeviceDpi / 96f)) };
         workspaces.JumpRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
         workspaces.GeometryChanged += () => { sceneDirty = true; RefreshPreviews(); };
         workspaces.AppearanceChanged += () => sceneDirty = true;
@@ -96,6 +93,16 @@ internal sealed partial class SpatialOverviewForm : Form
         search.BorderStyle = BorderStyle.None;
         RefreshSelection();
     }
+    private void ConfigureOptions()
+    {
+        options.Items.Add("适配全部    F5", null, (_, _) => { previews?.RetryFailed(); if (scene is not null) scene.EnsureLayout(); else map.Refit(); RefreshSelection(); });
+        var previewsToggle = new ToolStripMenuItem("窗口预览") { Checked = true, CheckOnClick = true };
+        previewsToggle.CheckedChanged += (_, _) => showPreviews.Checked = previewsToggle.Checked; options.Items.Add(previewsToggle);
+        var viewportToggle = new ToolStripMenuItem("显示当前视野") { CheckOnClick = true };
+        viewportToggle.CheckedChanged += (_, _) => { if (scene is not null) scene.ShowViewports(viewportToggle.Checked); else { map.ShowViewport = viewportToggle.Checked; map.Invalidate(); } }; options.Items.Add(viewportToggle);
+        options.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this, "Tab / Shift+Tab 返回，方向键 / Ctrl+Tab 选择窗口，Enter 定位。\n输入标题筛选，下方卡片切换工作区。", "空间总览"));
+        ChromeTheme.StyleMenu(options); showPreviews.CheckedChanged += (_, _) => RefreshSelection();
+    }
     protected override bool ShowWithoutActivation => showWithoutActivation;
     private static void MakeTransparent(Control root)
     {
@@ -105,6 +112,7 @@ internal sealed partial class SpatialOverviewForm : Form
     protected override void OnPaintBackground(PaintEventArgs e) => PaintScene(e.Graphics, this);
     internal void PaintScene(Graphics graphics, Control target)
     {
+        if (scene is not null) { graphics.Clear(ChromeTheme.Ink); return; }
         var location = ReferenceEquals(target, this) ? Point.Empty : PointToClient(target.PointToScreen(Point.Empty));
         var saved = graphics.Save(); graphics.TranslateTransform(-location.X, -location.Y);
         if (backdrop is null && entranceBackground is null) ChromeTheme.Grid(graphics, ClientRectangle);
@@ -128,6 +136,7 @@ internal sealed partial class SpatialOverviewForm : Form
     internal void CaptureBackdrop()
     {
         if (showWithoutActivation) return;
+        if (scene is not null) { CaptureSceneBackdrop(); return; }
         var captureStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         backdrop?.Dispose(); entranceBackground?.Dispose(); focusFrame?.Dispose(); focusFrame = null;
         var focus = model.SelectedId is { } id ? previewSources.GetValueOrDefault(id) : null;
@@ -151,6 +160,13 @@ internal sealed partial class SpatialOverviewForm : Form
     {
         base.OnShown(e);
         overviewShown = true;
+        if (scene is not null)
+        {
+            if (!desiredOpen) { closing = true; Close(); return; }
+            if (entering) { entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); scene.Retarget(true, 220); }
+            else if (!showWithoutActivation) scene.FocusSearch();
+            return;
+        }
         if (entering)
         {
             entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -172,7 +188,7 @@ internal sealed partial class SpatialOverviewForm : Form
         var next = windows.ToArray(); var changed = canConfirm != running || managementNotice != (running ? null : "管理已暂停，暂不可跳转。" + message);
         if (!model.Windows.SequenceEqual(next))
         {
-            model.Synchronize(next); workspaces.Invalidate(true);
+            model.Synchronize(next); legacyWorkspaces?.Invalidate(true);
             changed = true;
             if (entering && entranceSource is { } source && !next.Any(w => w.Id == source.Id)) CompleteEntrance();
         }
@@ -183,6 +199,11 @@ internal sealed partial class SpatialOverviewForm : Form
     {
         sceneDirty = true;
         if (entranceSource is { } source && !model.Windows.Any(window => window.Id == source.Id)) compositionSurface?.ShowMovingImage(false);
+        if (scene is not null)
+        {
+            if (entranceSource is { } old && !model.Windows.Any(window => window.Id == old.Id)) scene.ShowFocusImage(false);
+            scene.RefreshWindows(); scene.SetStatus(managementNotice); RefreshPreviews(); return;
+        }
         var selected = model.Windows.FirstOrDefault(window => window.Id == model.SelectedId);
         confirm.Enabled = canConfirm && selected is not null;
         summary.Text = managementNotice ?? (model.Matches.Count == 0 ? "没有匹配的窗口" : $"{selected?.Title ?? ""}  ·  Enter 打开");
@@ -191,7 +212,7 @@ internal sealed partial class SpatialOverviewForm : Form
     }
     private void RefreshPreviews()
     {
-        if (closing || refreshingPreviews || IsDisposed || !IsHandleCreated || !map.IsHandleCreated) return;
+        if (closing || refreshingPreviews || IsDisposed || !IsHandleCreated || (scene is null ? !map.IsHandleCreated : !sceneReady || !scene.IsHandleCreated)) return;
         if (IsTransitioning && animationCards is not null) return;
         refreshingPreviews = true;
         try { RefreshPreviewsCore(); }
@@ -208,10 +229,11 @@ internal sealed partial class SpatialOverviewForm : Form
             previews = new(new DwmOverviewPreviewPort(previewDestination));
         }
         var current = previews!;
-        var cards = map.PreviewCards(previewSources, host).Concat(workspaces.PreviewCards(previewSources, host)).ToArray();
+        var cards = scene is null ? map.PreviewCards(previewSources, host).Concat(workspaces.PreviewCards(previewSources, host)).ToArray()
+            : scene.PreviewLayout().Select(card => new PreviewCard(card.Id, previewSources.GetValueOrDefault(card.Window)?.Identity, card.Bounds, card.Fallback, card.Fraction)).ToArray();
         current.Synchronize(cards, null, showPreviews.Checked && canConfirm, entering ? (byte)0 : (byte)255);
         if (closing || !ReferenceEquals(previews, current)) return;
-        if (map.PreviewStates.Count != current.States.Count || current.States.Any(pair => map.PreviewStates.GetValueOrDefault(pair.Key) != pair.Value))
+        if (scene is null && (map.PreviewStates.Count != current.States.Count || current.States.Any(pair => map.PreviewStates.GetValueOrDefault(pair.Key) != pair.Value)))
         { map.PreviewStates = current.States.ToDictionary(); map.Invalidate(); }
         displayCards = cards.Select(card => card.SourceFraction is null && card.ContentBounds is { } bounds && current.SourceSize(card.Id) is { } size
             ? card with { ContentBounds = OverviewPreviewSession.Fit(size, bounds) } : card).ToArray();
@@ -223,7 +245,7 @@ internal sealed partial class SpatialOverviewForm : Form
         previews?.Dispose(); previews = null;
         if (previewHost is not null) previewHost.HandleDestroyed -= PreviewHostDestroyed;
         previewHost = null; previewDestination = 0;
-        map.PreviewStates = new Dictionary<Guid, PreviewState>();
+        if (legacyMap is not null) legacyMap.PreviewStates = new Dictionary<Guid, PreviewState>();
     }
     private void ConfirmSelection()
     {
@@ -240,7 +262,7 @@ internal sealed partial class SpatialOverviewForm : Form
         base.OnFormClosing(e);
     }
     protected override void Dispose(bool disposing)
-    { if (disposing) { closing = true; focusFrame?.Dispose(); focusFrame = null; compositionSurface?.Dispose(); compositionSurface = null; entranceBackground?.Dispose(); entranceBackground = null; entranceScene?.Dispose(); entranceScene = null; ReleasePreviews(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
+    { if (disposing) { closing = true; focusFrame?.Dispose(); focusFrame = null; compositionSurface?.Dispose(); compositionSurface = null; entranceBackground?.Dispose(); entranceBackground = null; entranceScene?.Dispose(); entranceScene = null; ReleasePreviews(); scene?.Dispose(); legacyMap?.Dispose(); legacyWorkspaces?.Dispose(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
     protected override bool ProcessCmdKey(ref Message message, Keys keys)
         => !OwnedForms.Any(form => form.Visible && form.Modal) && HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
     internal bool HandleCommand(Keys keys)
@@ -259,13 +281,13 @@ internal sealed partial class SpatialOverviewForm : Form
             case Keys.Down: model.MoveSelection(OverviewDirection.Down); break;
             case Keys.Control | Keys.Tab: model.Cycle(1); break;
             case Keys.Control | Keys.Shift | Keys.Tab: model.Cycle(-1); break;
-            case Keys.Control | Keys.F: search.Focus(); search.SelectAll(); return true;
-            case Keys.F5: previews?.RetryFailed(); map.Refit(); break;
+            case Keys.Control | Keys.F: if (scene is not null) scene.FocusSearch(true); else { search.Focus(); search.SelectAll(); } return true;
+            case Keys.F5: previews?.RetryFailed(); if (scene is not null) scene.EnsureLayout(); else map.Refit(); break;
             default: return false;
         }
         RefreshSelection(); return true;
     }
-    internal void SetSmokeQuery(string text) => search.Text = text;
+    internal void SetSmokeQuery(string text) { if (scene is not null) scene.SetQuery(text); else search.Text = text; }
 
     private sealed class InlineSelectionLabel : Label
     {

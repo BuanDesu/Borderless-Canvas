@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BorderlessFlatWindow.Core/BorderlessFlatWindow.Core.csproj" />
+    <ProjectReference Include="../BorderlessFlatWindow.Application/BorderlessFlatWindow.Application.csproj" />
   </ItemGroup>
 </Project>
