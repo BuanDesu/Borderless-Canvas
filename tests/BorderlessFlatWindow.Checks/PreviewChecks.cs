@@ -30,6 +30,8 @@ internal static class PreviewChecks
         yield return ("Animation reuses validated sources without registration or size queries", Animation);
         yield return ("Workspace source slices exclude monitor gaps and taskbar areas without changing scale", MonitorSlices);
         yield return ("Animation callbacks cannot reconcile registrations recursively", AnimationReentry);
+        yield return ("Preview batches cover a full synchronization and never enter animation", Batches);
+        yield return ("Preview batches release on acquisition failures and reentrant closure", BatchFailures);
     }
     private static readonly Guid A = Guid.NewGuid(), B = Guid.NewGuid();
     private static readonly NativeWindowIdentity IdentityA = new(100, 200, 300), IdentityB = new(101, 201, 301);
@@ -219,6 +221,37 @@ internal static class PreviewChecks
         port.Created[0].DuringUpdate = () => model.Synchronize([Card(B, IdentityB)], B, true);
         model.Animate([Card(A, IdentityA) with { ContentBounds = new(20, 20, 300, 300) }]);
         Require(port.Calls == 1 && model.ResourceCount == 1 && model.States.ContainsKey(A), "Animation recursively replaced native resources.");
+    }
+    private sealed class BatchPort : IOverviewPreviewPort
+    {
+        internal int Begins, Ends, Active, Creates;
+        internal Action? DuringBegin, DuringCreate;
+        public IDisposable BeginBatch() { Begins++; Active++; DuringBegin?.Invoke(); return new Scope(this); }
+        public IOverviewPreview? Create(NativeWindowIdentity identity)
+        {
+            Require(Active == 1, "Acquisition escaped its synchronous query scope."); Creates++; DuringCreate?.Invoke(); return new Preview();
+        }
+        private sealed class Scope(BatchPort owner) : IDisposable
+        { public void Dispose() { owner.Active--; owner.Ends++; } }
+    }
+    private static void Batches()
+    {
+        var port = new BatchPort(); using var model = new OverviewPreviewSession(port);
+        var cards = new[] { Card(A, IdentityA), Card(B, IdentityB) };
+        model.Synchronize(cards, A, true); model.Animate(cards, 120);
+        Require(port.Begins == 1 && port.Ends == 1 && port.Active == 0 && port.Creates == 2, "Batch or animation lifetime changed.");
+        try { model.Synchronize([cards[0], cards[0]], A, true); } catch (ArgumentException) { }
+        Require(port.Begins == 1 && model.ResourceCount == 2, "Invalid input opened a batch or changed live resources.");
+    }
+    private static void BatchFailures()
+    {
+        var port = new BatchPort(); using var model = new OverviewPreviewSession(port);
+        port.DuringCreate = () => throw new IOException("Fixture acquisition failure");
+        try { model.Synchronize([Card(A, IdentityA)], A, true); throw new InvalidOperationException("Failure swallowed."); } catch (IOException) { }
+        Require(port.Ends == 1 && port.Active == 0 && model.ResourceCount == 0, "Failure leaked its query service.");
+        port.DuringCreate = null; port.DuringBegin = model.Dispose;
+        model.Synchronize([Card(A, IdentityA)], A, true);
+        Require(port.Ends == 2 && port.Active == 0 && model.ResourceCount == 0 && port.Creates == 1, "Reentrant closure acquired a resource or leaked a batch.");
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

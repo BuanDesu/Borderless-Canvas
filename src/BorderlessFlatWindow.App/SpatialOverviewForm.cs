@@ -229,9 +229,13 @@ internal sealed partial class SpatialOverviewForm : Form
             previews = new(new DwmOverviewPreviewPort(previewDestination));
         }
         var current = previews!;
+        var layoutStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         var cards = scene is null ? map.PreviewCards(previewSources, host).Concat(workspaces.PreviewCards(previewSources, host)).ToArray()
             : scene.PreviewLayout().Select(card => new PreviewCard(card.Id, previewSources.GetValueOrDefault(card.Window)?.Identity, card.Bounds, card.Fallback, card.Fraction)).ToArray();
+        previewLayoutMilliseconds += System.Diagnostics.Stopwatch.GetElapsedTime(layoutStarted).TotalMilliseconds;
+        var syncStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         current.Synchronize(cards, null, showPreviews.Checked && canConfirm, entering ? (byte)0 : (byte)255);
+        previewSyncMilliseconds += System.Diagnostics.Stopwatch.GetElapsedTime(syncStarted).TotalMilliseconds; previewSyncCalls++;
         if (closing || !ReferenceEquals(previews, current)) return;
         if (scene is null && (map.PreviewStates.Count != current.States.Count || current.States.Any(pair => map.PreviewStates.GetValueOrDefault(pair.Key) != pair.Value)))
         { map.PreviewStates = current.States.ToDictionary(); map.Invalidate(); }

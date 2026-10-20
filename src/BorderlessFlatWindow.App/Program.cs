@@ -9,6 +9,8 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var overviewBenchmark = Array.IndexOf(args, "--overview-benchmark");
+        if (overviewBenchmark >= 0) return overviewBenchmark + 1 < args.Length ? OverviewLoadBenchmark.Run(Path.GetFullPath(args[overviewBenchmark + 1])) : 1;
         var sceneCheck = Array.IndexOf(args, "--scene-check");
         if (sceneCheck >= 0) return sceneCheck + 1 < args.Length ? OverviewSceneCheck.Run(Path.GetFullPath(args[sceneCheck + 1])) : 1;
         var motionCheck = Array.IndexOf(args, "--motion-check");

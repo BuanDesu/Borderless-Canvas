@@ -466,9 +466,13 @@ internal sealed partial class MainForm : Form
         try
         {
             // An independent, fully composed top-level host avoids stretching/recreating the popup HWND.
+            var hiding = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!showWithoutActivation) { Hide(); if (wasVisible) FrostedBackdrop.FlushPresentation(); }
+            var hideMs = System.Diagnostics.Stopwatch.GetElapsedTime(hiding).TotalMilliseconds;
             overview.CaptureBackdrop();
+            var showing = System.Diagnostics.Stopwatch.GetTimestamp();
             overview.Show(); if (!showWithoutActivation) overview.Activate();
+            overview.SetHostTimings(hideMs, System.Diagnostics.Stopwatch.GetElapsedTime(showing).TotalMilliseconds);
         }
         catch { Restore(); throw; }
     }

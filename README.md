@@ -24,6 +24,9 @@ Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作
 # 在具备交互桌面的 Windows 上检查透明原生测试窗口
 .\scripts\check.ps1 -Configuration Release -SmokeUi -NativeChecks
 
+# 测量自有 1/10/30/60 窗口的总览与原生预览负载，不抓取桌面
+.\scripts\measure-overview.ps1
+
 # 启动桌面画布程序
 .\scripts\run.ps1
 
@@ -46,6 +49,8 @@ dotnet run --project src/BorderlessFlatWindow.App
 ```
 
 脚本将 CLI 临时状态写入忽略目录 `.local/`，并关闭与本项目无关的工作负载探测。若受限环境中的默认构建遇到 SDK 探测问题，优先使用脚本。`global.json` 允许已安装的 .NET 10 稳定版 SDK feature band。
+
+多窗口预览同步现在复用同一批次的虚拟桌面查询服务，并保留逐窗核验；计时拆分和本机负载数据见[总览负载基线](docs/overview-load-baseline.md)。它不代表真实输入延迟或实际呈现帧率已验收。
 
 试用目录无需源码或 SDK，双击 `Start.cmd` 即可；需已安装 .NET 10 Windows Desktop Runtime x64。`Recover.cmd` 独立恢复，`Inspect-Recovery.cmd` 仅检查。`manifest.json` 记录版本和文件 SHA-256；包不含运行时，生成物位于 ignored `artifacts/trial/`。
 

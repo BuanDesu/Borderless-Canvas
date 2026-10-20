@@ -13,7 +13,12 @@ public interface IOverviewPreview : IDisposable
     bool Update(PixelRect destination, RectD? sourceFraction, byte opacity)
         => sourceFraction is null && opacity == 255 && Update(destination);
 }
-public interface IOverviewPreviewPort { IOverviewPreview? Create(NativeWindowIdentity identity); }
+public interface IOverviewPreviewPort
+{
+    IOverviewPreview? Create(NativeWindowIdentity identity);
+    // A synchronous scope may share query services, never cached identity/eligibility results.
+    IDisposable? BeginBatch() => null;
+}
 
 /// <summary>Resources follow visible cards, with no default window-count limit. Failed sources retry explicitly.</summary>
 public sealed class OverviewPreviewSession(IOverviewPreviewPort port, int capacity = int.MaxValue) : IDisposable
@@ -46,6 +51,7 @@ public sealed class OverviewPreviewSession(IOverviewPreviewPort port, int capaci
         var cards = source.ToArray();
         if (cards.Any(card => card.Id == Guid.Empty) || cards.Select(card => card.Id).Distinct().Count() != cards.Length)
             throw new ArgumentException("Preview cards must have unique nonempty identities.", nameof(source));
+        using var batch = port.BeginBatch();
         states.Clear();
         var eligible = cards.Where(card => enabled && card.Fallback is null && card.Identity is { IsValid: true }
             && card.ContentBounds is { IsValid: true }).OrderByDescending(card => card.Id == selected).Take(capacity).Select(card => card.Id).ToHashSet();

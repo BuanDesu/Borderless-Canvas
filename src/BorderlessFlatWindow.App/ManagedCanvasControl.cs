@@ -47,7 +47,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private WindowCatalogSnapshot? lastSnapshot;
     private bool overviewRequested, overviewScheduled, openingOverview, openingCloseRequested;
     private long overviewInputSession;
-    private long overviewRequestTimestamp;
+    private long overviewRequestTimestamp, overviewReceivedTimestamp;
     internal bool HasOverview => overview is not null;
     internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
     internal void CancelOverview() => overview?.CancelOverview();
@@ -213,6 +213,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (session?.IsRunning != true) { notice = "请先开始画布管理，再打开空间总览。"; RefreshState(); return; }
         notice = null;
         overviewRequestTimestamp = capturedTimestamp > 0 ? capturedTimestamp : System.Diagnostics.Stopwatch.GetTimestamp();
+        overviewReceivedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         gestures?.End(DateTimeOffset.UtcNow); overviewRequested = true;
         overviewInputSession = globalInput?.BeginOverview() ?? 0; ScheduleOverview();
     }
@@ -242,6 +243,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         if (!overviewRequested || openingOverview || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
         overviewRequested = false; openingOverview = true; openingCloseRequested = false;
+        var openStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         var inputSession = overviewInputSession;
         hints.Active = false; moreMenu.Close();
         var managed = session; managed.SuspendNavigation(true);
@@ -262,7 +264,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
                 new(area.Left, area.Top, area.Width, area.Height), managed.ActiveWindowId ?? lastFocusedWindow, bookmarks: bookmarks,
                 viewports: layout.Monitors.Select(m => new RectD(managed.Workspace.Camera.Position + m.WorkArea.Position - layout.CanvasWorkArea.Position, m.WorkArea.Size)),
                 animate: overviewAnimation.Checked);
-            dialog.SetOpenTimings(overviewRequestTimestamp, reconcileMs, System.Diagnostics.Stopwatch.GetElapsedTime(constructionStarted).TotalMilliseconds);
+            dialog.SetOpenTimings(overviewRequestTimestamp, reconcileMs, System.Diagnostics.Stopwatch.GetElapsedTime(constructionStarted).TotalMilliseconds,
+                System.Diagnostics.Stopwatch.GetElapsedTime(overviewRequestTimestamp, overviewReceivedTimestamp).TotalMilliseconds,
+                System.Diagnostics.Stopwatch.GetElapsedTime(overviewReceivedTimestamp, openStarted).TotalMilliseconds);
             overview = dialog; var retainedFocus = focus;
             if (openingCloseRequested) dialog.ToggleOverview();
             dialog.Shown += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle);

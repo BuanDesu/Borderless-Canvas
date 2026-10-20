@@ -90,13 +90,16 @@ internal sealed partial class SpatialOverviewForm
                 }
             }
         }
-        scene!.SetBackdrop(raw);
+        var uploading = Stopwatch.GetTimestamp(); scene!.SetBackdrop(raw);
+        uploadMilliseconds = Stopwatch.GetElapsedTime(uploading).TotalMilliseconds;
         captureMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }
     private void PrepareSceneEntrance()
     {
         var started = Stopwatch.GetTimestamp();
-        scene!.EnsureLayout(); scene.RefreshWindows(); sceneReady = true; RefreshPreviews();
+        scene!.EnsureLayout(); scene.RefreshWindows();
+        sceneLayoutMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        sceneReady = true; RefreshPreviews();
         var source = model.SelectedId is { } id ? previewSources.GetValueOrDefault(id) : null;
         if (focusFrame is not null && source?.ScreenBounds is { } from && displayCards.FirstOrDefault(c => c.Id == source.Id)?.ContentBounds is { } to)
         {

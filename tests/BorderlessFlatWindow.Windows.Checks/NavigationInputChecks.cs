@@ -14,7 +14,7 @@ internal static class NavigationInputChecks
     }
     private static void OverviewUnavailable()
     {
-        using var input = new GlobalNavigationInput(() => { });
+        using var input = IsolatedInput(() => { });
         input.BeginOverview(); input.SetAvailable(false);
         Wait(() => input.State.Message.Contains("画布未运行"));
         input.Toggle(); Wait(() => input.State.Message.Contains("先勾选"));
@@ -23,7 +23,7 @@ internal static class NavigationInputChecks
     private static void OverviewOwnership()
     {
         var foreground = WindowEventListener.ForegroundWindow;
-        using var input = new GlobalNavigationInput(() => { });
+        using var input = IsolatedInput(() => { });
         var previous = input.BeginOverview();
         var current = input.BeginOverview();
         input.EndOverview(previous); input.SetOverviewHost(previous, 0);
@@ -37,7 +37,7 @@ internal static class NavigationInputChecks
     private static void OverviewState()
     {
         var wakes = 0; var foreground = WindowEventListener.ForegroundWindow;
-        using var input = new GlobalNavigationInput(() => Interlocked.Increment(ref wakes));
+        using var input = IsolatedInput(() => Interlocked.Increment(ref wakes));
         var session = input.BeginOverview(); Wait(() => input.State.Message.Contains("总览中"));
         input.Drain(); // A UI frame acknowledges the coalesced wake before the next state change.
         var before = Volatile.Read(ref wakes);
@@ -49,7 +49,7 @@ internal static class NavigationInputChecks
     {
         var foreground = WindowEventListener.ForegroundWindow;
         var wakes = 0;
-        using var input = new GlobalNavigationInput(() => Interlocked.Increment(ref wakes));
+        using var input = IsolatedInput(() => Interlocked.Increment(ref wakes));
         Require(!input.State.Active && wakes > 0, "Input started in a capturing mode or did not notify UI.");
         input.SetAvailable(false); input.Toggle();
         Wait(() => input.State.Message.Contains("先勾选"));
@@ -82,6 +82,23 @@ internal static class NavigationInputChecks
         var watch = Stopwatch.StartNew();
         while (!condition() && watch.Elapsed < TimeSpan.FromSeconds(3)) Thread.Sleep(5);
         Require(condition(), "Navigation worker did not reach the expected state.");
+    }
+    private static GlobalNavigationInput IsolatedInput(Action wake)
+    {
+        var input = new GlobalNavigationInput(wake);
+        try
+        {
+            // A user's trial may own the default chord. State checks require an
+            // actual registration, but never enable capture or send the shortcut.
+            foreach (var key in new uint[] { 0x79, 0x78, 0x77, 0x76 })
+            {
+                var candidate = new NavigationHotkey(7, key, "BFW isolated state check " + key);
+                input.ChangeHotkey(candidate); Wait(() => input.State.Hotkey == candidate);
+                if (input.State.Registered) return input;
+            }
+            throw new InvalidOperationException("No unused fixture shortcut: " + input.State.Message);
+        }
+        catch { input.Dispose(); throw; }
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

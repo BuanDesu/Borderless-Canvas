@@ -10,9 +10,13 @@ internal sealed partial class SpatialOverviewForm
     private readonly List<double> motionSamples = [], motionTimes = [];
     private double prepareMilliseconds, captureMilliseconds, sceneSnapshotMilliseconds, uploadMilliseconds;
     private double reconcileMilliseconds, constructionMilliseconds;
+    private double dispatchMilliseconds, queueMilliseconds, hostHideMilliseconds, hostShowMilliseconds;
+    private double sceneLayoutMilliseconds, previewLayoutMilliseconds, previewSyncMilliseconds;
+    private int previewSyncCalls;
     private long requestTimestamp, firstCallbackTimestamp;
-    internal void SetOpenTimings(long requested, double reconcile, double construction)
-    { requestTimestamp = requested; reconcileMilliseconds = reconcile; constructionMilliseconds = construction; }
+    internal void SetOpenTimings(long requested, double reconcile, double construction, double dispatch = 0, double queue = 0)
+    { requestTimestamp = requested; reconcileMilliseconds = reconcile; constructionMilliseconds = construction; dispatchMilliseconds = dispatch; queueMilliseconds = queue; }
+    internal void SetHostTimings(double hide, double show) { hostHideMilliseconds = hide; hostShowMilliseconds = show; }
 
     private void WriteMotionMetrics()
     {
@@ -30,6 +34,10 @@ internal sealed partial class SpatialOverviewForm
             FocusCropStatus = focusCropStatus,
             CaptureMs = captureMilliseconds, PrepareMs = prepareMilliseconds,
             ReconcileMs = reconcileMilliseconds, ConstructionMs = constructionMilliseconds,
+            InputDispatchMs = dispatchMilliseconds, UiQueueMs = queueMilliseconds,
+            HostHideMs = hostHideMilliseconds, HostShowMs = hostShowMilliseconds,
+            SceneLayoutMs = sceneLayoutMilliseconds, PreviewLayoutMs = previewLayoutMilliseconds,
+            PreviewSyncMs = previewSyncMilliseconds, PreviewSyncCalls = previewSyncCalls,
             RequestToFirstCallbackMs = requestTimestamp > 0 && firstCallbackTimestamp >= requestTimestamp
                 ? Stopwatch.GetElapsedTime(requestTimestamp, firstCallbackTimestamp).TotalMilliseconds : 0,
             SceneSnapshotMs = sceneSnapshotMilliseconds, UploadMs = uploadMilliseconds,

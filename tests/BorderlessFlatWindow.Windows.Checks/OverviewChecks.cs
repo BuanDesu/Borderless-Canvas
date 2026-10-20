@@ -20,6 +20,7 @@ internal static class OverviewChecks
         check("Native previews crop workspace slices, animate opacity, and retain parked and duplicate source views", PreviewSlices);
         check("Desktop crop eligibility rejects stale, hidden, moved and layered sources", CropIdentity);
         check("Desktop crop eligibility detects an overlapping window without changing foreground", CropOcclusion);
+        check("Batched native preview queries reject hidden and stale sources without cached eligibility", PreviewBatch);
     }
     private static void CropIdentity()
     {
@@ -38,7 +39,7 @@ internal static class OverviewChecks
     {
         // Fixture deliberately opts into layered-window transparency in its constructor.
         // Use a plain opaque form for the positive eligibility case.
-        using var source = new Form { ShowInTaskbar = false, TopMost = true, Bounds = new(80, 80, 240, 160) }; source.Show();
+        using var source = new Form { ShowInTaskbar = false, TopMost = true, StartPosition = FormStartPosition.Manual, Bounds = new(80, 80, 240, 160) }; source.Show();
         using var ready = CaptureReady(source.Handle);
         var identity = OwnIdentity(source);
         var rect = new PixelRect(source.Left, source.Top, source.Right, source.Bottom);
@@ -46,7 +47,9 @@ internal static class OverviewChecks
         var eligibility = DesktopCropEligibility.Evaluate(identity, rect, rect);
         Require(eligibility == DesktopCropStatus.Ready, "Unobscured own source rejected: " + eligibility);
         Require(WindowEventListener.ForegroundWindow == foreground, "Eligibility changed foreground.");
-        using var blocker = new Form { ShowInTaskbar = false, TopMost = true, Bounds = new(100, 100, 100, 80) }; blocker.Show();
+        using var blocker = new Form { ShowInTaskbar = false, TopMost = true, StartPosition = FormStartPosition.Manual, Bounds = new(100, 100, 100, 80) }; blocker.Show();
+        using var blockerReady = CaptureReady(blocker.Handle);
+        Require(source.Bounds.IntersectsWith(blocker.Bounds), "Fixture placement did not create an overlap.");
         foreground = WindowEventListener.ForegroundWindow;
         Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Occluding own window ignored.");
         Require(WindowEventListener.ForegroundWindow == foreground, "Eligibility check changed foreground.");
@@ -101,6 +104,24 @@ internal static class OverviewChecks
         Require(preview is not null && preview.IsCurrent && preview.SourceSize is { IsPositive: true }, "Native preview unavailable.");
         source.Close();
         Require(!preview!.IsCurrent && !preview.Update(new(0, 0, 100, 100)), "Closed source remained usable.");
+    }
+    private static void PreviewBatch()
+    {
+        using var host = new Fixture(); host.Show(); using var source = new Fixture(); source.Show();
+        using var ready = CaptureReady(source.Handle);
+        var identity = OwnIdentity(source);
+        var port = new DwmOverviewPreviewPort(host.Handle);
+        using (port.BeginBatch())
+        {
+            using var first = port.Create(identity); Require(first is not null, "Valid batched source unavailable.");
+            using var stale = port.Create(identity with { ProcessCreationFileTime = identity.ProcessCreationFileTime + 1 });
+            Require(stale is null, "Batched query cached identity.");
+            source.Hide(); using var hidden = port.Create(identity); Require(hidden is null, "Batched query cached visibility.");
+            source.Show(); using (port.BeginBatch()) { using var nested = port.Create(identity); Require(nested is not null, "Nested query scope failed."); }
+            using var resumed = port.Create(identity); Require(resumed is not null, "Outer query scope was not restored.");
+            source.Close(); Require(!first!.IsCurrent, "Batch kept a destroyed source usable.");
+        }
+        using var destroyed = port.Create(identity); Require(destroyed is null, "Closed source revived after batch release.");
     }
     private static void PreviewSlices()
     {
