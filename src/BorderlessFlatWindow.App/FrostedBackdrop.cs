@@ -19,7 +19,7 @@ internal static class FrostedBackdrop
         Bitmap? bitmap = null;
         try
         {
-            bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
+            bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppPArgb);
             using var graphics = Graphics.FromImage(bitmap); graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
             return bitmap;
         }
@@ -34,7 +34,7 @@ internal static class FrostedBackdrop
             using var small = new Bitmap(Math.Max(1, source.Width / 8), Math.Max(1, source.Height / 8), PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(small)) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(source, new Rectangle(Point.Empty, small.Size)); }
             Blur(small, 2);
-            result = new Bitmap(source.Width, source.Height);
+            result = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppPArgb);
             using (var g = Graphics.FromImage(result))
             {
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(small, new Rectangle(Point.Empty, result.Size));

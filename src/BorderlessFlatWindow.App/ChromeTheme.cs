@@ -8,8 +8,8 @@ internal static class ChromeTheme
     private sealed class Surface { internal bool Hover, Pressed, Applied, Game, Square; internal Color? Accent; }
     private static readonly ConditionalWeakTable<Control, Surface> styled = new();
     private static Color[] colors = [ColorOf(CandyPalette.Default.Primary), ColorOf(CandyPalette.Default.Secondary), ColorOf(CandyPalette.Default.Tertiary), ColorOf(CandyPalette.Default.Quaternary)];
-    internal static Color Ink => Mix(Color.White, Purple, .16f);
-    internal static Color Panel => Mix(Color.White, Purple, .07f);
+    internal static Color Ink => Mix(Color.FromArgb(249, 250, 253), Purple, .035f);
+    internal static Color Panel => Mix(Color.White, Purple, .025f);
     internal static readonly Color Text = Color.FromArgb(35, 30, 49), Muted = Color.FromArgb(89, 82, 107);
     internal static Color Purple => colors[0];
     internal static Color Cyan => colors[1];
@@ -64,7 +64,7 @@ internal static class ChromeTheme
                 if (first) tabs.DrawItem += DrawTab; break;
             case ToolStrip strip: StyleMenu(strip); break;
         }
-        if (root is TabPage or ChromeTabs or ListView or CheckedListBox)
+        if (root is TabPage or ChromeTabs or ListView)
         {
             void RoundControl()
             {
@@ -81,7 +81,7 @@ internal static class ChromeTheme
     internal static void StyleMenu(ToolStrip menu)
     {
         menu.Renderer = new ToolStripProfessionalRenderer(new CandyMenuColors()); menu.BackColor = Panel; menu.ForeColor = Text;
-        menu.Font = PixelFont.Create(9); menu.Padding = new(6);
+        menu.Font = new Font("Segoe UI", 10); menu.Padding = new(6);
     }
     private sealed class CandyMenuColors : ProfessionalColorTable
     {
@@ -102,9 +102,8 @@ internal static class ChromeTheme
     {
         if (r.Width < 2 || r.Height < 2) return; g.SmoothingMode = SmoothingMode.AntiAlias;
         if (!pressed) for (var i = 5; i > 0; i--) { var s = r; s.Offset(0, i + 2); s.Inflate(i / 2f, i / 2f); using var path = Round(s); using var brush = new SolidBrush(Color.FromArgb(4 + (selected ? 2 : 0), accent)); g.FillPath(brush, path); }
-        using var shape = Round(r, 19); using var fill = new LinearGradientBrush(r, Color.FromArgb(188, Mix(Color.White, accent, .08f)), Color.FromArgb(150, Mix(Color.White, accent, .42f)), 65); g.FillPath(fill, shape);
+        using var shape = Round(r, 16); using var fill = new LinearGradientBrush(r, Color.FromArgb(210, Mix(Color.White, accent, .025f)), Color.FromArgb(155, Mix(Color.White, accent, .18f)), 90); g.FillPath(fill, shape);
         using var rim = new Pen(selected ? accent : Color.FromArgb(210, Color.White), selected ? 2 : 1.5f); g.DrawPath(rim, shape);
-        using var shine = new Pen(Color.White); g.DrawLine(shine, r.X + 8, r.Y + 2, r.Right - 8, r.Y + 2);
     }
     internal static Color Mix(Color a, Color b, float t) => Color.FromArgb((int)(a.R * (1 - t) + b.R * t), (int)(a.G * (1 - t) + b.G * t), (int)(a.B * (1 - t) + b.B * t));
     internal static void PaintButton(Button b, Graphics g)
@@ -150,13 +149,13 @@ internal static class ChromeTheme
     internal static void Grid(Graphics g, Rectangle bounds)
     {
         if (bounds.Width < 1 || bounds.Height < 1) return;
-        using var fill = new LinearGradientBrush(bounds, Mix(Color.White, Cyan, .22f), Mix(Color.White, Pink, .23f), 30); g.FillRectangle(fill, bounds);
-        Glow(g, new(bounds.Width * .05f, -bounds.Height * .2f, bounds.Width * .85f, bounds.Height * .9f), Cyan);
-        Glow(g, new(bounds.Width * .45f, bounds.Height * .2f, bounds.Width * .8f, bounds.Height * .9f), Pink);
+        using var fill = new LinearGradientBrush(bounds, Mix(Color.White, Cyan, .035f), Mix(Color.White, Purple, .075f), 65); g.FillRectangle(fill, bounds);
+        Glow(g, new(bounds.Width * .05f, bounds.Height * .35f, bounds.Width * .85f, bounds.Height * .9f), Cyan);
+        Glow(g, new(bounds.Width * .55f, bounds.Height * .45f, bounds.Width * .8f, bounds.Height * .9f), Pink);
     }
     private static void Glow(Graphics g, RectangleF rect, Color color)
     {
-        using var path = new GraphicsPath(); path.AddEllipse(rect); using var glow = new PathGradientBrush(path) { CenterColor = Color.FromArgb(105, color), SurroundColors = [Color.FromArgb(0, color)] }; g.FillPath(glow, path);
+        using var path = new GraphicsPath(); path.AddEllipse(rect); using var glow = new PathGradientBrush(path) { CenterColor = Color.FromArgb(55, color), SurroundColors = [Color.FromArgb(0, color)] }; g.FillPath(glow, path);
     }
     internal static void Mark(Graphics g, Rectangle rect)
     {
@@ -229,17 +228,13 @@ internal sealed class CanvasHeader : Control
     {
         var g = e.Graphics; g.Clear(ChromeTheme.Ink); g.SmoothingMode = SmoothingMode.AntiAlias;
         var s = DeviceDpi / 96f;
-        var body = new RectangleF(10 * s, 5 * s, Width - 20 * s, Height - 18 * s);
-        ChromeTheme.Glass(g, body, ChromeTheme.Pink);
-        using var shell = ChromeTheme.Round(body, 27); using var color = new LinearGradientBrush(body, ChromeTheme.Mix(Color.White, ChromeTheme.Pink, .55f), ChromeTheme.Mix(Color.White, ChromeTheme.Cyan, .55f), 8); g.FillPath(color, shell);
-        using var rim = new Pen(Color.FromArgb(220, Color.White), 2); g.DrawPath(rim, shell);
-        // Recessed display and speaker perforations evoke a pocket music player.
-        var lcd = new RectangleF(56 * s, 14 * s, Math.Max(140 * s, Width - 124 * s), 40 * s);
+        // A quiet pearl shell, one recessed display, and equal left/right accessory slots.
+        var lcd = new RectangleF(60 * s, 16 * s, Math.Max(140 * s, Width - 120 * s), 40 * s);
         using var screen = ChromeTheme.Round(lcd, 13); using var tint = new LinearGradientBrush(lcd, ChromeTheme.Panel, ChromeTheme.Mix(Color.White, ChromeTheme.Cyan, .2f), 95); g.FillPath(tint, screen);
-        using var inset = new Pen(Color.FromArgb(100, ChromeTheme.Purple), 2); g.DrawPath(inset, screen);
+        using var inset = new Pen(Color.FromArgb(45, ChromeTheme.Purple), s); g.DrawPath(inset, screen);
         using var title = PixelFont.Create(15);
         TextRenderer.DrawText(g, "BORDERLESS", title, Rectangle.Round(lcd), ChromeTheme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-        ChromeTheme.Sticker(g, new((int)(22 * s), (int)(27 * s)), "heart", Math.Max(2, (int)(3 * s)));
+        ChromeTheme.Sticker(g, new((int)(24 * s), (int)(27 * s)), "heart", Math.Max(2, (int)(2 * s)));
         using var holes = new SolidBrush(Color.FromArgb(115, ChromeTheme.Purple));
         if (Controls.Count == 0) for (var x = 0; x < 3; x++) for (var y = 0; y < 4; y++) g.FillEllipse(holes, Width - 52 * s + x * 7 * s, (22 + y * 7) * s, 3 * s, 3 * s);
     }
@@ -250,11 +245,10 @@ internal sealed class PlayerScreenPanel : Panel
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         e.Graphics.Clear(ChromeTheme.Ink);
-        var frame = new RectangleF(10, 0, Width - 20, Height - 6);
+        var frame = new RectangleF(8, 0, Width - 16, Height - 6);
         if (frame.Width < 2 || frame.Height < 2) return;
         using var outline = ChromeTheme.Round(frame, 26);
-        using var color = new LinearGradientBrush(frame, ChromeTheme.Purple, ChromeTheme.Pink, 25);
-        e.Graphics.FillPath(color, outline);
-        using var rim = new Pen(Color.FromArgb(220, Color.White), 2); e.Graphics.DrawPath(rim, outline);
+        using var color = new SolidBrush(ChromeTheme.Panel); e.Graphics.FillPath(color, outline);
+        using var rim = new Pen(Color.FromArgb(55, ChromeTheme.Purple), 1); e.Graphics.DrawPath(rim, outline);
     }
 }

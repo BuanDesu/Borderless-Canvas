@@ -43,8 +43,6 @@ internal sealed class CanvasPreviewControl : Control
         if (Width <= 64 || Height <= 64)
             return;
         ChromeTheme.Grid(e.Graphics, ClientRectangle);
-        ChromeTheme.Sticker(e.Graphics, new(22, 22), "heart", 3);
-        ChromeTheme.Sticker(e.Graphics, new(Width - 56, Height - 47), "candy", 3);
         var windows = DrawWindows();
         if (AutoFit || projection is null) projection = OverviewProjection.Fit(windows.Select(window => window.Bounds)
             .Append(workspace.Camera.Bounds).Append(new RectD(PointD.Zero, new SizeD(1, 1))),
@@ -73,9 +71,8 @@ internal sealed class CanvasPreviewControl : Control
         if (windows.Count == 0)
         {
             var center = new Point(Width / 2, Height / 2);
-            ChromeTheme.Glass(e.Graphics, new(center.X - 112, center.Y - 92, 224, 160), ChromeTheme.Purple);
-            ChromeTheme.Mark(e.Graphics, new(center.X - 30, center.Y - 74, 60, 60));
-            TextRenderer.DrawText(e.Graphics, "为窗口留一点自由", Font, new Rectangle(0, center.Y + 4, Width, 36), ChromeTheme.Text,
+            ChromeTheme.Mark(e.Graphics, new(center.X - 28, center.Y - 56, 56, 56));
+            TextRenderer.DrawText(e.Graphics, "为窗口留一点自由", Font, new Rectangle(0, center.Y + 16, Width, 36), ChromeTheme.Muted,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
     }

@@ -1,12 +1,50 @@
 using BorderlessFlatWindow.Core.Appearance;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace BorderlessFlatWindow.App;
 
 internal static class WallpaperPaletteReader
 {
-    internal static Task<Bitmap?> ReadPreviewAsync()
+    private sealed record PreviewPixels(int Width, int Height, byte[] Pixels);
+    private static readonly object previewGate = new();
+    private static Task<PreviewPixels?>? cachedPreview;
+    private static string? cachedLayout;
+    internal static void PreloadPreview(bool invalidate = false)
+    {
+        var layout = string.Join(";", Screen.AllScreens.Select(screen => $"{screen.Bounds}:{screen.WorkingArea}"));
+        lock (previewGate)
+        {
+            if (invalidate || cachedLayout != layout) { cachedPreview = null; cachedLayout = layout; }
+            cachedPreview ??= ReadPixelsAsync();
+        }
+    }
+    internal static async Task<Bitmap?> ReadPreviewAsync()
+    {
+        PreloadPreview(); Task<PreviewPixels?> task;
+        lock (previewGate) task = cachedPreview ??= ReadPixelsAsync();
+        if (await task is not { } pixels) return null;
+        var bitmap = new Bitmap(pixels.Width, pixels.Height, PixelFormat.Format32bppArgb);
+        var data = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        try { Marshal.Copy(pixels.Pixels, 0, data.Scan0, pixels.Pixels.Length); }
+        finally { bitmap.UnlockBits(data); }
+        return bitmap;
+    }
+    private static async Task<PreviewPixels?> ReadPixelsAsync()
+    {
+        using var bitmap = await ReadPreviewCoreAsync().ConfigureAwait(false);
+        if (bitmap is null) return null;
+        var data = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var pixels = new byte[data.Stride * data.Height]; Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
+            return new(bitmap.Width, bitmap.Height, pixels);
+        }
+        finally { bitmap.UnlockBits(data); }
+    }
+    private static Task<Bitmap?> ReadPreviewCoreAsync()
     {
         var result = new TaskCompletionSource<Bitmap?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var screens = Screen.AllScreens.Select(s => (s.Bounds, s.WorkingArea)).ToArray();
