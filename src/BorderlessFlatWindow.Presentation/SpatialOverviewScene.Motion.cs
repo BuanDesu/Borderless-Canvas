@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows;
@@ -17,7 +16,6 @@ namespace BorderlessFlatWindow.Presentation;
 
 public sealed partial class SpatialOverviewScene
 {
-    private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly ReversibleTransition motion = new();
     private EventHandler? frameHandler;
     private bool presented;
@@ -52,7 +50,9 @@ public sealed partial class SpatialOverviewScene
         var current = Position; StopMotion(); motion.Reset(current); var generation = ++motionGeneration;
         void Start()
         {
-            var plan = motion.Retarget(open, clock.Elapsed.TotalMilliseconds, milliseconds);
+            // The core transition only plans the remaining distance/duration.
+            // WPF owns runtime progress; there is no second elapsed-time clock.
+            var plan = motion.Retarget(open, 0, milliseconds);
             Animate(content, UIElement.OpacityProperty, plan.From, plan.To, plan.Duration);
             Animate(blurred, UIElement.OpacityProperty, plan.From, plan.To, plan.Duration);
             Animate(sharp, UIElement.OpacityProperty, 1 - plan.From, 1 - plan.To, plan.Duration);
