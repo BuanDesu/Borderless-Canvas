@@ -11,7 +11,7 @@ internal sealed partial class ManagedCanvasControl
     private const int PreparationIdleMilliseconds = 350;
     private readonly System.Windows.Forms.Timer preparationTimer = new() { Interval = PreparationIdleMilliseconds };
     private readonly OverviewPreparationSlot<SpatialOverviewForm> preparedOverview = new();
-    private OverviewPreparationSnapshot? failedPreparation;
+    private OverviewPreparationSnapshot? failedPreparation, settlingPreparation;
     private bool preparingOverviewHost, preparationDisposed;
     private long lastCanvasInput;
 
@@ -43,18 +43,27 @@ internal sealed partial class ManagedCanvasControl
         // it. A request during handle creation is deferred by ScheduleOverview.
         if (overviewRequested || openingOverview || preparingOverviewHost) { preparationTimer.Stop(); return; }
         if (!CanPrepareOverview) { InvalidateOverviewPreparation(); return; }
-        if (!preparationTimer.Enabled) preparationTimer.Start();
+        if (!preparationTimer.Enabled)
+        {
+            settlingPreparation = PreparationSnapshot(session!, (MainForm)FindForm()!);
+            preparationTimer.Start();
+        }
     }
 
     private void PrepareOverviewWhileIdle()
     {
         preparationTimer.Stop();
-        if (!CanPrepareOverview) return;
+        if (!CanPrepareOverview) { InvalidateOverviewPreparation(); return; }
         if (lastCanvasInput > 0 && Stopwatch.GetElapsedTime(lastCanvasInput).TotalMilliseconds < PreparationIdleMilliseconds)
         { preparationTimer.Start(); return; }
         var owner = session!; var host = (MainForm)FindForm()!;
         var key = PreparationSnapshot(owner, host);
         if (preparedOverview.Contains(key) || key.Matches(failedPreparation)) return;
+        // Application-driven drags/title changes do not pass through our canvas
+        // gesture router. Require the actual model to settle across the idle gap.
+        if (!key.Matches(settlingPreparation))
+        { settlingPreparation = key; preparationTimer.Start(); return; }
+        settlingPreparation = null;
         preparingOverviewHost = true;
         SpatialOverviewForm? candidate = null;
         try
@@ -88,13 +97,13 @@ internal sealed partial class ManagedCanvasControl
     private void InvalidateOverviewPreparation()
     {
         if (preparationDisposed) return;
-        preparationTimer.Stop(); preparedOverview.Invalidate(); failedPreparation = null;
+        preparationTimer.Stop(); preparedOverview.Invalidate(); failedPreparation = settlingPreparation = null;
     }
     private void DisposeOverviewPreparation()
     {
         if (preparationDisposed) return;
         // Cancelling a visible overview can synchronously reenter RefreshState
         // before Control.Dispose has set Disposing. Do not restart a dead timer.
-        preparationDisposed = true; preparationTimer.Dispose(); preparedOverview.Dispose(); failedPreparation = null;
+        preparationDisposed = true; preparationTimer.Dispose(); preparedOverview.Dispose(); failedPreparation = settlingPreparation = null;
     }
 }
