@@ -9,12 +9,18 @@ namespace BorderlessFlatWindow.Windows;
 /// <summary>DWM supplies every available source, including parked windows. Offscreen content can stop repainting.</summary>
 public sealed class DwmOverviewPreviewPort(nint destination) : IOverviewPreviewPort
 {
+    private Batch? batch;
+    public IDisposable BeginBatch() => new Batch(this);
     public IOverviewPreview? Create(NativeWindowIdentity identity)
     {
+        using var localBatch = batch is null ? BeginBatch() : null;
         var resource = new Resource(identity);
         try
         {
-            if (!resource.Matches || !resource.Mark() || !resource.IsCurrent || !resource.Matches) { resource.Dispose(); return null; }
+            // Reuse the COM query service, but run both complete live validations for
+            // every relation. No desktop membership or identity result is cached.
+            var desktops = batch!.Desktops;
+            if (!resource.Matches(desktops) || !resource.Mark() || !resource.IsCurrent || !resource.Matches(desktops)) { resource.Dispose(); return null; }
             var thumbnail = DwmWindowPreview.TryCreate(destination, identity.Handle);
             if (thumbnail is null) { resource.Dispose(); return null; }
             resource.Thumbnail = thumbnail;
@@ -26,20 +32,41 @@ public sealed class DwmOverviewPreviewPort(nint destination) : IOverviewPreviewP
         { resource.Dispose(); return null; }
         catch { resource.Dispose(); throw; }
     }
+    private sealed class Batch : IDisposable
+    {
+        private readonly DwmOverviewPreviewPort owner;
+        private readonly Batch? previous;
+        private readonly int thread = Environment.CurrentManagedThreadId;
+        private VirtualDesktopQuery? desktops;
+        private bool disposed;
+        // Laziness keeps idle, disabled and already-registered synchronization free
+        // of COM activation. The scope never crosses an await or message loop.
+        internal VirtualDesktopQuery Desktops => previous?.Desktops ?? (desktops ??= new());
+        internal Batch(DwmOverviewPreviewPort owner)
+        {
+            if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+                throw new InvalidOperationException("Preview registration requires an STA thread.");
+            this.owner = owner; previous = owner.batch; owner.batch = this;
+        }
+        public void Dispose()
+        {
+            if (disposed) return;
+            if (thread != Environment.CurrentManagedThreadId || !ReferenceEquals(owner.batch, this))
+                throw new InvalidOperationException("Preview batches must close in order on their original thread.");
+            disposed = true; owner.batch = previous; desktops?.Dispose(); desktops = null;
+        }
+    }
     private sealed class Resource(NativeWindowIdentity identity) : IOverviewPreview
     {
         private readonly string markerName = "BFW.Preview." + Guid.NewGuid().ToString("N");
         private readonly nint marker = RandomNumberGenerator.GetInt32(1, int.MaxValue);
         private bool disposed, marked;
         internal DwmWindowPreview? Thumbnail;
-        internal bool Matches
+        internal bool Matches(VirtualDesktopQuery desktops)
         {
-            get
-            {
-                var current = new WindowsWindowObservationSource().ReadWindow(identity.Handle);
-                return current.Identity == identity && current.IsVisible && !current.IsMinimized
-                    && current.IsCloaked == false && current.IsOnCurrentDesktop == true;
-            }
+            var current = new WindowsWindowObservationSource().ReadWindow(identity.Handle, desktops);
+            return current.Identity == identity && current.IsVisible && !current.IsMinimized
+                && current.IsCloaked == false && current.IsOnCurrentDesktop == true;
         }
         internal bool Mark() => marked = NativeMethods.SetPropW(identity.Handle, markerName, marker);
         public bool IsCurrent

@@ -20,10 +20,10 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
         if (!succeeded)
             throw new Win32Exception(Marshal.GetLastPInvokeError(), "Window enumeration failed.");
         using var desktops = new VirtualDesktopQuery();
-        return handles.Select(handle => ReadWindow(handle, desktops)).ToArray();
+        return handles.Select(handle => ReadWindowCore(handle, desktops)).ToArray();
     }
 
-    private static WindowObservation ReadWindow(nint handle, VirtualDesktopQuery desktops)
+    private static WindowObservation ReadWindowCore(nint handle, VirtualDesktopQuery desktops)
     {
         if (!NativeMethods.IsWindow(handle) || NativeMethods.GetAncestor(handle, 2) != handle)
             return new() { Handle = handle }; // Only top-level windows; child events cannot grow the catalog.
@@ -73,7 +73,15 @@ internal sealed class WindowsWindowObservationSource : IWindowObservationSource
             throw new InvalidOperationException("Window inspection requires an STA thread.");
         using var pixels = new PhysicalPixelScope();
         using var desktops = new VirtualDesktopQuery();
-        return ReadWindow(handle, desktops);
+        return ReadWindowCore(handle, desktops);
+    }
+
+    internal WindowObservation ReadWindow(nint handle, VirtualDesktopQuery desktops)
+    {
+        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+            throw new InvalidOperationException("Window inspection requires an STA thread.");
+        using var pixels = new PhysicalPixelScope();
+        return ReadWindowCore(handle, desktops);
     }
 
     internal static long? ReadCreationTime(uint processId)
