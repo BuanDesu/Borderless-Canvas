@@ -247,7 +247,7 @@ internal sealed partial class MainForm : Form
         {
             InitializeTray(); StartPopupServices();
             // Pay WPF initialization once at startup, before installing the input watchdog.
-            try { BorderlessFlatWindow.Presentation.CompositionSurface.WarmUp(); }
+            try { BorderlessFlatWindow.Presentation.CompositionSurface.WarmUp(); BorderlessFlatWindow.Presentation.SpatialOverviewScene.WarmUp(); }
             catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException) { }
             management.InitializeGlobalInput();
         }

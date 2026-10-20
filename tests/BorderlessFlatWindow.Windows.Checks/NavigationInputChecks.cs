@@ -9,15 +9,39 @@ internal static class NavigationInputChecks
         check("Dedicated navigation input starts inactive and never activates a desktop window", Inactive);
         check("Global hotkey conflicts are visible and disposal releases the registration", ConflictAndRelease);
         check("Closing overview clears its navigation suspension message and wakes the UI", OverviewState);
+        check("A delayed overview close on the input thread cannot clear a newer session", OverviewOwnership);
+        check("Pausing availability clears pending overview input without enabling desktop capture", OverviewUnavailable);
+    }
+    private static void OverviewUnavailable()
+    {
+        using var input = new GlobalNavigationInput(() => { });
+        input.BeginOverview(); input.SetAvailable(false);
+        Wait(() => input.State.Message.Contains("画布未运行"));
+        input.Toggle(); Wait(() => input.State.Message.Contains("先勾选"));
+        Require(!input.State.Active && input.Drain().Count == 0, "Unavailable overview retained input or entered navigation.");
+    }
+    private static void OverviewOwnership()
+    {
+        var foreground = WindowEventListener.ForegroundWindow;
+        using var input = new GlobalNavigationInput(() => { });
+        var previous = input.BeginOverview();
+        var current = input.BeginOverview();
+        input.EndOverview(previous); input.SetOverviewHost(previous, 0);
+        // Toggle is an ordered worker-thread barrier. Overview must still block navigation;
+        // availability remains false, so this test never enables desktop input capture.
+        input.Toggle(); Wait(() => input.State.Message.Contains("先关闭总览"));
+        input.EndOverview(current); Wait(() => input.State.Message.Contains("总览已关闭"));
+        Require(!input.State.Active && input.Drain().Count == 0 && WindowEventListener.ForegroundWindow == foreground,
+            "Session callbacks changed foreground, enabled navigation, or queued an input.");
     }
     private static void OverviewState()
     {
         var wakes = 0; var foreground = WindowEventListener.ForegroundWindow;
         using var input = new GlobalNavigationInput(() => Interlocked.Increment(ref wakes));
-        input.SetOverviewOpen(true); Wait(() => input.State.Message.Contains("总览中"));
+        var session = input.BeginOverview(); Wait(() => input.State.Message.Contains("总览中"));
         input.Drain(); // A UI frame acknowledges the coalesced wake before the next state change.
         var before = Volatile.Read(ref wakes);
-        input.SetOverviewOpen(false); Wait(() => input.State.Message.Contains("总览已关闭") && Volatile.Read(ref wakes) > before);
+        input.EndOverview(session); Wait(() => input.State.Message.Contains("总览已关闭") && Volatile.Read(ref wakes) > before);
         Require(!input.State.Active && Volatile.Read(ref wakes) > before && foreground == WindowEventListener.ForegroundWindow,
             "Overview closure retained stale state or changed foreground.");
     }

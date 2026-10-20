@@ -24,7 +24,9 @@ internal sealed partial class SpatialOverviewForm
     private bool overviewShown, desiredOpen = true, reversibleClose, sceneDirty, reusedScene;
     protected override void OnLoad(EventArgs e)
     {
-        base.OnLoad(e); PerformLayout(); map.Refit();
+        base.OnLoad(e); PerformLayout();
+        if (scene is not null) { PrepareSceneEntrance(); return; }
+        map.Refit();
         if (!showWithoutActivation) _ = workspaces.LoadWallpaperAsync();
         if (animateEntrance && CompositionSurface.RenderingTier > 0 && SystemParametersInfo(0x1042, 0, out var enabled, 0) && enabled != 0) PrepareEntrance();
     }
@@ -107,6 +109,7 @@ internal sealed partial class SpatialOverviewForm
             if (progress <= 0) { compositionSurface?.Stop(); closing = true; Close(); }
             return;
         }
+        if (motionTimes.Count == 0) firstCallbackTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         motionTimes.Add(System.Diagnostics.Stopwatch.GetElapsedTime(entranceStarted).TotalMilliseconds);
         if (entranceProgress >= 1) { CompleteEntrance(); return; }
         AnimatePreviews();
@@ -114,6 +117,11 @@ internal sealed partial class SpatialOverviewForm
     }
     private void CompleteEntrance()
     {
+        if (scene is not null)
+        {
+            scene.Seek(1); scene.ShowFocusImage(false); entranceProgress = 1; entering = false; animationCards = null;
+            RefreshPreviews(); WriteMotionMetrics(); if (!showWithoutActivation) scene.FocusSearch(); return;
+        }
         compositionSurface?.Seek(1); compositionSurface?.Stop(); entranceProgress = 1; entering = false; AnimatePreviews(); DwmFlush();
         animationCards = null;
         transitionCover?.Dispose(); transitionCover = null;
@@ -124,6 +132,7 @@ internal sealed partial class SpatialOverviewForm
     }
     private bool BeginExit()
     {
+        if (scene is not null) return BeginSceneExit();
         if (exiting) return true;
         if (!Visible || !SystemParametersInfo(0x1042, 0, out var enabled, 0) || enabled == 0) return false;
         if (compositionSurface is null || CompositionSurface.RenderingTier == 0) return false;
@@ -148,12 +157,20 @@ internal sealed partial class SpatialOverviewForm
         catch (Exception error) when (error is ExternalException or InvalidOperationException or OutOfMemoryException)
         { compositionSurface?.Dispose(); compositionSurface = null; return false; }
     }
-    internal void ToggleOverview()
+    internal void ToggleOverview(long capturedTimestamp = 0)
     {
         if (!canConfirm || model.Status != OverviewStatus.Open) return;
+        requestTimestamp = capturedTimestamp > 0 ? capturedTimestamp : System.Diagnostics.Stopwatch.GetTimestamp();
         desiredOpen = !desiredOpen;
         if (!overviewShown) return;
         if (!desiredOpen) { reversibleClose = true; Close(); return; }
+        if (scene is not null)
+        {
+            if (!exiting || !reversibleClose) return;
+            exiting = false; entering = true; reusedScene = true;
+            entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); motionSamples.Clear(); motionTimes.Clear();
+            scene.Retarget(true, 220); return;
+        }
         if (!exiting || !reversibleClose || compositionSurface is null) return;
         exiting = false; entering = true; reusedScene = true;
         hints.Active = true; map.PauseTitles(false);
@@ -163,7 +180,7 @@ internal sealed partial class SpatialOverviewForm
     }
     private bool RefreshReturnImage()
     {
-        if (entranceSource is not { } source || compositionSurface is null || previews?.States.GetValueOrDefault(source.Id) != PreviewState.Preview
+        if (entranceSource is not { } source || (compositionSurface is null && scene is null) || previews?.States.GetValueOrDefault(source.Id) != PreviewState.Preview
             || displayCards.FirstOrDefault(card => card.Id == source.Id)?.ContentBounds is not { } area) return false;
         using var process = System.Diagnostics.Process.GetCurrentProcess();
         var identity = new BorderlessFlatWindow.Application.Discovery.NativeWindowIdentity(Handle, (uint)Environment.ProcessId, process.StartTime.ToFileTimeUtc());
@@ -172,10 +189,11 @@ internal sealed partial class SpatialOverviewForm
         if (!DesktopCropEligibility.IsUnobscuredRegion(identity, expected, crop)) return false;
         using var image = FrostedBackdrop.CaptureRaw(new(crop.Left, crop.Top, crop.Width, crop.Height));
         if (image is null || !DesktopCropEligibility.IsUnobscuredRegion(identity, expected, crop)) return false;
-        compositionSurface.ReplaceMovingImage(image); return true;
+        if (scene is not null) scene.ReplaceFocusImage(image); else compositionSurface!.ReplaceMovingImage(image); return true;
     }
     private void AnimatePreviews()
     {
+        if (scene is not null) { AnimateScenePreviews(); return; }
         if (animationCards is null || previews is null) return;
         var opacity = (byte)Math.Clamp((int)Math.Round(entranceProgress * 255), 0, 255);
         var selected = exiting && (ConfirmedTarget is not null || ConfirmedCameraPosition is not null) ? null : EntrancePreviewCard(entranceProgress);
@@ -204,7 +222,7 @@ internal sealed partial class SpatialOverviewForm
     }
     protected override void OnKeyPress(KeyPressEventArgs e)
     {
-        if (entering && !char.IsControl(e.KeyChar)) { CompleteEntrance(); search.AppendText(e.KeyChar.ToString()); e.Handled = true; }
+        if (entering && !char.IsControl(e.KeyChar)) { CompleteEntrance(); if (scene is not null) scene.AppendSearch(e.KeyChar.ToString()); else search.AppendText(e.KeyChar.ToString()); e.Handled = true; }
         base.OnKeyPress(e);
     }
     private static void DrawAlpha(Graphics graphics, Image image, Rectangle bounds, float opacity)

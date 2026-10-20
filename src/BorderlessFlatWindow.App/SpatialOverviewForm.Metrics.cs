@@ -9,6 +9,10 @@ internal sealed partial class SpatialOverviewForm
     internal static string? MotionMetricsPath { get; set; }
     private readonly List<double> motionSamples = [], motionTimes = [];
     private double prepareMilliseconds, captureMilliseconds, sceneSnapshotMilliseconds, uploadMilliseconds;
+    private double reconcileMilliseconds, constructionMilliseconds;
+    private long requestTimestamp, firstCallbackTimestamp;
+    internal void SetOpenTimings(long requested, double reconcile, double construction)
+    { requestTimestamp = requested; reconcileMilliseconds = reconcile; constructionMilliseconds = construction; }
 
     private void WriteMotionMetrics()
     {
@@ -19,11 +23,15 @@ internal sealed partial class SpatialOverviewForm
         var record = new
         {
             Width, Height, Dpi = DeviceDpi, Tier = CompositionSurface.RenderingTier,
+            Renderer = scene is null ? "Legacy" : "RetainedScene",
             PreviewCount = animationPreviewCount, Frames = motionTimes.Count,
             SceneReused = reusedScene,
             CompositorFocus = compositorFocus,
             FocusCropStatus = focusCropStatus,
             CaptureMs = captureMilliseconds, PrepareMs = prepareMilliseconds,
+            ReconcileMs = reconcileMilliseconds, ConstructionMs = constructionMilliseconds,
+            RequestToFirstCallbackMs = requestTimestamp > 0 && firstCallbackTimestamp >= requestTimestamp
+                ? Stopwatch.GetElapsedTime(requestTimestamp, firstCallbackTimestamp).TotalMilliseconds : 0,
             SceneSnapshotMs = sceneSnapshotMilliseconds, UploadMs = uploadMilliseconds,
             FirstFrameMs = motionTimes[0], FrameGapP95Ms = Percentile(gaps, .95),
             FrameGapMaxMs = gaps.LastOrDefault(), CallbackP95Ms = Percentile(work, .95),

@@ -9,6 +9,8 @@ try {
     if ($SmokeUi) {
         dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --smoke-check
         if ($LASTEXITCODE -ne 0) { throw "UI smoke check failed: $LASTEXITCODE" }
+        dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --scene-check (Join-Path $taskRoot 'artifacts/overview-scene-check.json')
+        if ($LASTEXITCODE -ne 0) { throw "Overview scene check failed: $LASTEXITCODE" }
     }
     if ($NativeChecks) {
         dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build
