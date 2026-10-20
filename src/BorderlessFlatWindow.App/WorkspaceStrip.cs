@@ -2,6 +2,7 @@ using BorderlessFlatWindow.Application.Bookmarks;
 using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Core.Canvas;
 using System.Drawing.Drawing2D;
+using BorderlessFlatWindow.Application.Overview;
 
 namespace BorderlessFlatWindow.App;
 
@@ -11,32 +12,45 @@ internal sealed class WorkspaceStrip : UserControl
     private readonly PointD camera;
     private readonly Func<IReadOnlyList<CanvasWindow>> windows;
     private readonly SizeD viewport;
+    private readonly RectD[] monitorOffsets;
     private readonly FlowLayoutPanel cards = new() { Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true, Padding = new(12, 0, 12, 0) };
     private readonly Label message = new() { Dock = DockStyle.Bottom, Height = 26, Padding = new(24, 2, 0, 0), Visible = false };
     private readonly ToolTip hints = new();
     private readonly TableLayoutPanel header;
     private bool sizing;
+    private readonly Dictionary<Button, PointD> positions = [];
+    private readonly Dictionary<(Button Card, Guid Window, int Monitor), Guid> previewIds = [];
+    private Bitmap? wallpaper;
+    internal event Action? GeometryChanged;
+    internal async Task LoadWallpaperAsync()
+    {
+        var next = await WallpaperPaletteReader.ReadPreviewAsync();
+        if (IsDisposed || Disposing) { next?.Dispose(); return; }
+        wallpaper?.Dispose(); wallpaper = next; cards.Invalidate(true);
+    }
     internal event Action<PointD>? JumpRequested;
-    internal WorkspaceStrip(BookmarkLibrary? library, PointD camera, Func<IReadOnlyList<CanvasWindow>> windows, SizeD viewport, Control tools)
+    internal WorkspaceStrip(BookmarkLibrary? library, PointD camera, Func<IReadOnlyList<CanvasWindow>> windows, SizeD viewport, Control tools, RectD[]? viewports = null)
     {
         this.library = library; this.camera = camera; this.windows = windows; this.viewport = viewport;
+        monitorOffsets = viewports?.Select(r => new RectD(r.Position - camera, r.Size)).ToArray() ?? [new(PointD.Zero, viewport)];
         DoubleBuffered = true; ResizeRedraw = true;
         cards.SizeChanged += (_, _) =>
         { SizeCards(); };
         cards.Layout += (_, _) => SizeCards();
+        cards.Scroll += (_, _) => GeometryChanged?.Invoke();
         header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 52, Padding = new(24, 0, 24, 0), ColumnCount = 4, RowCount = 1 };
         header.RowStyles.Add(new(SizeType.Percent, 100));
         header.ColumnStyles.Add(new(SizeType.Absolute, 90)); header.ColumnStyles.Add(new(SizeType.Absolute, 48));
         header.ColumnStyles.Add(new(SizeType.Absolute, 48)); header.ColumnStyles.Add(new(SizeType.Percent, 100));
         header.Controls.Add(new Label { Text = "工作区", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-        var add = new Button { Text = "+", AccessibleName = "保存当前视角", Size = new(44, 44), Enabled = library?.CanWrite == true };
+        var add = new ChromeButton { Text = "+", AccessibleName = "保存当前视角", Size = new(44, 44), Enabled = library?.CanWrite == true };
         add.Click += (_, _) =>
         {
             var name = AskName("保存工作区", "工作区");
             if (name is null) return;
             library!.Add(name, camera); Render(true);
         };
-        var manage = new Button { Text = "⋯", AccessibleName = "管理工作区", Size = new(44, 44), Enabled = library is not null };
+        var manage = new ChromeButton { Text = "⋯", AccessibleName = "管理工作区", Size = new(44, 44), Enabled = library is not null };
         manage.Click += (_, _) =>
         {
             using var dialog = new Form
@@ -89,11 +103,13 @@ internal sealed class WorkspaceStrip : UserControl
             if (cards.Padding.Left != left) cards.Padding = new(left, 4, 16, 8);
         }
         finally { sizing = false; }
+        GeometryChanged?.Invoke();
     }
     private void Render(bool showStorageMessage = false)
     {
         foreach (Control child in cards.Controls.Cast<Control>().ToArray()) child.Dispose();
         cards.Controls.Clear();
+        positions.Clear(); previewIds.Clear();
         AddCard("原点", PointD.Zero, null);
         if (library is not null) foreach (var bookmark in library.Collection.Items)
             AddCard(bookmark.Name, bookmark.CameraPosition, bookmark.Id);
@@ -103,7 +119,8 @@ internal sealed class WorkspaceStrip : UserControl
     }
     private void AddCard(string name, PointD position, Guid? id)
     {
-        var button = new Button { Text = name, Size = new(164, 142), Margin = new(12, 3, 12, 6), AccessibleName = "工作区 " + name };
+        var button = new ChromeButton { Text = name, Size = new(164, 142), Margin = new(12, 3, 12, 6), AccessibleName = "工作区 " + name };
+        positions.Add(button, position);
         hints.SetToolTip(button, $"{name} · ({position.X:0}, {position.Y:0})\n右键重命名或删除");
         button.Click += (_, _) => JumpRequested?.Invoke(position);
         if (id is { } bookmarkId && library is not null)
@@ -118,17 +135,23 @@ internal sealed class WorkspaceStrip : UserControl
         }
         ChromeTheme.Apply(button);
         button.BackColor = Color.Transparent;
-        button.Paint += (_, e) =>
+        button.Artwork = graphics =>
         {
-            DrawMonitor(e.Graphics, button, name, position, position == camera);
+            DrawMonitor(graphics, button, name, position, position == camera);
         };
         cards.Controls.Add(button);
     }
     private void DrawMonitor(Graphics g, Button button, string name, PointD position, bool selected)
     {
-        var saved = g.Save(); g.TranslateTransform(-button.Left, -button.Top);
-        using (var args = new PaintEventArgs(g, cards.ClientRectangle)) InvokePaintBackground(cards, args);
-        g.Restore(saved); g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (TopLevelControl is SpatialOverviewForm overview)
+        {
+            overview.PaintScene(g, button);
+            var offset = button.PointToClient(PointToScreen(Point.Empty));
+            var saved = g.Save(); g.TranslateTransform(offset.X, offset.Y);
+            ChromeTheme.Glass(g, new RectangleF(18, 5, Width - 36, Height - 18), ChromeTheme.Purple); g.Restore(saved);
+        }
+        else g.Clear(ChromeTheme.Ink);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
         var captionHeight = TextRenderer.MeasureText(g, name, button.Font).Height + 8;
         var body = new RectangleF(7, 3, button.Width - 14, Math.Max(20, button.Height - captionHeight - 22));
         var accent = selected ? ChromeTheme.Pink : ChromeTheme.Cyan;
@@ -149,24 +172,44 @@ internal sealed class WorkspaceStrip : UserControl
             var oy = screen.Y + (screen.Height - viewport.Height * scale) / 2;
             var viewportClip = new RectangleF((float)ox, (float)oy, (float)(viewport.Width * scale), (float)(viewport.Height * scale));
             g.SetClip(viewportClip, CombineMode.Intersect);
-            foreach (var window in windows())
-            {
-                var x = ox + (window.Bounds.Position.X - position.X) * scale; var y = oy + (window.Bounds.Position.Y - position.Y) * scale;
-                var rectangle = new RectangleF((float)x, (float)y, (float)(window.Bounds.Size.Width * scale), (float)(window.Bounds.Size.Height * scale));
-                if (rectangle.Width < 1 || rectangle.Height < 1) continue;
-                var color = ChromeTheme.Candy[(window.Id.GetHashCode() & int.MaxValue) % ChromeTheme.Candy.Length];
-                using var tile = new SolidBrush(ChromeTheme.Mix(color, Color.White, .4f));
-                using var shape = ChromeTheme.Round(rectangle, 3); g.FillPath(tile, shape);
-            }
+            if (wallpaper is not null) g.DrawImage(wallpaper, viewportClip);
+            // Window content is composited by DWM at its true viewport position, with source cropping.
             g.Restore(clip);
             using var reflection = new LinearGradientBrush(screen, Color.FromArgb(75, Color.White), Color.Transparent, 75); g.FillPath(reflection, bezel);
         }
         using var light = new SolidBrush(selected ? ChromeTheme.Pink : ChromeTheme.Lime); g.FillEllipse(light, body.Right - 17, body.Bottom - 11, 5, 5);
         TextRenderer.DrawText(g, name, button.Font, new Rectangle(4, button.Height - captionHeight, button.Width - 8, captionHeight), ChromeTheme.Text,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
-        if (button.Focused) ControlPaint.DrawFocusRectangle(g, new(2, 1, button.Width - 4, button.Height - 2), ChromeTheme.Purple, Color.Transparent);
+        if (button.Focused) { using var focus = ChromeTheme.Round(body, 18); using var pen = new Pen(ChromeTheme.Purple, 2); g.DrawPath(pen, focus); }
     }
-    protected override void Dispose(bool disposing) { if (disposing) hints.Dispose(); base.Dispose(disposing); }
+    internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, SpatialOverviewForm.PreviewSource> sources, Control host)
+    {
+        foreach (var (button, position) in positions)
+        {
+            if (!button.IsHandleCreated) continue;
+            var caption = TextRenderer.MeasureText(button.Text, button.Font).Height + 8;
+            var bodyHeight = Math.Max(20, button.Height - caption - 22);
+            var screen = new Rectangle(21, 16, button.Width - 42, (int)bodyHeight - 33);
+            if (screen.Width <= 0 || screen.Height <= 0) continue;
+            var point = cards.PointToClient(button.PointToScreen(screen.Location));
+            if (!cards.ClientRectangle.Contains(new Rectangle(point, screen.Size))) continue;
+            point = host.PointToClient(button.PointToScreen(screen.Location));
+            var frame = new PixelRect(point.X, point.Y, point.X + screen.Width, point.Y + screen.Height);
+            foreach (var window in windows())
+            {
+                if (!sources.TryGetValue(window.Id, out var source)) continue;
+                for (var monitor = 0; monitor < monitorOffsets.Length; monitor++)
+                {
+                    var area = monitorOffsets[monitor];
+                    if (ViewportPreview.Project(window.Bounds, new(position, viewport), frame, new(position + area.Position, area.Size)) is not { } slice) continue;
+                    var key = (button, window.Id, monitor);
+                    if (!previewIds.TryGetValue(key, out var id)) previewIds[key] = id = Guid.NewGuid();
+                    yield return new(id, source.Identity, slice.Destination, null, slice.SourceFraction);
+                }
+            }
+        }
+    }
+    protected override void Dispose(bool disposing) { if (disposing) { hints.Dispose(); wallpaper?.Dispose(); wallpaper = null; } base.Dispose(disposing); }
     private string? AskName(string title, string current)
     {
         using var dialog = new Form
@@ -181,8 +224,8 @@ internal sealed class WorkspaceStrip : UserControl
             Font = Font
         };
         var field = new TextBox { Text = current, Location = new(16, 16), Width = 368, MaxLength = 80 };
-        var save = new Button { Text = "保存", DialogResult = DialogResult.OK, Location = new(280, 72), Size = new(104, 40) };
-        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new(168, 72), Size = new(104, 40) };
+        var save = new ChromeButton { Text = "保存", DialogResult = DialogResult.OK, Location = new(280, 72), Size = new(104, 40) };
+        var cancel = new ChromeButton { Text = "取消", DialogResult = DialogResult.Cancel, Location = new(168, 72), Size = new(104, 40) };
         dialog.Controls.AddRange([field, save, cancel]); dialog.AcceptButton = save; dialog.CancelButton = cancel; ChromeTheme.Apply(dialog);
         dialog.TopMost = (TopLevelControl as Form)?.TopMost == true;
         dialog.Shown += (_, _) => { field.Focus(); field.SelectAll(); };

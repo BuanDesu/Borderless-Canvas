@@ -10,7 +10,7 @@ internal sealed class NavigationHud : Form
     {
         Text = "BFW 导航状态"; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
         StartPosition = FormStartPosition.Manual; BackColor = Color.FromArgb(25, 42, 52); ForeColor = Color.FromArgb(140, 250, 212);
-        Font = new Font("Microsoft YaHei UI", 11); Size = new(980, 96); Controls.Add(text);
+        Font = PixelFont.Create(12); Size = new(980, 96); Controls.Add(text);
     }
     internal void Present(string hotkey, PointD camera, NavigationInputOptions? options = null)
     {

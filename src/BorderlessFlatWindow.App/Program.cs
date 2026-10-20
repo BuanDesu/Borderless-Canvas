@@ -8,6 +8,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        using var pixelFont = new PixelFont();
         var smoke = args.Contains("--smoke-check", StringComparer.Ordinal);
         var journalIndex = Array.IndexOf(args, "--journal");
         if (journalIndex >= 0 && journalIndex + 1 >= args.Length) return 1;
@@ -17,6 +18,7 @@ internal static class Program
         var bookmarkPath = bookmarkIndex < 0 ? null : args[bookmarkIndex + 1];
         if (smoke)
         {
+            PixelFont.VerifyGlyphs();
             var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-smoke", Guid.NewGuid().ToString("N")));
             Directory.CreateDirectory(fixture);
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");
@@ -151,7 +153,7 @@ internal static class Program
                 System.Windows.Forms.Application.DoEvents();
                 using (var compact = new Bitmap(overview.Width, overview.Height))
                 { overview.DrawToBitmap(compact, new Rectangle(Point.Empty, overview.Size)); compact.Save(Path.Combine(output, "overview-compact-smoke.png")); }
-                overview.Font = new Font("Microsoft YaHei UI", 14); System.Windows.Forms.Application.DoEvents();
+                overview.Font = PixelFont.Create(18); System.Windows.Forms.Application.DoEvents();
                 using (var largeText = new Bitmap(overview.Width, overview.Height))
                 { overview.DrawToBitmap(largeText, new Rectangle(Point.Empty, overview.Size)); largeText.Save(Path.Combine(output, "overview-large-text-smoke.png")); }
                 overview.Hide();

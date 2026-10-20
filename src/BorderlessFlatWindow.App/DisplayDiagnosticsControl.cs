@@ -20,7 +20,7 @@ internal sealed class DisplayDiagnosticsControl : UserControl
         list.Columns.Add("屏幕物理边界（左上 / 右下）", 290);
         list.Columns.Add("可用工作区（左上 / 右下）", 290);
         list.Columns.Add("有效 DPI", 160);
-        var refresh = new Button { Text = "刷新显示器（只读）", AutoSize = true };
+        var refresh = new ChromeButton { Text = "刷新显示器（只读）", AutoSize = true };
         refresh.Click += (_, _) => RefreshDisplays();
         var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6) };
         actions.Controls.Add(refresh);

@@ -1,6 +1,7 @@
 using BorderlessFlatWindow.Application.Discovery;
 using BorderlessFlatWindow.Application.Overview;
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Core.Canvas;
 
 internal static class PreviewChecks
 {
@@ -15,13 +16,20 @@ internal static class PreviewChecks
         yield return ("Invalid preview dimensions release resources and keep a title fallback", SizeFailure);
         yield return ("A lost native identity releases its preview before update", IdentityLost);
         yield return ("A replaced process identity never reuses an old preview registration", Replace);
-        yield return ("Offscreen, overlapping and tiny cards do not consume preview resources", Fallbacks);
+        yield return ("Explicit fallback cards retain their reason and do not acquire native resources", Fallbacks);
         yield return ("Overview resource limits prefer the selected window and retain every map card", Capacity);
         yield return ("Preview aspect fitting stays inside translated destination client pixels", Geometry);
         yield return ("Preview failure cache disappears with its target or replaced identity", FailureRemoval);
         yield return ("Invalid preview input cannot partially release the current resources", Invalid);
         yield return ("Closing during native registration releases the late resource without reviving overview", CloseDuringCreate);
         yield return ("Reentrant native callbacks cannot recursively acquire previews", Reentry);
+        yield return ("Unchanged preview commands do not cross the native boundary again", Unchanged);
+        yield return ("Default overview previews include more than sixteen windows", AllWindows);
+        yield return ("Viewport preview crops partial windows and keeps negative camera coordinates", ViewportCrop);
+        yield return ("Viewport preview preserves letterboxing, excludes outside windows and drops subpixel slices", ViewportEdges);
+        yield return ("Animation reuses validated sources without registration or size queries", Animation);
+        yield return ("Workspace source slices exclude monitor gaps and taskbar areas without changing scale", MonitorSlices);
+        yield return ("Animation callbacks cannot reconcile registrations recursively", AnimationReentry);
     }
     private static readonly Guid A = Guid.NewGuid(), B = Guid.NewGuid();
     private static readonly NativeWindowIdentity IdentityA = new(100, 200, 300), IdentityB = new(101, 201, 301);
@@ -29,11 +37,15 @@ internal static class PreviewChecks
     private sealed class Preview : IOverviewPreview
     {
         public bool IsCurrent { get; set; } = true;
-        public SizeD? SourceSize { get; set; } = new(640, 480);
+        private SizeD? size = new(640, 480);
+        public int SizeQueries;
+        public SizeD? SourceSize { get { SizeQueries++; return size; } set => size = value; }
         public bool Succeed = true;
         public int Disposals, Updates;
         public PixelRect? Last;
-        public bool Update(PixelRect bounds) { Updates++; Last = bounds; return Succeed; }
+        public Action? DuringUpdate;
+        public bool Update(PixelRect bounds) { Updates++; Last = bounds; DuringUpdate?.Invoke(); return Succeed; }
+        public bool Update(PixelRect bounds, RectD? crop, byte opacity) => Update(bounds);
         public void Dispose() => Disposals++;
     }
     private sealed class Port : IOverviewPreviewPort
@@ -83,7 +95,7 @@ internal static class PreviewChecks
     private static void UpdateFailure()
     {
         var port = new Port(); using var model = new OverviewPreviewSession(port); var cards = new[] { Card(A, IdentityA), Card(B, IdentityB) };
-        model.Synchronize(cards, A, true); port.Created[0].Succeed = false; model.Synchronize(cards, A, true);
+        model.Synchronize(cards, A, true); port.Created[0].Succeed = false; model.Synchronize(cards.Select(c => c with { ContentBounds = new(20, 20, 400, 400) }), A, true);
         Require(model.States[A] == PreviewState.Unavailable && model.States[B] == PreviewState.Preview && port.Created[0].Disposals == 1, "One failed source blocked others.");
     }
     private static void SizeFailure()
@@ -155,6 +167,58 @@ internal static class PreviewChecks
         model.Synchronize([Card(A, IdentityA)], A, true);
         Require(port.Calls == 1 && model.ResourceCount == 1 && model.States.ContainsKey(A) && !model.States.ContainsKey(B),
             "Native callback recursively modified preview resources.");
+    }
+    private static void Unchanged()
+    {
+        var port = new Port(); using var model = new OverviewPreviewSession(port);
+        for (var i = 0; i < 100; i++) model.Synchronize([Card(A, IdentityA)], A, true);
+        Require(port.Calls == 1 && port.Created.Single().Updates == 1, "Idle polling resent native updates.");
+    }
+    private static void AllWindows()
+    {
+        var port = new Port(); using var model = new OverviewPreviewSession(port);
+        model.Synchronize(Enumerable.Range(0, 48).Select(_ => Card(Guid.NewGuid(), IdentityA)), null, true);
+        Require(model.ResourceCount == 48 && model.States.Values.All(s => s == PreviewState.Preview), "An implicit sixteen-window limit remains.");
+    }
+    private static void ViewportCrop()
+    {
+        var window = new RectD(new(-1200, -500), new(800, 600));
+        var slice = ViewportPreview.Project(window, new(new(-1000, -400), new(1600, 900)), new(100, 200, 420, 380))!;
+        Require(slice.Destination == new PixelRect(100, 200, 220, 300) && slice.SourceFraction == new RectD(new(.25, 1d / 6), new(.75, 5d / 6)), "Partial window was stretched or its hidden pixels leaked outside the viewport.");
+    }
+    private static void ViewportEdges()
+    {
+        var viewport = new RectD(new(1_000_000, -1_000_000), new(1600, 900));
+        var frame = new PixelRect(0, 0, 200, 200);
+        var slice = ViewportPreview.Project(viewport, viewport, frame)!;
+        Require(slice.Destination == new PixelRect(0, 44, 200, 156) && slice.SourceFraction == new RectD(PointD.Zero, new(1, 1)), "Workspace viewport aspect changed.");
+        Require(ViewportPreview.Project(new(new(0, 0), new(100, 100)), viewport, frame) is null, "An outside window was included.");
+        Require(ViewportPreview.Project(new(viewport.Position, new(.001, .001)), viewport, frame) is null, "Subpixel crop acquired a resource.");
+    }
+    private static void Animation()
+    {
+        var port = new Port(); using var model = new OverviewPreviewSession(port);
+        model.Synchronize([Card(A, IdentityA)], A, true); var queries = port.Created[0].SizeQueries;
+        for (var i = 0; i < 60; i++) model.Animate([Card(A, IdentityA) with { ContentBounds = new(i, i, i + 100, i + 80) }], (byte)(i * 4));
+        Require(port.Calls == 1 && port.Created[0].SizeQueries == queries && port.Created[0].Updates == 61, "Animation entered discovery/registration or source size paths.");
+    }
+    private static void MonitorSlices()
+    {
+        var viewport = new RectD(new(-400, 200), new(2000, 1000));
+        var frame = new PixelRect(10, 20, 410, 220);
+        var window = new RectD(new(400, 800), new(600, 400));
+        var left = ViewportPreview.Project(window, viewport, frame, new(new(-400, 200), new(1000, 900)))!;
+        var right = ViewportPreview.Project(window, viewport, frame, new(new(600, 200), new(1000, 700)))!;
+        Require(left.Destination == new PixelRect(170, 140, 210, 200) && right.Destination == new PixelRect(210, 140, 290, 160), "Monitor height or taskbar exclusion changed projection.");
+        Require(left.SourceFraction == new RectD(PointD.Zero, new(1d / 3, .75)) && right.SourceFraction == new RectD(new(1d / 3, 0), new(2d / 3, .25)), "Monitor slices used the wrong source pixels.");
+    }
+    private static void AnimationReentry()
+    {
+        var port = new Port(); using var model = new OverviewPreviewSession(port);
+        model.Synchronize([Card(A, IdentityA)], A, true);
+        port.Created[0].DuringUpdate = () => model.Synchronize([Card(B, IdentityB)], B, true);
+        model.Animate([Card(A, IdentityA) with { ContentBounds = new(20, 20, 300, 300) }]);
+        Require(port.Calls == 1 && model.ResourceCount == 1 && model.States.ContainsKey(A), "Animation recursively replaced native resources.");
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

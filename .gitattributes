@@ -1,0 +1,4 @@
+src/BorderlessFlatWindow.App/Assets/Fonts/*.ttf binary
+# Preserve third-party license files byte for byte, including upstream whitespace.
+src/BorderlessFlatWindow.App/Assets/Licenses/FusionPixel/OFL.txt -text -whitespace
+src/BorderlessFlatWindow.App/Assets/Licenses/FusionPixel/LICENSES/** -text -whitespace

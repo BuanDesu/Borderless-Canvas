@@ -22,8 +22,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private readonly CheckedListBox candidates = new() { Dock = DockStyle.Fill, CheckOnClick = true, HorizontalScrollbar = true };
     private readonly Panel map = new() { Dock = DockStyle.Fill };
     private readonly WrapLabel status = new() { Dock = DockStyle.Bottom, Height = 42, Padding = new(18, 8, 18, 0) };
-    private readonly Button start = new() { Text = "开始画布", AutoSize = true };
-    private readonly Button pause = new() { Text = "暂停并恢复", AutoSize = true, Enabled = false };
+    private readonly ChromeButton start = new() { Text = "开始画布", AutoSize = true };
+    private readonly ChromeButton pause = new() { Text = "暂停并恢复", AutoSize = true, Enabled = false };
     private readonly Panel selector = new() { Dock = DockStyle.Left, Width = 272, Padding = new(14) };
     private readonly ContextMenuStrip moreMenu = new();
     private readonly ToolTip hints = new();
@@ -71,9 +71,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         selector.Controls.Add(new Label { Text = "选择窗口", Dock = DockStyle.Top, Height = 30, Padding = new(0, 3, 0, 0) });
         var admission = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new(0, 8, 0, 0) };
         InitializeAdmissionControls(admission); selector.Controls.Add(admission);
-        var overviewButton = new Button { Text = "总览", AccessibleName = "空间总览" };
+        var overviewButton = new ChromeButton { Text = "总览", AccessibleName = "空间总览" };
         overviewButton.Click += (_, _) => RequestOverview();
-        var more = new Button { Text = "⋯", AccessibleName = "更多操作", Size = new(54, 46) };
+        var more = new ChromeButton { Text = "⋯", AccessibleName = "更多操作", Size = new(54, 46) };
         more.Click += (_, _) => moreMenu.Show(more, new Point(0, 0), ToolStripDropDownDirection.AboveLeft);
         commandDeck = new(start, pause, overviewButton, more,
             delta => Act(() => { if (session?.IsRunning == true) session.Navigate(session.Workspace.Camera.Position + delta, DateTimeOffset.UtcNow); }),
@@ -107,7 +107,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         appearance.DropDownItems.Add("重新采样壁纸", null, (_, _) => { if (!wallpaperColors.Checked) wallpaperColors.Checked = true; else WallpaperRefreshRequested?.Invoke(); });
         appearance.DropDownItems.Add(overviewAnimation); ChromeTheme.StyleMenu(appearance.DropDown); moreMenu.Items.Add(appearance);
         moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
-            "桌面空白处：滚轮移动，Shift 横移，左右双键拖动。\nTab 打开总览，Ctrl+滚轮轮选窗口。\n应用窗口内直接操作；Esc 可暂停自动导航。\n关闭管理器收入托盘，托盘菜单可退出并恢复。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
+            "桌面空白处：滚轮移动，Shift 横移，左右双键拖动。\nTab 进入/退出总览，Ctrl+滚轮轮选窗口。\n总览内方向键选择，Ctrl+Tab 轮选，Enter 定位。\n应用窗口内直接操作；Esc 可暂停自动导航。\n关闭管理器收入托盘，托盘菜单可退出并恢复。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
         moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
             $"{navigationStatus.Text}\n{overviewShortcutStatus.Text}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
         ChromeTheme.StyleMenu(moreMenu); ChromeTheme.Accent(start, ChromeTheme.Purple);
@@ -229,8 +229,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         try
         {
             focus = ForegroundWindowBookmark.Capture(WindowEventListener.ForegroundWindow);
-            lastSnapshot = catalog.Inspect();
-            managed.Observe(lastSnapshot, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
+            var observed = RefreshManagedSnapshot(managed);
+            managed.Observe(observed, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
             if (!managed.IsRunning) { notice = managed.Message; return; }
             var area = layout.Primary.WorkArea;
             if (FindForm() is not MainForm host) throw new InvalidOperationException("总览主窗口不可用。");
@@ -268,7 +268,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             { if (!managed.Navigate(position, DateTimeOffset.UtcNow)) notice = managed.Message; }
             else if (dialog.ConfirmedTarget is { } selected && ReferenceEquals(session, managed) && managed.IsRunning)
             {
-                lastSnapshot = catalog.Inspect();
+                RefreshManagedSnapshot(managed);
                 if (!OverviewWindows().Any(window => window.Id == selected.Id))
                 { notice = "目标窗口已关闭或改变，未执行跳转。"; focus?.TryRestore(); }
                 else if (!managed.Focus(selected.Id, DateTimeOffset.UtcNow)) notice = managed.Message;
@@ -285,6 +285,16 @@ internal sealed partial class ManagedCanvasControl : UserControl
             focus?.Dispose(); dialog.Dispose();
             if (!IsDisposed && !Disposing) { globalInput?.SetOverviewOpen(false); RefreshState(); }
         }
+    }
+
+    private WindowCatalogSnapshot RefreshManagedSnapshot(ManagedCanvasSession managed)
+    {
+        // WinEvent maintains the catalog. Revalidate our sources without enumerating the unrelated desktop on each transition.
+        var ids = managed.Workspace.Windows.Select(window => window.Id).ToHashSet();
+        var handles = catalog.Current.Entries.Where(entry => entry.Id is { } id && ids.Contains(id))
+            .Select(entry => entry.Observation.Handle).Distinct().ToArray();
+        foreach (var handle in handles) catalog.RefreshWindow(handle);
+        return lastSnapshot = catalog.Current;
     }
 
     internal void SetDisplay(DisplayLayout current)
@@ -371,7 +381,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void Add(FlowLayoutPanel toolbar, string text, Action action)
     {
-        var button = new Button { Text = text, AutoSize = true };
+        var button = new ChromeButton { Text = text, AutoSize = true };
         button.Click += (_, _) => Act(action); toolbar.Controls.Add(button);
     }
     internal void Pause(string reason = "已暂停并恢复原始位置；再次开始可恢复画布布局。")

@@ -6,6 +6,54 @@ namespace BorderlessFlatWindow.App;
 
 internal static class WallpaperPaletteReader
 {
+    internal static Task<Bitmap?> ReadPreviewAsync()
+    {
+        var result = new TaskCompletionSource<Bitmap?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var screens = Screen.AllScreens.Select(s => (s.Bounds, s.WorkingArea)).ToArray();
+        var thread = new Thread(() =>
+        {
+            Bitmap? output = null;
+            try
+            {
+                var area = screens.Select(s => s.WorkingArea).Aggregate(Rectangle.Union);
+                var width = 480; var height = Math.Max(1, (int)Math.Round(width * (double)area.Height / area.Width));
+                output = new Bitmap(width, height);
+                using (var g = Graphics.FromImage(output)) g.Clear(ChromeTheme.Panel);
+                foreach (var screen in screens)
+                {
+                    var r = screen.Bounds;
+                    var info = DesktopWallpaperSource.Read(new(r.Left, r.Top, r.Right, r.Bottom));
+                    if (info is null) continue;
+                    Bitmap? sample = null; SizeD? fullSize = null;
+                    try
+                    {
+                        if (Path.IsPathFullyQualified(info.ImagePath) && !info.ImagePath.StartsWith(@"\\", StringComparison.Ordinal))
+                        {
+                            using var file = new FileStream(info.ImagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                            using var image = Image.FromStream(file, false, true);
+                            if (image.Width > 0 && image.Height > 0 && (long)image.Width * image.Height <= 64_000_000)
+                            { fullSize = new(image.Width, image.Height); sample = new Bitmap(image, new Size(480, 480)); }
+                        }
+                        for (var y = 0; y < height; y++) for (var x = 0; x < width; x++)
+                        {
+                            var physical = new Point(area.Left + (int)((x + .5) / width * area.Width), area.Top + (int)((y + .5) / height * area.Height));
+                            if (!screen.WorkingArea.Contains(physical)) continue;
+                            var color = Color.FromArgb(info.Background.R, info.Background.G, info.Background.B);
+                            if (sample is not null && fullSize is { } imageSize && WallpaperSampling.ToImage(new(physical.X, physical.Y), imageSize, info.Monitor, info.Desktop, info.Placement) is { } p)
+                                color = sample.GetPixel(Math.Clamp((int)(p.X / imageSize.Width * sample.Width), 0, sample.Width - 1), Math.Clamp((int)(p.Y / imageSize.Height * sample.Height), 0, sample.Height - 1));
+                            output.SetPixel(x, y, color);
+                        }
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException) { }
+                    finally { sample?.Dispose(); }
+                }
+                result.TrySetResult(output); output = null;
+            }
+            catch (Exception e) when (e is not StackOverflowException) { output?.Dispose(); result.TrySetResult(null); }
+        })
+        { IsBackground = true, Name = "BFW workspace wallpaper" };
+        thread.SetApartmentState(ApartmentState.STA); thread.Start(); return result.Task;
+    }
     internal static Task<CandyPalette> ReadAsync(Rectangle monitor)
     {
         var result = new TaskCompletionSource<CandyPalette>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -14,7 +14,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private readonly SpatialOverviewSession model;
     private readonly TextBox search = new() { Dock = DockStyle.Fill, PlaceholderText = "搜索窗口", AccessibleName = "搜索窗口" };
     private readonly Label summary = new InlineSelectionLabel { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleRight, Padding = new(6, 0, 12, 0) };
-    private readonly Button confirm = new() { Text = "定位选中窗口", AutoSize = true };
+    private readonly ChromeButton confirm = new() { Text = "定位选中窗口", AutoSize = true };
     private readonly OverviewMap map;
     private readonly bool showWithoutActivation;
     private bool canConfirm = true;
@@ -22,6 +22,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private readonly CheckBox showPreviews = new() { Text = "窗口预览（可能停帧）", AutoSize = true, Checked = true };
     private IReadOnlyDictionary<Guid, PreviewSource> previewSources = new Dictionary<Guid, PreviewSource>();
     private OverviewPreviewSession? previews;
+    private PreviewCard[] displayCards = [];
     private Control? previewHost;
     private nint previewDestination;
     private bool closing, refreshingPreviews;
@@ -43,8 +44,9 @@ internal sealed partial class SpatialOverviewForm : Form
         model = new(windows, camera, new(1000, 700), selected);
         Text = "BFW 空间总览"; StartPosition = FormStartPosition.Manual; FormBorderStyle = FormBorderStyle.None;
         Bounds = bounds; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
-        Font = new Font("Microsoft YaHei UI", 11); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
-        map = new(model, viewports?.ToArray() ?? [camera.Bounds]) { Dock = DockStyle.Fill, PaintBackdrop = PaintScene };
+        Font = PixelFont.Create(12); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
+        var monitorViewports = viewports?.ToArray() ?? [camera.Bounds];
+        map = new(model, monitorViewports) { Dock = DockStyle.Fill, PaintBackdrop = PaintScene };
         map.GeometryChanged += RefreshPreviews;
         map.ConfirmRequested += ConfirmSelection;
         var searchContainer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
@@ -52,8 +54,8 @@ internal sealed partial class SpatialOverviewForm : Form
         searchContainer.ColumnStyles.Add(new(SizeType.Percent, 100)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, Math.Clamp(bounds.Width / 3, 240, 420)));
         searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 48)); searchContainer.ColumnStyles.Add(new(SizeType.Absolute, 48));
         var searchSurface = new GlassSearchSurface { Dock = DockStyle.Fill, Padding = new(14, 10, 14, 6) }; searchSurface.Controls.Add(search);
-        var more = new Button { Text = "⋯", AccessibleName = "总览选项", Dock = DockStyle.Fill };
-        var cancel = new Button { Text = "×", AccessibleName = "关闭总览", Dock = DockStyle.Fill };
+        var more = new ChromeButton { Text = "⋯", AccessibleName = "总览选项", Dock = DockStyle.Fill };
+        var cancel = new ChromeButton { Text = "×", AccessibleName = "关闭总览", Dock = DockStyle.Fill };
         confirm.Click += (_, _) => ConfirmSelection(); cancel.Click += (_, _) => CancelOverview();
         options.Items.Add("适配全部    F5", null, (_, _) => { previews?.RetryFailed(); map.Refit(); RefreshSelection(); });
         var previewsToggle = new ToolStripMenuItem("窗口预览") { Checked = true, CheckOnClick = true };
@@ -62,16 +64,17 @@ internal sealed partial class SpatialOverviewForm : Form
         var viewportToggle = new ToolStripMenuItem("显示当前视野") { CheckOnClick = true };
         viewportToggle.CheckedChanged += (_, _) => { map.ShowViewport = viewportToggle.Checked; map.Invalidate(); };
         options.Items.Add(viewportToggle);
-        options.Items.Add("操作提示", null, (_, _) => MessageBox.Show(TopLevelControl as Form, "方向键 / Tab 选择窗口，Enter 定位，Esc 返回。\n输入标题筛选，下方卡片切换工作区。", "空间总览"));
+        options.Items.Add("操作提示", null, (_, _) => MessageBox.Show(TopLevelControl as Form, "Tab / Shift+Tab 返回，方向键 / Ctrl+Tab 选择窗口，Enter 定位。\n输入标题筛选，下方卡片切换工作区。", "空间总览"));
         more.Click += (_, _) => options.Show(more, new Point(0, more.Height));
         ChromeTheme.StyleMenu(options);
         showPreviews.CheckedChanged += (_, _) => RefreshSelection();
         searchContainer.Controls.Add(summary, 0, 0); searchContainer.Controls.Add(searchSurface, 1, 0);
         searchContainer.Controls.Add(more, 2, 0); searchContainer.Controls.Add(cancel, 3, 0);
-        hints.SetToolTip(cancel, "关闭 · Esc"); hints.SetToolTip(more, "适配、预览与操作提示");
+        hints.SetToolTip(cancel, "关闭 · Tab / Esc"); hints.SetToolTip(more, "适配、预览与操作提示");
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
-        workspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, (int)(210 * DeviceDpi / 96f), (int)(320 * DeviceDpi / 96f)) };
+        workspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer, monitorViewports) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, (int)(210 * DeviceDpi / 96f), (int)(320 * DeviceDpi / 96f)) };
         workspaces.JumpRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
+        workspaces.GeometryChanged += RefreshPreviews;
         Controls.Add(map); Controls.Add(workspaces);
         void FitOverviewToolbar()
         {
@@ -98,7 +101,7 @@ internal sealed partial class SpatialOverviewForm : Form
         foreach (Control child in root.Controls) MakeTransparent(child);
     }
     protected override void OnPaintBackground(PaintEventArgs e) => PaintScene(e.Graphics, this);
-    private void PaintScene(Graphics graphics, Control target)
+    internal void PaintScene(Graphics graphics, Control target)
     {
         var location = ReferenceEquals(target, this) ? Point.Empty : PointToClient(target.PointToScreen(Point.Empty));
         var saved = graphics.Save(); graphics.TranslateTransform(-location.X, -location.Y);
@@ -106,11 +109,6 @@ internal sealed partial class SpatialOverviewForm : Form
         if (entering && entranceBackground is not null)
         {
             graphics.DrawImage(entranceBackground, ClientRectangle);
-            if (backdrop is not null && entranceSource is not null && entranceStart is { } initial)
-            {
-                var rect = Rectangle.FromLTRB((int)initial.Position.X, (int)initial.Position.Y, (int)initial.Right, (int)initial.Bottom);
-                graphics.DrawImage(backdrop, rect, rect, GraphicsUnit.Pixel);
-            }
             if (entranceScene is not null) DrawAlpha(graphics, entranceScene, ClientRectangle, (float)OverviewMotion.Ease(entranceProgress));
             else if (backdrop is not null) DrawAlpha(graphics, backdrop, ClientRectangle, (float)OverviewMotion.Ease(entranceProgress));
         }
@@ -128,24 +126,30 @@ internal sealed partial class SpatialOverviewForm : Form
     }
     protected override void OnShown(EventArgs e)
     {
-        base.OnShown(e); map.Refit();
-        if (entering) { entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); RefreshPreviews(); entranceTimer.Start(); }
+        base.OnShown(e);
+        if (entering) { entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); entranceTimer.Start(); }
         else { entranceBackground?.Dispose(); entranceBackground = null; RefreshPreviews(); }
         if (!showWithoutActivation) search.Focus();
+        if (!showWithoutActivation) _ = workspaces.LoadWallpaperAsync();
     }
     internal void SetPreviewSources(IEnumerable<PreviewSource> sources)
-    { previewSources = sources.ToDictionary(source => source.Id); RefreshPreviews(); }
+    {
+        var next = sources.ToDictionary(source => source.Id);
+        if (next.Count == previewSources.Count && next.All(pair => previewSources.TryGetValue(pair.Key, out var old) && old == pair.Value)) return;
+        previewSources = next; RefreshPreviews();
+    }
     internal void UpdateWindows(IEnumerable<CanvasWindow> windows, bool running, string message)
     {
         if (IsDisposed || model.Status != OverviewStatus.Open) return;
-        var next = windows.ToArray();
+        var next = windows.ToArray(); var changed = canConfirm != running || managementNotice != (running ? null : "管理已暂停，暂不可跳转。" + message);
         if (!model.Windows.SequenceEqual(next))
         {
             model.Synchronize(next); workspaces.Invalidate(true);
+            changed = true;
             if (entering && entranceSource is { } source && !next.Any(w => w.Id == source.Id)) CompleteEntrance();
         }
         canConfirm = running; managementNotice = running ? null : "管理已暂停，暂不可跳转。" + message;
-        RefreshSelection();
+        if (changed) RefreshSelection();
     }
     private void RefreshSelection()
     {
@@ -157,7 +161,8 @@ internal sealed partial class SpatialOverviewForm : Form
     }
     private void RefreshPreviews()
     {
-        if (closing || refreshingPreviews || IsDisposed || !Visible || !IsHandleCreated || !map.IsHandleCreated) return;
+        if (closing || refreshingPreviews || IsDisposed || !IsHandleCreated || !map.IsHandleCreated) return;
+        if (entering && animationCards is not null) return;
         refreshingPreviews = true;
         try { RefreshPreviewsCore(); }
         finally { refreshingPreviews = false; }
@@ -173,16 +178,14 @@ internal sealed partial class SpatialOverviewForm : Form
             previews = new(new DwmOverviewPreviewPort(previewDestination));
         }
         var current = previews!;
-        if (entering)
-        {
-            var card = EntrancePreviewCard();
-            current.Synchronize(card is null ? [] : [card], model.SelectedId, showPreviews.Checked && canConfirm);
-            return;
-        }
-        current.Synchronize(map.PreviewCards(previewSources, host), model.SelectedId, showPreviews.Checked && canConfirm);
+        var cards = map.PreviewCards(previewSources, host).Concat(workspaces.PreviewCards(previewSources, host)).ToArray();
+        current.Synchronize(cards, null, showPreviews.Checked && canConfirm, entering ? (byte)0 : (byte)255);
         if (closing || !ReferenceEquals(previews, current)) return;
-        map.PreviewStates = current.States;
-        map.Invalidate();
+        if (map.PreviewStates.Count != current.States.Count || current.States.Any(pair => map.PreviewStates.GetValueOrDefault(pair.Key) != pair.Value))
+        { map.PreviewStates = current.States.ToDictionary(); map.Invalidate(); }
+        displayCards = cards.Select(card => card.SourceFraction is null && card.ContentBounds is { } bounds && current.SourceSize(card.Id) is { } size
+            ? card with { ContentBounds = OverviewPreviewSession.Fit(size, bounds) } : card).ToArray();
+        if (entering) { animationCards = displayCards; AnimatePreviews(); }
     }
     private void PreviewHostDestroyed(object? sender, EventArgs e) => ReleasePreviews();
     private void ReleasePreviews()
@@ -202,26 +205,30 @@ internal sealed partial class SpatialOverviewForm : Form
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (ConfirmedTarget is null) model.Cancel();
+        if (!closing && !showWithoutActivation && animateEntrance && e.CloseReason == CloseReason.UserClosing && BeginExit()) { e.Cancel = true; return; }
         closing = true; entranceTimer.Stop(); ReleasePreviews();
         base.OnFormClosing(e);
     }
     protected override void Dispose(bool disposing)
     { if (disposing) { closing = true; entranceTimer.Dispose(); entranceBackground?.Dispose(); entranceBackground = null; entranceScene?.Dispose(); entranceScene = null; ReleasePreviews(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
     protected override bool ProcessCmdKey(ref Message message, Keys keys)
-        => HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
+        => !OwnedForms.Any(form => form.Visible && form.Modal) && HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
     internal bool HandleCommand(Keys keys)
     {
-        if (entering && keys != Keys.Escape) CompleteEntrance();
+        if (exiting) return true;
+        if (entering && keys is not (Keys.Escape or Keys.Tab or (Keys.Shift | Keys.Tab))) CompleteEntrance();
         switch (keys)
         {
-            case Keys.Escape: CancelOverview(); return true;
+            case Keys.Escape:
+            case Keys.Tab:
+            case Keys.Shift | Keys.Tab: CancelOverview(); return true;
             case Keys.Enter: ConfirmSelection(); return true;
             case Keys.Left: model.MoveSelection(OverviewDirection.Left); break;
             case Keys.Right: model.MoveSelection(OverviewDirection.Right); break;
             case Keys.Up: model.MoveSelection(OverviewDirection.Up); break;
             case Keys.Down: model.MoveSelection(OverviewDirection.Down); break;
-            case Keys.Tab: model.Cycle(1); break;
-            case Keys.Shift | Keys.Tab: model.Cycle(-1); break;
+            case Keys.Control | Keys.Tab: model.Cycle(1); break;
+            case Keys.Control | Keys.Shift | Keys.Tab: model.Cycle(-1); break;
             case Keys.Control | Keys.F: search.Focus(); search.SelectAll(); return true;
             case Keys.F5: previews?.RetryFailed(); map.Refit(); break;
             default: return false;
@@ -248,6 +255,8 @@ internal sealed partial class SpatialOverviewForm : Form
 
     private sealed class OverviewMap(SpatialOverviewSession model, RectD[] viewports) : Control
     {
+        private readonly ToolTip titles = new();
+        private Guid? hover;
         internal Action<Graphics, Control>? PaintBackdrop;
         internal bool ShowViewport;
         internal event Action? ConfirmRequested;
@@ -267,6 +276,15 @@ internal sealed partial class SpatialOverviewForm : Form
             base.OnMouseDown(e);
             if (e.Button == MouseButtons.Left && model.HitTest(new(e.X, e.Y)) is { } id && model.Select(id)) ConfirmRequested?.Invoke();
         }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            var id = model.HitTest(new(e.X, e.Y));
+            if (id == hover) return;
+            hover = id; titles.SetToolTip(this, model.Windows.FirstOrDefault(window => window.Id == id)?.Title ?? "");
+        }
+        protected override void Dispose(bool disposing) { if (disposing) titles.Dispose(); base.Dispose(disposing); }
+        private int HeaderHeight(double width, double height) => width >= Font.Height + 16 && height >= Font.Height + 32 ? Font.Height + 8 : 0;
         private RectangleF? VisibleRect(RectD world)
         {
             var rectangle = model.Projection.ToMap(world);
@@ -277,27 +295,22 @@ internal sealed partial class SpatialOverviewForm : Form
         internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, PreviewSource> sources, Control host)
         {
             var rectangles = model.Windows.ToDictionary(window => window.Id, window => model.Projection.ToMap(window.Bounds));
-            var origin = model.Projection.ToMap(PointD.Zero);
-            foreach (var window in model.Windows)
+            foreach (var window in model.Windows.OrderBy(window => window.Id == model.SelectedId))
             {
                 var rect = rectangles[window.Id];
                 var matched = model.IsMatch(window.Id);
                 sources.TryGetValue(window.Id, out var source);
-                PreviewState? fallback = !matched ? PreviewState.Unmatched : source is null ? PreviewState.Unavailable
-                    : !source.FullyOnscreen ? PreviewState.Offscreen : null;
+                PreviewState? fallback = !matched ? PreviewState.Unmatched : source is null ? PreviewState.Unavailable : null;
                 PixelRect? content = null;
                 if (rect.Position.X < 0 || rect.Position.Y < 0 || rect.Right > Width || rect.Bottom > Height
-                    || rect.Size.Width < 110 || rect.Size.Height < 110) fallback ??= PreviewState.TooSmall;
+                    || rect.Size.Width < 3 || rect.Size.Height < 3) fallback ??= PreviewState.TooSmall;
                 else
                 {
-                    var body = Rectangle.FromLTRB((int)Math.Ceiling(rect.Position.X) + 4, (int)Math.Ceiling(rect.Position.Y) + 32,
-                        (int)Math.Floor(rect.Right) - 4, (int)Math.Floor(rect.Bottom) - 28);
-                    if (rectangles.Any(other => other.Key != window.Id && other.Value.Position.X < body.Right && other.Value.Right > body.Left
-                        && other.Value.Position.Y < body.Bottom && other.Value.Bottom > body.Top)
-                        || (origin.X + 8 > body.Left && origin.X - 8 < body.Right && origin.Y + 8 > body.Top && origin.Y - 8 < body.Bottom))
-                        fallback ??= PreviewState.Overlap;
+                    var inset = Math.Min(4, rect.Size.Width / 8); var title = HeaderHeight(rect.Size.Width, rect.Size.Height);
+                    var body = Rectangle.FromLTRB((int)Math.Ceiling(rect.Position.X + inset), (int)Math.Ceiling(rect.Position.Y) + title,
+                        (int)Math.Floor(rect.Right - inset), (int)Math.Floor(rect.Bottom) - 3);
                     var point = host.PointToClient(PointToScreen(body.Location));
-                    content = new(point.X, point.Y, point.X + body.Width, point.Y + body.Height);
+                    if (body.Width > 0 && body.Height > 0) content = new(point.X, point.Y, point.X + body.Width, point.Y + body.Height);
                 }
                 yield return new(window.Id, source?.Identity, content, fallback);
             }
@@ -330,8 +343,9 @@ internal sealed partial class SpatialOverviewForm : Form
                 var matched = model.IsMatch(window.Id); var selected = window.Id == model.SelectedId;
                 var color = ChromeTheme.Candy[(window.Id.GetHashCode() & int.MaxValue) % ChromeTheme.Candy.Length];
                 ChromeTheme.Glass(e.Graphics, rect, matched ? color : ChromeTheme.Muted, selected);
-                if (rect.Width < 50 || rect.Height < 24) continue;
-                var title = Rectangle.Round(rect); title.Height = Math.Min(title.Height, 30); title.Inflate(-6, 0);
+                var header = HeaderHeight(rect.Width, rect.Height);
+                if (header == 0) continue;
+                var title = Rectangle.Round(rect); title.Height = header; title.Inflate(-6, 0);
                 TextRenderer.DrawText(e.Graphics, window.Title, Font, title, matched ? ChromeTheme.Text : ChromeTheme.Muted,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
                 if (PreviewStates.GetValueOrDefault(window.Id) != PreviewState.Preview && rect.Width > 80 && rect.Height > 100)

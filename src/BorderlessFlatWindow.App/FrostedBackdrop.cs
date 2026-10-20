@@ -7,6 +7,8 @@ namespace BorderlessFlatWindow.App;
 /// <summary>A short-lived blurred desktop snapshot. Never written to disk or included in diagnostics.</summary>
 internal static class FrostedBackdrop
 {
+    internal static void FlushPresentation() => DwmFlush();
+    [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     internal static Bitmap? Capture(Rectangle bounds)
     {
         using var source = CaptureRaw(bounds);

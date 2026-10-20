@@ -4,19 +4,25 @@ using BorderlessFlatWindow.Core.Geometry;
 namespace BorderlessFlatWindow.Application.Overview;
 
 public enum PreviewState { Preview, Disabled, Offscreen, Unmatched, TooSmall, Overlap, Capacity, Unavailable }
-public sealed record PreviewCard(Guid Id, NativeWindowIdentity? Identity, PixelRect? ContentBounds, PreviewState? Fallback);
+public sealed record PreviewCard(Guid Id, NativeWindowIdentity? Identity, PixelRect? ContentBounds, PreviewState? Fallback, RectD? SourceFraction = null);
 public interface IOverviewPreview : IDisposable
 {
     bool IsCurrent { get; }
     SizeD? SourceSize { get; }
     bool Update(PixelRect destination);
+    bool Update(PixelRect destination, RectD? sourceFraction, byte opacity)
+        => sourceFraction is null && opacity == 255 && Update(destination);
 }
 public interface IOverviewPreviewPort { IOverviewPreview? Create(NativeWindowIdentity identity); }
 
-/// <summary>Bounded resources owned by one overview. A failed source is retried only explicitly.</summary>
-public sealed class OverviewPreviewSession(IOverviewPreviewPort port, int capacity = 16) : IDisposable
+/// <summary>Resources follow visible cards, with no default window-count limit. Failed sources retry explicitly.</summary>
+public sealed class OverviewPreviewSession(IOverviewPreviewPort port, int capacity = int.MaxValue) : IDisposable
 {
-    private sealed record Resource(NativeWindowIdentity Identity, IOverviewPreview Preview);
+    private sealed record Resource(NativeWindowIdentity Identity, IOverviewPreview Preview)
+    {
+        internal (PixelRect Bounds, RectD? Crop, byte Opacity)? Last;
+        internal SizeD? Size;
+    }
     private readonly Dictionary<Guid, Resource> resources = [];
     private readonly Dictionary<Guid, NativeWindowIdentity> failed = [];
     private readonly Dictionary<Guid, PreviewState> states = [];
@@ -24,17 +30,18 @@ public sealed class OverviewPreviewSession(IOverviewPreviewPort port, int capaci
     private bool disposed, synchronizing;
     public IReadOnlyDictionary<Guid, PreviewState> States => states;
     public int ResourceCount => resources.Count;
+    public SizeD? SourceSize(Guid id) => resources.GetValueOrDefault(id)?.Size;
     public void RetryFailed() => failed.Clear();
 
-    public void Synchronize(IEnumerable<PreviewCard> source, Guid? selected, bool enabled)
+    public void Synchronize(IEnumerable<PreviewCard> source, Guid? selected, bool enabled, byte opacity = 255)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (synchronizing) return; // Native identity queries may dispatch a nested UI callback.
         synchronizing = true;
-        try { SynchronizeCore(source, selected, enabled); }
+        try { SynchronizeCore(source, selected, enabled, opacity); }
         finally { synchronizing = false; }
     }
-    private void SynchronizeCore(IEnumerable<PreviewCard> source, Guid? selected, bool enabled)
+    private void SynchronizeCore(IEnumerable<PreviewCard> source, Guid? selected, bool enabled, byte opacity)
     {
         var cards = source.ToArray();
         if (cards.Any(card => card.Id == Guid.Empty) || cards.Select(card => card.Id).Distinct().Count() != cards.Length)
@@ -70,11 +77,35 @@ public sealed class OverviewPreviewSession(IOverviewPreviewPort port, int capaci
             var size = resource.Preview.SourceSize;
             if (disposed) return;
             if (size is not { IsPositive: true }) { Fail(card.Id, identity); continue; }
-            var updated = resource.Preview.Update(Fit(size.Value, card.ContentBounds!.Value));
+            resource.Size = size;
+            var bounds = card.SourceFraction is null ? Fit(size.Value, card.ContentBounds!.Value) : card.ContentBounds!.Value;
+            var command = (bounds, card.SourceFraction, opacity);
+            var updated = resource.Last == command || resource.Preview.Update(bounds, card.SourceFraction, opacity);
             if (disposed) return;
             if (!updated) { Fail(card.Id, identity); continue; }
+            resource.Last = command;
             states[card.Id] = PreviewState.Preview;
         }
+    }
+    /// <summary>Animate already registered previews. No enumeration, COM queries or registration in this path.</summary>
+    public void Animate(IEnumerable<PreviewCard> cards, byte opacity = 255)
+    {
+        if (disposed || synchronizing) return;
+        synchronizing = true;
+        try
+        {
+            foreach (var card in cards)
+            {
+                if (disposed) return;
+                if (resources.TryGetValue(card.Id, out var resource) && card.Identity == resource.Identity
+                    && card.ContentBounds is { IsValid: true } bounds)
+                {
+                    var command = (bounds, card.SourceFraction, opacity);
+                    if (resource.Last != command && resource.Preview.Update(bounds, card.SourceFraction, opacity)) resource.Last = command;
+                }
+            }
+        }
+        finally { synchronizing = false; }
     }
     public static PixelRect Fit(SizeD source, PixelRect bounds)
     {

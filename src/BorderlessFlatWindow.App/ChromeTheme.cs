@@ -5,7 +5,7 @@ namespace BorderlessFlatWindow.App;
 
 internal static class ChromeTheme
 {
-    private sealed class Surface { internal bool Hover, Pressed, Applied, Game; internal Color? Accent; }
+    private sealed class Surface { internal bool Hover, Pressed, Applied, Game, Square; internal Color? Accent; }
     private static readonly ConditionalWeakTable<Control, Surface> styled = new();
     private static Color[] colors = [ColorOf(CandyPalette.Default.Primary), ColorOf(CandyPalette.Default.Secondary), ColorOf(CandyPalette.Default.Tertiary), ColorOf(CandyPalette.Default.Quaternary)];
     internal static Color Ink => Mix(Color.White, Purple, .16f);
@@ -28,7 +28,11 @@ internal static class ChromeTheme
         var rgb = new Rgb(color.R, color.G, color.B);
         return rgb.Contrast(new(255, 255, 255)) >= rgb.Contrast(new(0, 0, 0)) ? Color.White : Color.Black;
     }
-    internal static void Game(Button button, Color? accent = null) { var surface = styled.GetOrCreateValue(button); surface.Game = true; surface.Accent = accent; }
+    internal static void Game(Button button, Color? accent = null, bool square = false)
+    {
+        var surface = styled.GetOrCreateValue(button); surface.Game = true; surface.Accent = accent; surface.Square = square;
+        if (button is ChromeButton chrome) { chrome.GameShape = true; chrome.SquareShape = square; chrome.UpdateShape(); }
+    }
     internal static void Accent(Button button, Color color) => styled.GetOrCreateValue(button).Accent = color;
     internal static void Apply(Control root)
     {
@@ -41,11 +45,13 @@ internal static class ChromeTheme
                 b.Padding = new(12, 7, 12, 7); b.MinimumSize = new(36, 36); b.Cursor = Cursors.Hand;
                 if (first)
                 {
-                    b.Paint += DrawButton;
+                    if (b is not ChromeButton) b.Paint += (sender, e) => PaintButton(b, e.Graphics);
                     b.MouseEnter += (_, _) => { styled.GetOrCreateValue(b).Hover = true; b.Invalidate(); };
                     b.MouseLeave += (_, _) => { var s = styled.GetOrCreateValue(b); s.Hover = s.Pressed = false; b.Invalidate(); };
                     b.MouseDown += (_, _) => { styled.GetOrCreateValue(b).Pressed = true; b.Invalidate(); };
                     b.MouseUp += (_, _) => { styled.GetOrCreateValue(b).Pressed = false; b.Invalidate(); };
+                    b.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space) { styled.GetOrCreateValue(b).Pressed = true; b.Invalidate(); } };
+                    b.KeyUp += (_, e) => { if (e.KeyCode == Keys.Space) { styled.GetOrCreateValue(b).Pressed = false; b.Invalidate(); } };
                 }
                 break;
             case Label label: label.BackColor = Color.Transparent; break;
@@ -58,13 +64,24 @@ internal static class ChromeTheme
                 if (first) tabs.DrawItem += DrawTab; break;
             case ToolStrip strip: StyleMenu(strip); break;
         }
+        if (root is TabPage or ChromeTabs or ListView or CheckedListBox)
+        {
+            void RoundControl()
+            {
+                if (root.Width < 2 || root.Height < 2) return;
+                using var path = Round(root.ClientRectangle, 16 * root.DeviceDpi / 96f);
+                var old = root.Region; root.Region = new Region(path); old?.Dispose();
+            }
+            if (first) root.SizeChanged += (_, _) => RoundControl();
+            RoundControl();
+        }
         foreach (Control child in root.Controls) Apply(child);
         if (root is GameCommandDeck) foreach (Control child in root.Controls) child.BackColor = Color.Transparent;
     }
     internal static void StyleMenu(ToolStrip menu)
     {
         menu.Renderer = new ToolStripProfessionalRenderer(new CandyMenuColors()); menu.BackColor = Panel; menu.ForeColor = Text;
-        menu.Font = new Font("Microsoft YaHei UI", 9.5f); menu.Padding = new(6);
+        menu.Font = PixelFont.Create(9); menu.Padding = new(6);
     }
     private sealed class CandyMenuColors : ProfessionalColorTable
     {
@@ -90,10 +107,10 @@ internal static class ChromeTheme
         using var shine = new Pen(Color.White); g.DrawLine(shine, r.X + 8, r.Y + 2, r.Right - 8, r.Y + 2);
     }
     internal static Color Mix(Color a, Color b, float t) => Color.FromArgb((int)(a.R * (1 - t) + b.R * t), (int)(a.G * (1 - t) + b.G * t), (int)(a.B * (1 - t) + b.B * t));
-    private static void DrawButton(object? sender, PaintEventArgs e)
+    internal static void PaintButton(Button b, Graphics g)
     {
-        if (sender is not Button b || b.Width < 8 || b.Height < 8) return;
-        var s = styled.GetOrCreateValue(b); var g = e.Graphics; if (b.BackColor != Color.Transparent) g.Clear(b.BackColor);
+        if (b.Width < 8 || b.Height < 8) return;
+        var s = styled.GetOrCreateValue(b); if (b.BackColor != Color.Transparent) g.Clear(b.BackColor);
         if (s.Game) { DrawGameButton(g, b, s); return; }
         var r = new RectangleF(4, s.Pressed ? 5 : s.Hover ? 1 : 2, b.Width - 8, b.Height - 9); Glass(g, r, s.Accent ?? Purple, b.Focused || s.Hover, s.Pressed);
         if (s.Accent is { } accent && b.Enabled) { using var shape = Round(r); using var fill = new LinearGradientBrush(r, accent, accent == Pink ? Purple : Cyan, 25); g.FillPath(fill, shape); using var shine = new Pen(Color.FromArgb(170, Color.White)); g.DrawArc(shine, r.X + 2, r.Y + 2, r.Width - 4, r.Height - 4, 190, 120); }
@@ -102,13 +119,14 @@ internal static class ChromeTheme
     private static void DrawGameButton(Graphics g, Button button, Surface state)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        var size = Math.Min(button.Width, button.Height) - 10;
-        var r = new RectangleF((button.Width - size) / 2f, state.Pressed ? 7 : 3, size, size);
-        using var socket = new SolidBrush(Mix(Purple, Color.Black, .28f)); g.FillEllipse(socket, r.X - 3, r.Y + 2, r.Width + 6, r.Height + 5);
+        var width = state.Square ? button.Width - 6 : Math.Min(button.Width, button.Height) - 8;
+        var height = Math.Min(button.Width, button.Height) - 8;
+        var r = new RectangleF((button.Width - width) / 2f, state.Pressed ? 6 : 2, width, height);
         var accent = state.Accent ?? Mix(Color.White, Purple, .75f);
-        using var fill = new LinearGradientBrush(r, Mix(accent, Color.White, .4f), accent, 80); g.FillEllipse(fill, r);
-        using var rim = new Pen(Color.FromArgb(210, Color.White), button.Focused || state.Hover ? 2.5f : 1); g.DrawEllipse(rim, r);
-        using var highlight = new Pen(Color.FromArgb(145, Color.White), 2); g.DrawArc(highlight, r.X + 4, r.Y + 3, r.Width - 8, r.Height - 8, 200, 95);
+        if (!button.Enabled) accent = Mix(accent, Panel, .6f);
+        if (state.Hover) accent = Mix(accent, Color.White, .16f);
+        SvgKeycap.Draw(g, r, accent, state.Square);
+        if (button.Focused) { using var outline = Round(RectangleF.Inflate(r, -2, -2), state.Square ? 10 : height / 2); using var focus = new Pen(Purple, 2); g.DrawPath(focus, outline); }
         TextRenderer.DrawText(g, button.Text, button.Font, Rectangle.Round(r), button.Enabled ? OnAccent(Mix(accent, Color.White, .15f)) : Muted,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
     }
@@ -117,11 +135,14 @@ internal static class ChromeTheme
         if (sender is not TabControl tabs) return;
         using (var fill = new SolidBrush(Ink)) e.Graphics.FillRectangle(fill, e.Bounds);
         var selected = tabs.SelectedIndex == e.Index; var r = Rectangle.Inflate(e.Bounds, -4, -5); if (selected) Glass(e.Graphics, r, Purple);
-        TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, r, selected ? Purple : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        if (selected && tabs.Focused) { using var shape = Round(r, 16); using var focus = new Pen(Purple, 2); e.Graphics.DrawPath(focus, shape); }
+        TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font, r, selected ? Text : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
     internal static void PaintNavigation(TabControl tabs, Graphics graphics)
     {
         using var background = new SolidBrush(Ink);
+        var content = tabs.DisplayRectangle; content.Inflate(2, 2);
+        using (var eraseNativeEdge = new Pen(Ink, 6)) graphics.DrawRectangle(eraseNativeEdge, content);
         graphics.FillRectangle(background, 0, 0, tabs.Width, Math.Max(1, tabs.DisplayRectangle.Top));
         for (var i = 0; i < tabs.TabCount; i++)
             DrawTab(tabs, new DrawItemEventArgs(graphics, tabs.Font, tabs.GetTabRect(i), i, DrawItemState.Default));
@@ -183,11 +204,18 @@ internal sealed class ChromeTabs : TabControl
     protected override void WndProc(ref Message message)
     {
         base.WndProc(ref message);
+        if (message.Msg == 0x0007 && IsHandleCreated)
+        {
+            // Suppress the native square focus rectangle; DrawTab supplies a rounded focus indicator.
+            SendMessageW(Handle, 0x0127, 0x00010001, 0); Invalidate();
+        }
         if (message.Msg == 0x000F && IsHandleCreated && !IsDisposed)
         { using var graphics = Graphics.FromHwnd(Handle); ChromeTheme.PaintNavigation(this, graphics); }
         else if (message.Msg is 0x0317 or 0x0318 && message.WParam != 0 && !IsDisposed)
         { using var graphics = Graphics.FromHdc(message.WParam); ChromeTheme.PaintNavigation(this, graphics); }
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern nint SendMessageW(nint window, uint message, nint wParam, nint lParam);
 }
 internal sealed class CanvasHeader : Control
 {
@@ -209,7 +237,7 @@ internal sealed class CanvasHeader : Control
         var lcd = new RectangleF(56 * s, 14 * s, Math.Max(140 * s, Width - 124 * s), 40 * s);
         using var screen = ChromeTheme.Round(lcd, 13); using var tint = new LinearGradientBrush(lcd, ChromeTheme.Panel, ChromeTheme.Mix(Color.White, ChromeTheme.Cyan, .2f), 95); g.FillPath(tint, screen);
         using var inset = new Pen(Color.FromArgb(100, ChromeTheme.Purple), 2); g.DrawPath(inset, screen);
-        using var title = new Font("Segoe UI", 13, FontStyle.Bold);
+        using var title = PixelFont.Create(15);
         TextRenderer.DrawText(g, "BORDERLESS", title, Rectangle.Round(lcd), ChromeTheme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
         ChromeTheme.Sticker(g, new((int)(22 * s), (int)(27 * s)), "heart", Math.Max(2, (int)(3 * s)));
         using var holes = new SolidBrush(Color.FromArgb(115, ChromeTheme.Purple));

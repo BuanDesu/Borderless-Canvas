@@ -8,6 +8,9 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets/Borderless.ico" />
+    <EmbeddedResource Include="Assets/Fonts/*.ttf" />
+    <EmbeddedResource Include="Assets/*.svg" />
+    <Content Include="Assets/Licenses/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="../BorderlessFlatWindow.Application/BorderlessFlatWindow.Application.csproj" />
     <ProjectReference Include="../BorderlessFlatWindow.Windows/BorderlessFlatWindow.Windows.csproj" />
   </ItemGroup>

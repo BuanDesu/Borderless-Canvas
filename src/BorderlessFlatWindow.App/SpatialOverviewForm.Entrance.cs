@@ -16,6 +16,9 @@ internal sealed partial class SpatialOverviewForm
     private long entranceStarted;
     private RectD? entranceStart, entranceEnd, entranceContentEnd;
     private PreviewSource? entranceSource;
+    private TransitionCover? transitionCover;
+    private PreviewCard[]? animationCards;
+    private bool exiting;
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e); PerformLayout(); map.Refit();
@@ -35,8 +38,14 @@ internal sealed partial class SpatialOverviewForm
             entranceStart = new(physical.Position - new PointD(Bounds.Left, Bounds.Top), physical.Size);
         }
         _ = map.Handle;
+        workspaces.CreateControl(); RefreshPreviews();
         var content = map.PreviewCards(previewSources, this).FirstOrDefault(c => c.Id == selected.Id)?.ContentBounds;
         entranceContentEnd = content is { IsValid: true } r ? new(r.Position, r.Size) : end;
+        if (entranceBackground is not null && backdrop is not null && entranceSource is not null && entranceStart is { } initial)
+        {
+            var rect = Rectangle.FromLTRB((int)initial.Position.X, (int)initial.Position.Y, (int)initial.Right, (int)initial.Bottom);
+            using var graphics = Graphics.FromImage(entranceBackground); graphics.DrawImage(backdrop, rect, rect, GraphicsUnit.Pixel);
+        }
         try
         {
             entranceScene?.Dispose(); entranceScene = new Bitmap(ClientSize.Width, ClientSize.Height);
@@ -44,44 +53,69 @@ internal sealed partial class SpatialOverviewForm
         }
         catch (Exception error) when (error is OutOfMemoryException or ArgumentException or ExternalException)
         { entranceScene?.Dispose(); entranceScene = null; return; }
-        // Freeze final layout while only one buffered surface and one DWM relationship animate.
-        var mapBounds = map.Bounds; var stripBounds = workspaces.Bounds;
-        map.Dock = DockStyle.None; workspaces.Dock = DockStyle.None;
-        map.Bounds = mapBounds; workspaces.Bounds = stripBounds;
-        map.Hide(); workspaces.Hide(); entering = true; entranceProgress = 0;
+        // Keep all child HWNDs and thumbnail relationships alive beneath one buffered cover.
+        entering = true; entranceProgress = 0;
+        transitionCover = new TransitionCover(this) { Bounds = ClientRectangle, Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right };
+        Controls.Add(transitionCover); transitionCover.BringToFront();
+        _ = transitionCover.Handle;
+        RefreshPreviews();
+        Update(); DwmFlush();
     }
     private void AdvanceEntrance()
     {
         if (closing || IsDisposed) { entranceTimer.Stop(); return; }
-        entranceProgress = Math.Clamp(System.Diagnostics.Stopwatch.GetElapsedTime(entranceStarted).TotalMilliseconds / 240, 0, 1);
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(entranceStarted).TotalMilliseconds;
+        if (exiting)
+        {
+            Opacity = Math.Max(.01, 1 - OverviewMotion.Ease(Math.Clamp(elapsed / 120, 0, 1)));
+            previews?.Animate(displayCards, (byte)Math.Round(Opacity * 255));
+            if (elapsed >= 120) { entranceTimer.Stop(); closing = true; Close(); }
+            return;
+        }
+        entranceProgress = Math.Clamp(elapsed / 220, 0, 1);
         if (entranceProgress >= 1) { CompleteEntrance(); return; }
-        RefreshPreviews(); Invalidate();
+        AnimatePreviews(); transitionCover?.Invalidate();
     }
     private void CompleteEntrance()
     {
-        entranceTimer.Stop(); entering = false;
-        SuspendLayout();
-        try { map.Dock = DockStyle.Fill; workspaces.Dock = DockStyle.Bottom; map.Show(); workspaces.Show(); }
-        finally { ResumeLayout(true); }
+        entranceTimer.Stop(); entranceProgress = 1; AnimatePreviews(); DwmFlush(); entering = false;
+        animationCards = null;
+        transitionCover?.Dispose(); transitionCover = null;
         entranceBackground?.Dispose(); entranceBackground = null; entranceScene?.Dispose(); entranceScene = null;
-        RefreshPreviews(); Invalidate(true); search.Focus();
+        RefreshPreviews(); search.Focus();
+    }
+    private bool BeginExit()
+    {
+        if (exiting) return true;
+        if (!Visible || !SystemParametersInfo(0x1042, 0, out var enabled, 0) || enabled == 0) return false;
+        if (entering) CompleteEntrance();
+        exiting = true; entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); entranceTimer.Start(); return true;
+    }
+    private void AnimatePreviews()
+    {
+        if (animationCards is null || previews is null) return;
+        var opacity = (byte)Math.Clamp((int)Math.Round(OverviewMotion.Ease(entranceProgress) * 255), 0, 255);
+        var selected = EntrancePreviewCard();
+        previews.Animate(animationCards.Where(card => selected is null || card.Id != selected.Id), opacity);
+        if (selected is not null) previews.Animate([selected]);
     }
     private PreviewCard? EntrancePreviewCard()
     {
         if (entranceSource is null || entranceStart is not { } from || entranceContentEnd is not { } to) return null;
         var r = OverviewMotion.Between(from, to, entranceProgress);
+        var size = previews?.SourceSize(entranceSource.Id);
         var bounds = new PixelRect((int)Math.Round(r.Position.X), (int)Math.Round(r.Position.Y), (int)Math.Round(r.Right), (int)Math.Round(r.Bottom));
+        if (size is { IsPositive: true }) bounds = OverviewPreviewSession.Fit(size.Value, bounds);
         return new(entranceSource.Id, entranceSource.Identity, bounds, null);
     }
-    protected override void OnPaint(PaintEventArgs e)
+    private void PaintMovingFrame(Graphics graphics)
     {
-        base.OnPaint(e);
         if (!entering || entranceStart is not { } from || entranceEnd is not { } to) return;
         var r = OverviewMotion.Between(from, to, entranceProgress);
         var rect = new RectangleF((float)r.Position.X, (float)r.Position.Y, (float)r.Size.Width, (float)r.Size.Height);
-        ChromeTheme.Glass(e.Graphics, rect, ChromeTheme.Purple, true);
+        ChromeTheme.Glass(graphics, rect, ChromeTheme.Purple, true);
         if (entranceSource is null || previews?.States.GetValueOrDefault(entranceSource.Id) != PreviewState.Preview)
-            TextRenderer.DrawText(e.Graphics, model.Windows.FirstOrDefault(w => w.Id == model.SelectedId)?.Title, Font, Rectangle.Round(rect), ChromeTheme.Text,
+            TextRenderer.DrawText(graphics, model.Windows.FirstOrDefault(w => w.Id == model.SelectedId)?.Title, Font, Rectangle.Round(rect), ChromeTheme.Text,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
     protected override void OnKeyPress(KeyPressEventArgs e)
@@ -97,9 +131,17 @@ internal sealed partial class SpatialOverviewForm
     internal void SetSmokeEntrance(double progress)
     {
         if (!showWithoutActivation) throw new InvalidOperationException("Synthetic rendering only.");
-        if (!entering) PrepareEntrance(); entranceProgress = progress; Invalidate();
+        if (!entering) PrepareEntrance(); entranceProgress = progress; AnimatePreviews(); transitionCover?.Refresh();
     }
     internal void EndSmokeEntrance() => CompleteEntrance();
+    private sealed class TransitionCover : Control
+    {
+        private readonly SpatialOverviewForm owner;
+        internal TransitionCover(SpatialOverviewForm owner) { this.owner = owner; DoubleBuffered = true; SetStyle(ControlStyles.Selectable, false); }
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+        protected override void OnPaint(PaintEventArgs e) { owner.PaintScene(e.Graphics, this); owner.PaintMovingFrame(e.Graphics); }
+    }
+    [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SystemParametersInfo(uint action, uint parameter, out int enabled, uint flags);
