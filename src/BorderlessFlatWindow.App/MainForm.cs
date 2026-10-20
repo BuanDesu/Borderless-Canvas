@@ -465,13 +465,17 @@ internal sealed partial class MainForm : Form
         overview.FormClosed += (_, _) => Restore();
         try
         {
+            if (!overview.WantsPresentation) { Restore(); return; }
             // An independent, fully composed top-level host avoids stretching/recreating the popup HWND.
             var hiding = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!showWithoutActivation) { Hide(); if (wasVisible) FrostedBackdrop.FlushPresentation(); }
             var hideMs = System.Diagnostics.Stopwatch.GetElapsedTime(hiding).TotalMilliseconds;
             overview.CaptureBackdrop();
+            // A COM/capture call can dispatch a queued Tab. An already cancelled
+            // overview must not create a visible host just to close it in Shown.
+            if (!overview.WantsPresentation) { Restore(); return; }
             var showing = System.Diagnostics.Stopwatch.GetTimestamp();
-            overview.Show(); if (!showWithoutActivation) overview.Activate();
+            overview.Show(); if (!showWithoutActivation && !overview.IsDisposed && overview.Visible) overview.Activate();
             overview.SetHostTimings(hideMs, System.Diagnostics.Stopwatch.GetElapsedTime(showing).TotalMilliseconds);
         }
         catch { Restore(); throw; }

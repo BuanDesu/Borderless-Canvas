@@ -63,7 +63,9 @@ public sealed partial class SpatialOverviewScene : ElementHost
     public event Action? OptionsRequested;
     public event Action? CancelRequested;
     public event Func<Keys, bool>? Command;
-    public double Position => motion.Value(clock.Elapsed.TotalMilliseconds);
+    // Read the animated dependency property: retargets and native opacity must
+    // follow WPF's evaluated frame, not a separate wall clock racing ahead of it.
+    public double Position => content.Opacity;
     public bool HasFocusImage => focusImage?.Visibility == Visibility.Visible;
     public bool IsAnimating => frameHandler is not null;
 

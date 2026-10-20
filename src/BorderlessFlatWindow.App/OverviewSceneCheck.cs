@@ -15,7 +15,9 @@ internal static class OverviewSceneCheck
     {
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         var warming = Stopwatch.StartNew(); SpatialOverviewScene.WarmUp(); var warmupMs = warming.Elapsed.TotalMilliseconds;
+        CheckVisualClock();
         CheckFormLifecycle();
+        CheckCancelledPresentation(output);
         var privacyCamera = new Camera2D(PointD.Zero, new(800, 600));
         var privacyModel = new SpatialOverviewSession([], privacyCamera, new(800, 600));
         using (var production = new SpatialOverviewScene(privacyModel, privacyCamera.Position, privacyCamera.ViewportSize, [new(PointD.Zero, privacyCamera.ViewportSize)], [Color.MediumPurple, Color.DeepSkyBlue, Color.HotPink, Color.Turquoise]))
@@ -94,6 +96,58 @@ internal static class OverviewSceneCheck
             if (!overview.IsDisposed || overview.ConfirmedTarget is not null) throw new InvalidOperationException("Reopened scene could not cancel with Tab.");
         }
         if (BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException("Scene lifecycle fixture changed desktop foreground.");
+    }
+    private static void CheckVisualClock()
+    {
+        var camera = new Camera2D(PointD.Zero, new(800, 600));
+        var model = new SpatialOverviewSession([], camera, camera.ViewportSize);
+        using var form = new CheckForm { ClientSize = new(800, 600), ShowInTaskbar = false, Text = "BFW visual clock fixture" };
+        using var scene = new SpatialOverviewScene(model, camera.Position, camera.ViewportSize, [camera.Bounds], [Color.MediumPurple, Color.DeepSkyBlue, Color.HotPink, Color.Turquoise], synthetic: true) { Dock = DockStyle.Fill };
+        form.Controls.Add(scene); scene.EnsureLayout(); scene.Seek(0);
+        var checkedClock = false; var timedOut = false; string? failure = null;
+        using var watchdog = new System.Windows.Forms.Timer { Interval = 5000 };
+        watchdog.Tick += (_, _) => { timedOut = true; form.Close(); };
+        scene.Frame += position =>
+        {
+            if (!checkedClock && position is > .15 and < .8)
+            {
+                checkedClock = true;
+                var displayed = scene.Position;
+                // Deliberately stall only this synthetic UI thread. No new WPF timing
+                // tick can run here: a wall clock must not invent a newer visual value.
+                Thread.Sleep(80);
+                if (Math.Abs(scene.Position - displayed) > 1e-8) failure = "Logical motion advanced without a WPF timing tick.";
+                scene.Retarget(false, 160);
+                if (Math.Abs(scene.Position - displayed) > 1e-8) failure ??= "Reversal jumped away from the current visual value.";
+            }
+            else if (checkedClock && position <= 0) { scene.StopMotion(); form.BeginInvoke(form.Close); }
+        };
+        form.Shown += (_, _) => { watchdog.Start(); scene.Retarget(true, 1200); };
+        System.Windows.Forms.Application.Run(form);
+        if (timedOut || !checkedClock || failure is not null) throw new InvalidOperationException(failure ?? "Visual clock fixture did not finish.");
+        Console.WriteLine("PASS WPF visual clock remains stable during an 80ms fixture stall and reversal");
+    }
+    private static void CheckCancelledPresentation(string output)
+    {
+        var foreground = BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+        var camera = new Camera2D(PointD.Zero, new(800, 600));
+        var state = Path.Combine(Path.GetDirectoryName(output)!, "cancelled-fixture"); Directory.CreateDirectory(state);
+        using var host = new MainForm(new PreviewWindowCatalog(), showWithoutActivation: true,
+            journalPath: Path.Combine(state, "recovery.json"), bookmarksPath: Path.Combine(state, "bookmarks.json"));
+        foreach (var toggles in new[] { 1, 3 })
+        {
+            using var overview = new SpatialOverviewForm([], camera, new(0, 0, 800, 600), showWithoutActivation: true, animate: false, sceneFixture: true);
+            var shown = 0; var completed = 0;
+            overview.Shown += (_, _) => shown++;
+            for (var i = 0; i < toggles; i++) overview.ToggleOverview();
+            host.PresentOverview(overview, () => { completed++; overview.Dispose(); });
+            System.Windows.Forms.Application.DoEvents();
+            if (shown != 0 || completed != 1 || host.Visible || !overview.IsDisposed)
+                throw new InvalidOperationException("A cancelled overview was shown or its completion was lost.");
+        }
+        if (foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow)
+            throw new InvalidOperationException("Cancelled presentation changed foreground.");
+        Console.WriteLine("PASS Cancelled preparation never shows an overview and completes exactly once");
     }
     private sealed class CheckForm : Form { protected override bool ShowWithoutActivation => true; }
 }

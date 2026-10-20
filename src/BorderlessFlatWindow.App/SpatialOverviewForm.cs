@@ -28,6 +28,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private nint previewDestination;
     private bool closing, refreshingPreviews;
     internal bool IsTransitioning => entering || exiting;
+    internal bool WantsPresentation => desiredOpen && !closing && !IsDisposed && !Disposing;
     internal CanvasWindow? ConfirmedTarget { get; private set; }
     internal PointD? ConfirmedCameraPosition { get; private set; }
     private readonly WorkspaceStrip? legacyWorkspaces;

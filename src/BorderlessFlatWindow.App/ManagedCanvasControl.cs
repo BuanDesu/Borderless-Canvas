@@ -256,6 +256,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             var observed = RefreshManagedSnapshot(managed);
             managed.Observe(observed, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
             if (!managed.IsRunning) { notice = managed.Message; return; }
+            if (openingCloseRequested) return;
             var area = layout.Primary.WorkArea;
             if (FindForm() is not MainForm host) throw new InvalidOperationException("总览主窗口不可用。");
             var reconcileMs = System.Diagnostics.Stopwatch.GetElapsedTime(reconcileStarted).TotalMilliseconds;
@@ -272,15 +273,22 @@ internal sealed partial class ManagedCanvasControl : UserControl
             dialog.Shown += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle);
             dialog.Activated += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle, activated: true);
             dialog.SetPreviewSources(OverviewPreviewSources());
-            host.PresentOverview(dialog, () => FinishOverview(dialog, managed, retainedFocus, inputSession));
+            // Presentation can finish synchronously (cancelled before Shown). End
+            // this preparation before completion/focus probes can reenter a new open.
+            openingOverview = false; openingCloseRequested = false;
+            host.PresentOverview(dialog, () =>
+            {
+                handedOff = true; focus = null;
+                FinishOverview(dialog, managed, retainedFocus, inputSession);
+            });
             handedOff = true; focus = null;
         }
         catch (Exception exception) when (Expected(exception)) { notice = $"总览未完成：{exception.Message}"; focus?.TryRestore(); }
         finally
         {
-            openingOverview = false; openingCloseRequested = false;
             if (!handedOff)
             {
+                openingOverview = false; openingCloseRequested = false;
                 hints.Active = true;
                 overview?.Dispose(); overview = null; focus?.Dispose(); managed.SuspendNavigation(false);
                 if (!IsDisposed && !Disposing) { globalInput?.EndOverview(inputSession); RefreshState(); }
