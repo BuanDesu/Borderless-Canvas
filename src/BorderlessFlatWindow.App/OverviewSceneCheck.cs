@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using BorderlessFlatWindow.Application.Overview;
 using BorderlessFlatWindow.Core.Canvas;
 using BorderlessFlatWindow.Core.Geometry;
@@ -15,6 +16,7 @@ internal static class OverviewSceneCheck
     {
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         var warming = Stopwatch.StartNew(); SpatialOverviewScene.WarmUp(); var warmupMs = warming.Elapsed.TotalMilliseconds;
+        CheckHiddenPreparation(output);
         CheckVisualClock();
         CheckFormLifecycle();
         CheckCancelledPresentation(output);
@@ -83,19 +85,24 @@ internal static class OverviewSceneCheck
         var foreground = BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
         var camera = new Camera2D(PointD.Zero, new(1920, 1080));
         CanvasWindow[] windows = [new(Guid.NewGuid(), "Alpha", new(PointD.Zero, new(640, 480))), new(Guid.NewGuid(), "Beta", new(new(900, 40), new(640, 480)))];
+        var firstShowChanged = false; var firstCloseChanged = false; var secondShowChanged = false;
         using (var overview = new SpatialOverviewForm(windows, camera, new(0, 0, 1200, 800), windows[0].Id, showWithoutActivation: true, animate: false, sceneFixture: true))
         {
             overview.Show(); System.Windows.Forms.Application.DoEvents();
+            firstShowChanged = foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
             overview.UpdateWindows([windows[0] with { Title = "Alpha renamed" }, windows[1]], true, "");
             overview.SetSmokeQuery("Beta"); overview.HandleCommand(Keys.Enter);
             if (!overview.IsDisposed || overview.ConfirmedTarget?.Id != windows[1].Id) throw new InvalidOperationException("Production scene form failed search/selection/close.");
+            firstCloseChanged = foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
         }
         using (var overview = new SpatialOverviewForm(windows, camera, new(0, 0, 1200, 800), windows[1].Id, showWithoutActivation: true, animate: false, sceneFixture: true))
         {
-            overview.Show(); System.Windows.Forms.Application.DoEvents(); overview.HandleCommand(Keys.Tab);
+            overview.Show(); System.Windows.Forms.Application.DoEvents();
+            secondShowChanged = foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+            overview.HandleCommand(Keys.Tab);
             if (!overview.IsDisposed || overview.ConfirmedTarget is not null) throw new InvalidOperationException("Reopened scene could not cancel with Tab.");
         }
-        if (BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException("Scene lifecycle fixture changed desktop foreground.");
+        if (BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException($"Scene lifecycle foreground changed: firstShow={firstShowChanged}, firstClose={firstCloseChanged}, secondShow={secondShowChanged}, initialMissing={foreground == 0}.");
     }
     private static void CheckVisualClock()
     {
@@ -149,5 +156,66 @@ internal static class OverviewSceneCheck
             throw new InvalidOperationException("Cancelled presentation changed foreground.");
         Console.WriteLine("PASS Cancelled preparation never shows an overview and completes exactly once");
     }
-    private sealed class CheckForm : Form { protected override bool ShowWithoutActivation => true; }
+    private sealed class CheckForm : Form
+    {
+        protected override bool ShowWithoutActivation => true;
+        protected override CreateParams CreateParams
+        {
+            get { var parameters = base.CreateParams; parameters.ExStyle |= 0x08000000; return parameters; }
+        }
+    }
+    private static void CheckHiddenPreparation(string output)
+    {
+        var foreground = BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+        using var process = Process.GetCurrentProcess();
+        using var source = new CheckForm { Text = "BFW hidden preparation source", ShowInTaskbar = false, FormBorderStyle = FormBorderStyle.FixedToolWindow, StartPosition = FormStartPosition.Manual, Bounds = new(80, 80, 400, 280) };
+        source.Show(); source.Update(); System.Windows.Forms.Application.DoEvents();
+        var sourceChangedForeground = foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+        var camera = new Camera2D(PointD.Zero, new(1920, 1080));
+        var id = Guid.NewGuid();
+        CanvasWindow[] windows = [new(id, "Fixture", new(new(80, 80), new(400, 280)))];
+        var identity = new BorderlessFlatWindow.Application.Discovery.NativeWindowIdentity(source.Handle, (uint)Environment.ProcessId, process.StartTime.ToFileTimeUtc());
+        var results = new List<object>();
+        // The actual interactive style must remain invisible during preparation,
+        // without relying on the nonactivating style used for visible test hosts.
+        foreach (var size in new[] { new Size(1920, 1080), new Size(3440, 1440), new Size(960, 720) })
+        {
+            using var production = new SpatialOverviewForm(windows, camera, new(Point.Empty, size));
+            var constructorChangedForeground = foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+            production.PrepareHiddenHost();
+            if (production.Visible || production.LivePreviewCount != 0 || foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow)
+                throw new InvalidOperationException($"Interactive hidden preparation: width={size.Width}, visible={production.Visible}, previews={production.LivePreviewCount}, constructorChanged={constructorChangedForeground}, sourceChanged={sourceChangedForeground}, ownOverview={BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow == production.Handle}, ownSource={BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow == source.Handle}.");
+            if ((GetWindowLongPtr(production.Handle, -20).ToInt64() & 8) == 0)
+                throw new InvalidOperationException("Prepared native overview lost its topmost style.");
+        }
+        foreach (var size in new[] { new Size(1920, 1080), new Size(3440, 1440), new Size(960, 720) })
+        foreach (var prepared in new[] { false, true })
+        for (var sample = 0; sample < 3; sample++)
+        {
+            using var overview = new SpatialOverviewForm(windows, camera, new(Point.Empty, size), showWithoutActivation: true, animate: false, sceneFixture: true);
+            overview.SetPreviewSources([new(id, identity, false)]);
+            var shown = 0; overview.Shown += (_, _) => shown++;
+            var preparation = prepared ? overview.PrepareHiddenHost() : 0;
+            if (overview.Visible || shown != 0 || overview.LivePreviewCount != 0 || foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow)
+                throw new InvalidOperationException($"Hidden preparation guard: prepared={prepared}, sample={sample}, visible={overview.Visible}, shown={shown}, previews={overview.LivePreviewCount}, foregroundChanged={foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow}, sourceChangedForeground={sourceChangedForeground}, initialForegroundMissing={foreground == 0}.");
+            var started = Stopwatch.GetTimestamp(); overview.Show();
+            var showMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            System.Windows.Forms.Application.DoEvents();
+            var ownHandle = overview.Handle;
+            var shownForeground = BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+            if (shownForeground != foreground) throw new InvalidOperationException($"Show changed foreground: prepared={prepared}, sample={sample}, ownOverview={shownForeground == ownHandle}, ownSource={shownForeground == source.Handle}.");
+            var previews = overview.LivePreviewCount;
+            if (shown != 1 || previews < 1) throw new InvalidOperationException("Prepared production host did not show with native content.");
+            overview.Close();
+            var closedForeground = BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+            if (closedForeground != foreground) throw new InvalidOperationException($"Close changed foreground: prepared={prepared}, sample={sample}, ownSource={closedForeground == source.Handle}, foregroundMissing={closedForeground == 0}.");
+            if (!overview.IsDisposed || overview.LivePreviewCount != 0) throw new InvalidOperationException("Prepared host retained native resources after close.");
+            results.Add(new { size.Width, size.Height, Prepared = prepared, Sample = sample, PreparationMs = preparation, ShowMs = showMs, NativeCount = previews });
+        }
+        if (foreground != BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow) throw new InvalidOperationException("Preparation fixture changed foreground.");
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(output)!, "host-preparation.json"), JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
+        Console.WriteLine("PASS Hidden production hosts stay invisible, acquire previews only on show, and release them on close");
+    }
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint window, int index);
 }

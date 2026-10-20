@@ -122,6 +122,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
         navigationTimer.Tick += (_, _) => NavigationFrame();
+        preparationTimer.Tick += (_, _) => PrepareOverviewWhileIdle();
         Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(commandDeck);
     }
 
@@ -156,6 +157,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         }
         if (reading || session?.IsBusy == true) { globalInput?.Heartbeat(); return; }
         var events = globalInput?.Drain() ?? [];
+        if (events.Count != 0) lastCanvasInput = System.Diagnostics.Stopwatch.GetTimestamp();
         navigationState = globalInput?.State;
         overviewShortcutStatus.Text = globalInput?.OverviewMessage ?? "Ctrl+Alt+O 打开空间总览；快捷键不可用时使用按钮。";
         if (navigationState is not null) navigationStatus.Text = navigationState.Registered ? navigationState.Message
@@ -205,6 +207,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
+        if (preparationDisposed) return;
+        preparationTimer.Stop();
         if (overview is not null) { overview.ToggleOverview(capturedTimestamp); return; }
         // COM probes can pump messages before the form exists. Retain every toggle
         // without scheduling a second overview or dropping navigation suspension.
@@ -220,8 +224,10 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal void ShowOverview() => RequestOverview();
     internal void RefreshMenus()
     {
+        InvalidateOverviewPreparation();
         ChromeTheme.StyleMenu(moreMenu);
         foreach (ToolStripMenuItem item in moreMenu.Items.OfType<ToolStripMenuItem>()) if (item.HasDropDownItems) ChromeTheme.StyleMenu(item.DropDown);
+        ScheduleOverviewPreparation();
     }
     private IEnumerable<SpatialOverviewForm.PreviewSource> OverviewPreviewSources()
     {
@@ -234,14 +240,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void ScheduleOverview()
     {
-        if (!overviewRequested || overviewScheduled || openingOverview || reading || session?.IsBusy == true || session?.HasPending == true || IsDisposed) return;
+        if (preparationDisposed || !overviewRequested || overviewScheduled || openingOverview || preparingOverviewHost || reading || session?.IsBusy == true || session?.HasPending == true || IsDisposed) return;
         if (session?.IsRunning != true) { overviewRequested = false; globalInput?.EndOverview(overviewInputSession); return; }
         overviewScheduled = true;
         BeginInvoke(() => { overviewScheduled = false; OpenOverview(); });
     }
     private void OpenOverview()
     {
-        if (!overviewRequested || openingOverview || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
+        if (preparationDisposed || !overviewRequested || openingOverview || preparingOverviewHost || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
         overviewRequested = false; openingOverview = true; openingCloseRequested = false;
         var openStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         var inputSession = overviewInputSession;
@@ -257,18 +263,17 @@ internal sealed partial class ManagedCanvasControl : UserControl
             managed.Observe(observed, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
             if (!managed.IsRunning) { notice = managed.Message; return; }
             if (openingCloseRequested) return;
-            var area = layout.Primary.WorkArea;
             if (FindForm() is not MainForm host) throw new InvalidOperationException("总览主窗口不可用。");
             var reconcileMs = System.Diagnostics.Stopwatch.GetElapsedTime(reconcileStarted).TotalMilliseconds;
             var constructionStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-            var dialog = new SpatialOverviewForm(OverviewWindows(), managed.Workspace.Camera,
-                new(area.Left, area.Top, area.Width, area.Height), managed.ActiveWindowId ?? lastFocusedWindow, bookmarks: bookmarks,
-                viewports: layout.Monitors.Select(m => new RectD(managed.Workspace.Camera.Position + m.WorkArea.Position - layout.CanvasWorkArea.Position, m.WorkArea.Size)),
-                animate: overviewAnimation.Checked);
+            var preparation = PreparationSnapshot(managed, host);
+            var dialog = preparedOverview.Take(preparation) ?? CreateOverview(preparation);
+            overview = dialog;
+            dialog.SetInitialSelection(managed.ActiveWindowId ?? lastFocusedWindow);
             dialog.SetOpenTimings(overviewRequestTimestamp, reconcileMs, System.Diagnostics.Stopwatch.GetElapsedTime(constructionStarted).TotalMilliseconds,
                 System.Diagnostics.Stopwatch.GetElapsedTime(overviewRequestTimestamp, overviewReceivedTimestamp).TotalMilliseconds,
                 System.Diagnostics.Stopwatch.GetElapsedTime(overviewReceivedTimestamp, openStarted).TotalMilliseconds);
-            overview = dialog; var retainedFocus = focus;
+            var retainedFocus = focus;
             if (openingCloseRequested) dialog.ToggleOverview();
             dialog.Shown += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle);
             dialog.Activated += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle);
@@ -343,6 +348,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal void SetDisplay(DisplayLayout current)
     {
         if (session is not null && session.MatchesDisplay(current)) return;
+        InvalidateOverviewPreparation();
         overviewRequested = false; overview?.CancelOverview();
         if (session?.IsRunning == true) Pause("显示配置已变化，已暂停恢复；请重新选择窗口开始。");
         session?.Dispose(); layout = current;
@@ -417,6 +423,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void Act(Action action)
     {
+        lastCanvasInput = System.Diagnostics.Stopwatch.GetTimestamp();
         if (reading || session?.IsBusy == true) return;
         try { notice = null; gestures?.End(DateTimeOffset.UtcNow); action(); }
         catch (Exception exception) when (Expected(exception)) { session?.Pause($"导航失败：{exception.Message}"); }
@@ -428,7 +435,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         button.Click += (_, _) => Act(action); toolbar.Controls.Add(button);
     }
     internal void Pause(string reason = "已暂停并恢复原始位置；再次开始可恢复画布布局。")
-    { notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
+    { InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
     private void RefreshState()
     {
         var running = session?.IsRunning == true;
@@ -453,6 +460,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");
         StatusChanged?.Invoke();
         ScheduleOverview();
+        ScheduleOverviewPreparation();
     }
     internal (bool Running, int Count, PointD Camera) Diagnostics() =>
         (session?.IsRunning == true, session?.Workspace.Windows.Count ?? 0, session?.Workspace.Camera.Position ?? PointD.Zero);
@@ -478,7 +486,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }
 }

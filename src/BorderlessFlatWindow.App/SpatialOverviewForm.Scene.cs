@@ -37,7 +37,7 @@ internal sealed partial class SpatialOverviewForm
     private void ManageSceneWorkspaces()
     {
         if (sceneBookmarks is null) return;
-        using var dialog = new Form { Text = "工作区管理", ClientSize = new(820, 580), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false, Font = Font, TopMost = TopMost };
+        using var dialog = new Form { Text = "工作区管理", ClientSize = new(820, 580), StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false, Font = Font, TopMost = true };
         var editor = new BookmarkControl(sceneBookmarks, () => model.StartCamera.Position, () => false, _ => "关闭编辑器后选择总览中的工作区。", () => { }) { Dock = DockStyle.Fill };
         dialog.Controls.Add(editor); ChromeTheme.Apply(dialog); dialog.ShowDialog(this); RefreshSceneWorkspaces();
     }
@@ -58,7 +58,7 @@ internal sealed partial class SpatialOverviewForm
     }
     private string? AskSceneName(string title, string current)
     {
-        using var dialog = new Form { Text = title, ClientSize = new(400, 136), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false, Font = Font, TopMost = TopMost };
+        using var dialog = new Form { Text = title, ClientSize = new(400, 136), FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false, Font = Font, TopMost = true };
         var field = new TextBox { Text = current, Location = new(16, 16), Width = 368, MaxLength = 80 };
         var save = new ChromeButton { Text = "保存", DialogResult = DialogResult.OK, Location = new(280, 72), Size = new(104, 40) };
         var cancel = new ChromeButton { Text = "取消", DialogResult = DialogResult.Cancel, Location = new(168, 72), Size = new(104, 40) };

@@ -30,6 +30,8 @@ internal sealed partial class SpatialOverviewForm
             Renderer = scene is null ? "Legacy" : "RetainedScene",
             PreviewCount = animationPreviewCount, Frames = motionTimes.Count,
             SceneReused = reusedScene,
+            HostPrepared = IdlePreparationMilliseconds > 0,
+            IdlePreparationMs = IdlePreparationMilliseconds,
             CompositorFocus = compositorFocus,
             FocusCropStatus = focusCropStatus,
             CaptureMs = captureMilliseconds, PrepareMs = prepareMilliseconds,
