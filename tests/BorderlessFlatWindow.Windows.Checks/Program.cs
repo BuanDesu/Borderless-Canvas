@@ -10,6 +10,17 @@ internal static class Program
     {
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
         if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();
+        if (args.Contains("--overview-only", StringComparer.Ordinal))
+        {
+            ApplicationConfiguration.Initialize();
+            var errors = 0;
+            OverviewChecks.Run((name, action) =>
+            {
+                try { action(); Console.WriteLine("PASS " + name); }
+                catch (Exception error) { errors++; Console.WriteLine("FAIL " + name + ": " + error.Message); }
+            });
+            return errors == 0 ? 0 : 1;
+        }
         var storage = StorageChecks.Run();
         var bookmarkStorage = BookmarkStorageChecks.Run();
         if (bookmarkStorage != 0) return bookmarkStorage;

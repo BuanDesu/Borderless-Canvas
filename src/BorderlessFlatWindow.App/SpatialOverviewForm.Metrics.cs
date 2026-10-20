@@ -20,6 +20,9 @@ internal sealed partial class SpatialOverviewForm
         {
             Width, Height, Dpi = DeviceDpi, Tier = CompositionSurface.RenderingTier,
             PreviewCount = animationPreviewCount, Frames = motionTimes.Count,
+            SceneReused = reusedScene,
+            CompositorFocus = compositorFocus,
+            FocusCropStatus = focusCropStatus,
             CaptureMs = captureMilliseconds, PrepareMs = prepareMilliseconds,
             SceneSnapshotMs = sceneSnapshotMilliseconds, UploadMs = uploadMilliseconds,
             FirstFrameMs = motionTimes[0], FrameGapP95Ms = Percentile(gaps, .95),
@@ -30,5 +33,7 @@ internal sealed partial class SpatialOverviewForm
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
     private int animationPreviewCount;
+    private bool compositorFocus;
+    private int focusCropStatus = -1;
     private static double Percentile(double[] values, double percentile) => values.Length == 0 ? 0 : values[Math.Min(values.Length - 1, (int)Math.Ceiling(values.Length * percentile) - 1)];
 }

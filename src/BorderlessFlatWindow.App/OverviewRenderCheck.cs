@@ -42,7 +42,12 @@ internal static class OverviewRenderCheck
             var uploadMs = upload.Elapsed.TotalMilliseconds;
             using var form = new CheckWindow { ClientSize = size, FormBorderStyle = FormBorderStyle.None, ShowInTaskbar = false, StartPosition = FormStartPosition.Manual, Location = Point.Empty, Text = "BFW synthetic composition check" };
             form.Controls.Add(surface);
+            _ = surface.Handle;
+            using var sprite = new Bitmap(640, 480);
+            using (var g = Graphics.FromImage(sprite)) g.Clear(Color.MediumPurple);
+            surface.SetMovingImage(sprite, new(80, 80, 640, 480), new(120, 100, 240, 180));
             var clock = new Stopwatch(); double previous = 0; var frames = 0; var timedOut = false;
+            var phase = 0;
             using var watchdog = new System.Windows.Forms.Timer { Interval = 5000 };
             watchdog.Tick += (_, _) => { timedOut = true; form.Close(); };
             surface.Frame += progress =>
@@ -50,17 +55,19 @@ internal static class OverviewRenderCheck
                 var started = Stopwatch.GetTimestamp(); var elapsed = clock.Elapsed.TotalMilliseconds;
                 if (frames++ > 0) gaps.Add(elapsed - previous); previous = elapsed;
                 work.Add(Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-                if (progress >= 1) { surface.Stop(); form.BeginInvoke(form.Close); }
+                if (phase == 0 && progress > .45) { phase = 1; surface.Retarget(false, 700); }
+                else if (phase == 1 && progress < .2) { phase = 2; surface.Retarget(true, 700); }
+                else if (phase == 2 && progress >= 1) { surface.Stop(); form.BeginInvoke(form.Close); }
             };
             form.Shown += (_, _) => { clock.Start(); watchdog.Start(); surface.Start(700); };
             System.Windows.Forms.Application.Run(form);
             surface.Stop(); var before = frames;
             for (var i = 0; i < 3; i++) System.Windows.Forms.Application.DoEvents();
-            if (timedOut || frames < 3 || frames != before) throw new InvalidOperationException("Composition clock or teardown failed.");
+            if (timedOut || frames < 3 || frames != before || phase != 2) throw new InvalidOperationException("Composition reversal, clock or teardown failed.");
             double P95(List<double> values) { values.Sort(); return values[(int)Math.Ceiling(values.Count * .95) - 1]; }
             results.Add(new { size.Width, size.Height, Tier = CompositionSurface.RenderingTier, Frames = frames,
                 PreviousCpuBlendP95Ms = P95(cpu), UploadMs = uploadMs, CompositionGapP95Ms = P95(gaps), CompositionGapMaxMs = gaps.Max(),
-                EmptyCallbackP95Ms = P95(work), DesktopCaptured = false });
+                EmptyCallbackP95Ms = P95(work), Reversals = phase, CompositorSprite = surface.HasMovingImage, DesktopCaptured = false });
         }
         File.WriteAllText(output, JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
         return 0;

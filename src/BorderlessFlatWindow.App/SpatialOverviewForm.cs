@@ -31,6 +31,7 @@ internal sealed partial class SpatialOverviewForm : Form
     internal PointD? ConfirmedCameraPosition { get; private set; }
     private readonly WorkspaceStrip workspaces;
     private Bitmap? backdrop;
+    private Bitmap? focusFrame;
     private readonly Rectangle backdropBounds;
     private readonly ContextMenuStrip options = new();
     private readonly ToolTip hints = new();
@@ -75,7 +76,8 @@ internal sealed partial class SpatialOverviewForm : Form
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
         workspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer, monitorViewports) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, (int)(210 * DeviceDpi / 96f), (int)(320 * DeviceDpi / 96f)) };
         workspaces.JumpRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
-        workspaces.GeometryChanged += RefreshPreviews;
+        workspaces.GeometryChanged += () => { sceneDirty = true; RefreshPreviews(); };
+        workspaces.AppearanceChanged += () => sceneDirty = true;
         Controls.Add(map); Controls.Add(workspaces);
         void FitOverviewToolbar()
         {
@@ -106,9 +108,14 @@ internal sealed partial class SpatialOverviewForm : Form
         var location = ReferenceEquals(target, this) ? Point.Empty : PointToClient(target.PointToScreen(Point.Empty));
         var saved = graphics.Save(); graphics.TranslateTransform(-location.X, -location.Y);
         if (backdrop is null && entranceBackground is null) ChromeTheme.Grid(graphics, ClientRectangle);
-        if (entering && compositionSurface is not null && entranceScene is not null)
-            graphics.DrawImageUnscaled(entranceScene, 0, 0);
-        else if (entering && entranceBackground is not null)
+        if (!showWithoutActivation || !entering)
+        {
+            graphics.Restore(saved);
+            if (backdrop is not null)
+                graphics.DrawImage(backdrop, target.ClientRectangle, new Rectangle(location, target.ClientSize), GraphicsUnit.Pixel);
+            return;
+        }
+        if (entering && entranceBackground is not null)
         {
             graphics.DrawImage(entranceBackground, ClientRectangle);
             if (entranceScene is not null) DrawAlpha(graphics, entranceScene, ClientRectangle, (float)OverviewMotion.Ease(entranceProgress));
@@ -122,8 +129,20 @@ internal sealed partial class SpatialOverviewForm : Form
     {
         if (showWithoutActivation) return;
         var captureStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-        backdrop?.Dispose(); entranceBackground?.Dispose();
+        backdrop?.Dispose(); entranceBackground?.Dispose(); focusFrame?.Dispose(); focusFrame = null;
+        var focus = model.SelectedId is { } id ? previewSources.GetValueOrDefault(id) : null;
+        PixelRect? frameBounds = focus?.ScreenBounds is { } r && r.Size.IsPositive && focus.FullyOnscreen
+            ? new((int)r.Position.X, (int)r.Position.Y, (int)r.Right, (int)r.Bottom) : null;
+        var candidate = frameBounds is { } f && f.Left >= backdropBounds.Left && f.Top >= backdropBounds.Top && f.Right <= backdropBounds.Right && f.Bottom <= backdropBounds.Bottom;
+        focusCropStatus = candidate ? (int)DesktopCropEligibility.Evaluate(focus!.Identity, frameBounds!.Value, frameBounds.Value) : -1;
+        var cropEligible = focusCropStatus == (int)DesktopCropStatus.Ready;
         entranceBackground = FrostedBackdrop.CaptureRaw(backdropBounds);
+        if (cropEligible && entranceBackground is not null && DesktopCropEligibility.IsUnobscured(focus!.Identity, frameBounds!.Value))
+        {
+            var crop = frameBounds.Value;
+            try { focusFrame = entranceBackground.Clone(new Rectangle(crop.Left - backdropBounds.Left, crop.Top - backdropBounds.Top, crop.Width, crop.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb); }
+            catch (Exception error) when (error is ArgumentException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException) { }
+        }
         backdrop = entranceBackground is null ? null : FrostedBackdrop.BlurredCopy(entranceBackground);
         captureMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(captureStarted).TotalMilliseconds;
         Invalidate(true);
@@ -131,7 +150,13 @@ internal sealed partial class SpatialOverviewForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (entering) { entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp(); compositionSurface?.Start(280); }
+        overviewShown = true;
+        if (entering)
+        {
+            entranceStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (desiredOpen) compositionSurface?.Start(220);
+            else { reversibleClose = true; Close(); }
+        }
         else { entranceBackground?.Dispose(); entranceBackground = null; RefreshPreviews(); }
         if (!showWithoutActivation) search.Focus();
     }
@@ -156,6 +181,8 @@ internal sealed partial class SpatialOverviewForm : Form
     }
     private void RefreshSelection()
     {
+        sceneDirty = true;
+        if (entranceSource is { } source && !model.Windows.Any(window => window.Id == source.Id)) compositionSurface?.ShowMovingImage(false);
         var selected = model.Windows.FirstOrDefault(window => window.Id == model.SelectedId);
         confirm.Enabled = canConfirm && selected is not null;
         summary.Text = managementNotice ?? (model.Matches.Count == 0 ? "没有匹配的窗口" : $"{selected?.Title ?? ""}  ·  Enter 打开");
@@ -165,7 +192,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private void RefreshPreviews()
     {
         if (closing || refreshingPreviews || IsDisposed || !IsHandleCreated || !map.IsHandleCreated) return;
-        if (entering && animationCards is not null) return;
+        if (IsTransitioning && animationCards is not null) return;
         refreshingPreviews = true;
         try { RefreshPreviewsCore(); }
         finally { refreshingPreviews = false; }
@@ -204,27 +231,27 @@ internal sealed partial class SpatialOverviewForm : Form
         ConfirmedTarget = target; DialogResult = DialogResult.OK; Close();
     }
     internal void CancelOverview()
-    { model.Cancel(); DialogResult = DialogResult.Cancel; Close(); }
+    { desiredOpen = false; reversibleClose = false; if (overviewShown || showWithoutActivation) Close(); }
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (ConfirmedTarget is null) model.Cancel();
         if (!closing && !showWithoutActivation && animateEntrance && e.CloseReason == CloseReason.UserClosing && BeginExit()) { e.Cancel = true; return; }
+        if (ConfirmedTarget is null) { model.Cancel(); DialogResult = DialogResult.Cancel; }
         closing = true; compositionSurface?.Stop(); ReleasePreviews();
         base.OnFormClosing(e);
     }
     protected override void Dispose(bool disposing)
-    { if (disposing) { closing = true; compositionSurface?.Dispose(); compositionSurface = null; entranceBackground?.Dispose(); entranceBackground = null; entranceScene?.Dispose(); entranceScene = null; ReleasePreviews(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
+    { if (disposing) { closing = true; focusFrame?.Dispose(); focusFrame = null; compositionSurface?.Dispose(); compositionSurface = null; entranceBackground?.Dispose(); entranceBackground = null; entranceScene?.Dispose(); entranceScene = null; ReleasePreviews(); options.Dispose(); hints.Dispose(); confirm.Dispose(); showPreviews.Dispose(); backdrop?.Dispose(); backdrop = null; } base.Dispose(disposing); }
     protected override bool ProcessCmdKey(ref Message message, Keys keys)
         => !OwnedForms.Any(form => form.Visible && form.Modal) && HandleCommand(keys) || base.ProcessCmdKey(ref message, keys);
     internal bool HandleCommand(Keys keys)
     {
+        if (keys is Keys.Tab or (Keys.Shift | Keys.Tab)) { ToggleOverview(); return true; }
         if (exiting) return true;
         if (entering && keys is not (Keys.Escape or Keys.Tab or (Keys.Shift | Keys.Tab))) CompleteEntrance();
         switch (keys)
         {
             case Keys.Escape:
-            case Keys.Tab:
-            case Keys.Shift | Keys.Tab: CancelOverview(); return true;
+                CancelOverview(); return true;
             case Keys.Enter: ConfirmSelection(); return true;
             case Keys.Left: model.MoveSelection(OverviewDirection.Left); break;
             case Keys.Right: model.MoveSelection(OverviewDirection.Right); break;
@@ -260,6 +287,7 @@ internal sealed partial class SpatialOverviewForm : Form
     {
         private readonly ToolTip titles = new();
         private Guid? hover;
+        internal void PauseTitles(bool pause) => titles.Active = !pause;
         internal Action<Graphics, Control>? PaintBackdrop;
         internal bool ShowViewport;
         internal event Action? ConfirmRequested;

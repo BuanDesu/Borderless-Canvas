@@ -26,14 +26,10 @@ internal static class RecoveryChecks
         {
             Show();
             System.Windows.Forms.Application.DoEvents();
-            var catalog = new DesktopWindowCatalog(0);
-            PumpUntil(() => { catalog.RefreshWindow(Handle); return catalog.Current.AdmittedWindows.Any(window => window.Handle == Handle); }, TimeSpan.FromSeconds(3),
-                () => "Recovery fixture not admitted: " + catalog.Current.Entries.FirstOrDefault(entry => entry.Observation.Handle == Handle)?.Admission.Reason);
+            FixtureReadiness.Wait(Handle);
         }
     }
-    private static NativeWindowIdentity Identity(Fixture fixture) => new DesktopWindowCatalog(0).Inspect().Entries
-        .Single(entry => entry.Observation.Handle == fixture.Handle).Observation.Identity
-        ?? throw new InvalidOperationException("Fixture identity unavailable.");
+    private static NativeWindowIdentity Identity(Fixture fixture) => FixtureReadiness.Wait(fixture.Handle).Identity;
     private static void NormalExit()
     {
         using var fixture = new Fixture(); fixture.Open(); var before = fixture.Bounds;

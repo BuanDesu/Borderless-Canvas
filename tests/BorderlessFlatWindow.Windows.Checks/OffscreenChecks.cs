@@ -20,7 +20,7 @@ internal static class OffscreenChecks
         var original = source.Bounds;
         var port = new WindowsRecoveryWindowPort(0);
         using var session = new RecoverySession(new JsonRecoveryJournalStore(StorageChecks.NewPath("offscreen")), port);
-        var window = new DesktopWindowCatalog(0).GetWindows().Single(window => window.Handle == source.Handle);
+        var window = FixtureReadiness.Wait(source.Handle);
         var entry = session.Register(window.Identity);
         var mover = new RegisteredWindowMover();
         WindowPlacementPlan? parked = null;
@@ -128,8 +128,7 @@ internal static class OffscreenChecks
         protected override void OnPaint(PaintEventArgs e) { base.OnPaint(e); Paints++; e.Graphics.Clear(Ticks % 2 == 0 ? Color.Teal : Color.Orange); }
         internal void Open()
         {
-            Show(); var catalog = new DesktopWindowCatalog(0);
-            PumpUntil(() => { catalog.RefreshWindow(Handle); return catalog.Current.AdmittedWindows.Any(window => window.Handle == Handle); });
+            Show(); FixtureReadiness.Wait(Handle);
         }
         protected override void Dispose(bool disposing) { if (disposing) animation.Dispose(); base.Dispose(disposing); }
     }

@@ -45,7 +45,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private NavigationInputOptions inputOptions = new();
     private SpatialOverviewForm? overview;
     private WindowCatalogSnapshot? lastSnapshot;
-    private bool overviewRequested, overviewScheduled, openingOverview;
+    private bool overviewRequested, overviewScheduled, openingOverview, openingCloseRequested;
     internal bool HasOverview => overview is not null;
     internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
     internal void CancelOverview() => overview?.CancelOverview();
@@ -142,7 +142,16 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (IsDisposed) return;
         // The camera is suspended in overview. Keep the input watchdog alive, and defer
         // catalog/UI reconciliation until the short compositor transition has finished.
-        if (IsOverviewTransitioning) { globalInput?.Heartbeat(); return; }
+        if (IsOverviewTransitioning)
+        {
+            globalInput?.Heartbeat();
+            foreach (var queued in globalInput?.Drain() ?? [])
+            {
+                if (queued.Input.Kind == NavigationInputKind.Overview) RequestOverview();
+                else if (queued.Input.Kind == NavigationInputKind.Fault) { Pause("导航输入异常，已暂停恢复。"); break; }
+            }
+            return;
+        }
         if (reading || session?.IsBusy == true) { globalInput?.Heartbeat(); return; }
         var events = globalInput?.Drain() ?? [];
         navigationState = globalInput?.State;
@@ -194,11 +203,15 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview()
     {
-        if (overview is not null) { overview.CancelOverview(); return; }
+        if (overview is not null) { overview.ToggleOverview(); return; }
+        // COM probes can pump messages before the form exists. Retain every toggle
+        // without scheduling a second overview or dropping navigation suspension.
+        if (openingOverview) { openingCloseRequested = !openingCloseRequested; return; }
+        if (overviewRequested) { overviewRequested = false; globalInput?.SetOverviewOpen(false); return; }
         if (session?.IsRunning != true) { notice = "请先开始画布管理，再打开空间总览。"; RefreshState(); return; }
         notice = null;
         gestures?.End(DateTimeOffset.UtcNow); overviewRequested = true;
-        globalInput?.SetOverviewOpen(true); ScheduleOverview();
+        globalInput?.SetOverviewOpen(true); globalInput?.SetOverviewPreparing(); ScheduleOverview();
     }
     internal void ShowOverview() => RequestOverview();
     internal void RefreshMenus()
@@ -225,7 +238,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private void OpenOverview()
     {
         if (!overviewRequested || openingOverview || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
-        overviewRequested = false; openingOverview = true;
+        overviewRequested = false; openingOverview = true; openingCloseRequested = false;
         hints.Active = false; moreMenu.Close();
         var managed = session; managed.SuspendNavigation(true);
         ForegroundWindowBookmark? focus = null;
@@ -243,6 +256,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
                 viewports: layout.Monitors.Select(m => new RectD(managed.Workspace.Camera.Position + m.WorkArea.Position - layout.CanvasWorkArea.Position, m.WorkArea.Size)),
                 animate: overviewAnimation.Checked);
             overview = dialog; var retainedFocus = focus;
+            if (openingCloseRequested) dialog.ToggleOverview();
+            dialog.Shown += (_, _) => globalInput?.SetOverviewHost(dialog.Handle);
             dialog.SetPreviewSources(OverviewPreviewSources());
             host.PresentOverview(dialog, () => FinishOverview(dialog, managed, retainedFocus));
             handedOff = true; focus = null;
@@ -250,7 +265,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         catch (Exception exception) when (Expected(exception)) { notice = $"总览未完成：{exception.Message}"; focus?.TryRestore(); }
         finally
         {
-            openingOverview = false;
+            openingOverview = false; openingCloseRequested = false;
             if (!handedOff)
             {
                 hints.Active = true;

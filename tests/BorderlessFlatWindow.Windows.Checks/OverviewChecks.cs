@@ -18,6 +18,47 @@ internal static class OverviewChecks
         check("Native overview preview uses the actual top-level host and releases on search, disable and close", PreviewLifecycle);
         check("Native overview preview rejects a changed process identity and invalidates a closed source", PreviewIdentity);
         check("Native previews crop workspace slices, animate opacity, and retain parked and duplicate source views", PreviewSlices);
+        check("Desktop crop eligibility rejects stale, hidden, moved and layered sources", CropIdentity);
+        check("Desktop crop eligibility detects an overlapping window without changing foreground", CropOcclusion);
+    }
+    private static void CropIdentity()
+    {
+        using var source = new Fixture(); source.Show();
+        using var ready = CaptureReady(source.Handle);
+        var identity = OwnIdentity(source);
+        var rect = new PixelRect(source.Left, source.Top, source.Right, source.Bottom);
+        Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Layered source was treated as opaque.");
+        Require(!DesktopCropEligibility.IsUnobscured(identity with { ProcessCreationFileTime = identity.ProcessCreationFileTime + 1 }, rect), "Stale source accepted.");
+        source.Opacity = 1; source.Left += 20;
+        Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Moved source accepted at old crop.");
+        source.Hide(); Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Hidden source accepted.");
+        source.Close(); Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Destroyed source accepted.");
+    }
+    private static void CropOcclusion()
+    {
+        // Fixture deliberately opts into layered-window transparency in its constructor.
+        // Use a plain opaque form for the positive eligibility case.
+        using var source = new Form { ShowInTaskbar = false, TopMost = true, Bounds = new(80, 80, 240, 160) }; source.Show();
+        using var ready = CaptureReady(source.Handle);
+        var identity = OwnIdentity(source);
+        var rect = new PixelRect(source.Left, source.Top, source.Right, source.Bottom);
+        var foreground = WindowEventListener.ForegroundWindow;
+        var eligibility = DesktopCropEligibility.Evaluate(identity, rect, rect);
+        Require(eligibility == DesktopCropStatus.Ready, "Unobscured own source rejected: " + eligibility);
+        Require(WindowEventListener.ForegroundWindow == foreground, "Eligibility changed foreground.");
+        using var blocker = new Form { ShowInTaskbar = false, TopMost = true, Bounds = new(100, 100, 100, 80) }; blocker.Show();
+        foreground = WindowEventListener.ForegroundWindow;
+        Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Occluding own window ignored.");
+        Require(WindowEventListener.ForegroundWindow == foreground, "Eligibility check changed foreground.");
+        blocker.Hide(); source.BringToFront(); System.Windows.Forms.Application.DoEvents(); foreground = WindowEventListener.ForegroundWindow;
+        eligibility = DesktopCropEligibility.Evaluate(identity, rect, rect);
+        Require(eligibility == DesktopCropStatus.Ready, "Hidden blocker retained: " + eligibility);
+        Require(WindowEventListener.ForegroundWindow == foreground, "Eligibility check changed foreground after hide.");
+    }
+    private static NativeWindowIdentity OwnIdentity(Form source)
+    {
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        return new(source.Handle, (uint)Environment.ProcessId, process.StartTime.ToFileTimeUtc());
     }
     private static void PreviewLifecycle()
     {
@@ -31,7 +72,13 @@ internal static class OverviewChecks
         var previews = new OverviewPreviewSession(new DwmOverviewPreviewPort(child.TopLevelControl!.Handle));
         try
         {
-            previews.Synchronize([card], id, true);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            do
+            {
+                System.Windows.Forms.Application.DoEvents(); previews.RetryFailed(); previews.Synchronize([card], id, true);
+                if (previews.States[id] == PreviewState.Preview) break;
+                Thread.Sleep(20);
+            } while (watch.Elapsed < TimeSpan.FromSeconds(2));
             Require(previews.States[id] == PreviewState.Preview && previews.ResourceCount == 1, "Embedded host thumbnail failed.");
             previews.Synchronize([card with { Fallback = PreviewState.Unmatched }], null, true);
             Require(previews.ResourceCount == 0, "Search kept native resource.");

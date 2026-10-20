@@ -31,6 +31,7 @@ internal sealed partial class MainForm : Form
     private WindowCatalogSnapshot? snapshot;
     private readonly TabControl tabs = new ChromeTabs() { Dock = DockStyle.Fill };
     private readonly List<Control> verificationPages = [];
+    private readonly List<TabPageTransition> pageTransitions = [];
     private NotifyIcon? tray;
     private readonly Icon brandIcon = BrandIcon.Load(32);
     private readonly Icon trayIcon = BrandIcon.Load(Math.Max(16, SystemInformation.SmallIconSize.Width));
@@ -188,6 +189,12 @@ internal sealed partial class MainForm : Form
         Controls.Add(intro);
         Controls.Add(status);
         ChromeTheme.Apply(this);
+        if (!showWithoutActivation)
+        {
+            pageTransitions.Add(new(tabs));
+            foreach (var nested in tabs.TabPages.Cast<TabPage>().SelectMany(page => page.Controls.OfType<TabControl>())) pageTransitions.Add(new(nested));
+            foreach (var transition in pageTransitions) transition.Finished += ApplyDeferredPalette;
+        }
         if (!showWithoutActivation) ConfigurePopup(intro);
         UpdateCameraStatus();
         displays.RefreshDisplays();
@@ -262,7 +269,7 @@ internal sealed partial class MainForm : Form
     {
         // WinEvent hints remain queued. COM catalog reads and rebuilding hidden diagnostics
         // must not interrupt moving thumbnails; confirmation still revalidates its target.
-        if (management.IsOverviewTransitioning) return;
+        if (management.IsOverviewTransitioning || pageTransitions.Any(transition => transition.IsActive)) return;
         eventTimer.Stop();
         try
         {
@@ -289,6 +296,7 @@ internal sealed partial class MainForm : Form
     {
         if (disposing)
         {
+            foreach (var transition in pageTransitions) transition.Dispose();
             eventTimer.Dispose();
             StopPopupServices();
             listener?.Dispose();

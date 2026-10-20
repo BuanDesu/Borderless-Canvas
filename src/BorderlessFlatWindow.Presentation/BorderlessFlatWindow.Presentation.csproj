@@ -5,4 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>disable</ImplicitUsings>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BorderlessFlatWindow.Core/BorderlessFlatWindow.Core.csproj" />
+  </ItemGroup>
 </Project>

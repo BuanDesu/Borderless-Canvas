@@ -44,6 +44,10 @@ public sealed class GlobalNavigationInput : IDisposable
     private long heartbeat = Environment.TickCount64;
     private bool available, escapeRegistered, disposed;
     private bool overviewOpen;
+    private nint overviewHost;
+    private bool overviewPreparing;
+    public void SetOverviewHost(nint handle) => Post(() => { overviewHost = handle; overviewPreparing = false; });
+    public void SetOverviewPreparing() => Post(() => overviewPreparing = true);
     private bool overviewRegistered;
     private string overviewMessage = "正在注册总览快捷键。";
 
@@ -65,6 +69,7 @@ public sealed class GlobalNavigationInput : IDisposable
     {
         if (overviewOpen == value) return;
         overviewOpen = value;
+        if (!value) { overviewHost = 0; overviewPreparing = false; }
         Leave(value ? "总览中，导航已暂停。" : "总览已关闭；可再次切换导航，Esc 退出。");
     });
     public void SetAvailable(bool value) => Post(() => { available = value; if (!value && gate.Active) Leave("画布未运行，导航已退出。"); });
@@ -337,10 +342,15 @@ public sealed class GlobalNavigationInput : IDisposable
                 else if (!tabHeld)
                 {
                     tabHeld = true;
+                    if (BorderlessFlatWindow.Core.Canvas.OverviewTogglePolicy.CapturesTab(overviewOpen, overviewPreparing, overviewHost,
+                        WindowEventListener.ForegroundWindow, Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C), MenuActive()))
+                    {
+                        tabCaptured = true; Queue(new(NavigationInputKind.Overview, PointD.Zero)); return 1;
+                    }
                     if (GetCursorPos(out var pointer) && DesktopNavigationPolicy.OpensOverview(IsDesktop(pointer) && !MenuActive(), available,
                         overviewOpen, Down(0x11), Down(0x12), Down(0x5B) || Down(0x5C)) && !gate.HasHeldButtons)
                     {
-                        tabCaptured = true; overviewOpen = true; Leave("打开空间总览。");
+                        tabCaptured = true; overviewOpen = true; overviewPreparing = true; Leave("打开空间总览。");
                         Queue(new(NavigationInputKind.Overview, PointD.Zero)); return 1;
                     }
                 }
