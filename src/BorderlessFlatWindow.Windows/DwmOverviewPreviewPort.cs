@@ -52,8 +52,8 @@ public sealed class DwmOverviewPreviewPort(nint destination) : IOverviewPreviewP
             }
         }
         public SizeD? SourceSize => Thumbnail?.GetSourceSize() is { } size ? new(size.Width, size.Height) : null;
-        public bool Update(PixelRect bounds) => IsCurrent && Thumbnail?.Update(bounds) == true;
-        public bool Update(PixelRect bounds, RectD? sourceFraction, byte opacity) => IsCurrent && Thumbnail?.Update(bounds, true, sourceFraction, opacity) == true;
+        public bool Update(PixelRect bounds) => IsCurrent && Thumbnail?.Update(bounds, useCachedSourceSize: true) == true;
+        public bool Update(PixelRect bounds, RectD? sourceFraction, byte opacity) => IsCurrent && Thumbnail?.Update(bounds, true, sourceFraction, opacity, useCachedSourceSize: true) == true;
         public void Dispose()
         {
             if (disposed) return;

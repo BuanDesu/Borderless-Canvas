@@ -26,7 +26,7 @@ public sealed class DwmWindowPreview : IDisposable
             ? (size.Width, size.Height) : null;
     }
 
-    public bool Update(PixelRect destination, bool visible = true, RectD? sourceFraction = null, byte opacity = 255)
+    public bool Update(PixelRect destination, bool visible = true, RectD? sourceFraction = null, byte opacity = 255, bool useCachedSourceSize = false)
     {
         EnsureOpen();
         if (!destination.IsValid) return false;
@@ -38,7 +38,8 @@ public sealed class DwmWindowPreview : IDisposable
             ClientOnly = false,
             Destination = new() { Left = destination.Left, Top = destination.Top, Right = destination.Right, Bottom = destination.Bottom }
         };
-        if (sourceSize is null && GetSourceSize() is null) return false;
+        // Ordinary callers may resize their sources. Overview animation opts into the size read by its last synchronization.
+        if ((!useCachedSourceSize || sourceSize is null) && GetSourceSize() is null) return false;
         var size = sourceSize!.Value;
         var crop = sourceFraction ?? new RectD(PointD.Zero, new(1, 1));
         {
