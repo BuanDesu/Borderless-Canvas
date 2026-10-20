@@ -46,8 +46,8 @@ public sealed class GlobalNavigationInput : IDisposable
     private readonly BorderlessFlatWindow.Core.Canvas.OverviewInputSession overviewInput = new();
     private long overviewSequence;
     private bool overviewOpen => overviewInput.IsOpen;
-    public void SetOverviewHost(long generation, nint handle, bool activated = false)
-        => Post(() => overviewInput.AttachHost(generation, handle, activated ? handle : WindowEventListener.ForegroundWindow));
+    public void SetOverviewHost(long generation, nint handle)
+        => Post(() => overviewInput.AttachHost(generation, handle, WindowEventListener.ForegroundWindow));
     private bool overviewRegistered;
     private string overviewMessage = "正在注册总览快捷键。";
 
@@ -72,7 +72,7 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     private void BeginOverviewCore(long generation)
     {
-        if (overviewInput.Begin(generation)) Leave("总览中，导航已暂停。");
+        if (overviewInput.Begin(generation, WindowEventListener.ForegroundWindow)) Leave("总览中，导航已暂停。");
     }
     public void EndOverview(long generation) => Post(() =>
     {
@@ -352,8 +352,12 @@ public sealed class GlobalNavigationInput : IDisposable
                 else if (!tabHeld)
                 {
                     tabHeld = true;
+                    var host = overviewInput.Host;
+                    var hostUnderPointer = host != 0 && GetCursorPos(out var overviewPointer)
+                        && GetAncestor(WindowFromPoint(overviewPointer), 2) == host;
                     if (available && overviewInput.CapturesTab(WindowEventListener.ForegroundWindow,
-                        Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C), MenuActive()))
+                        Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C), MenuActive(),
+                        hostUnderPointer, host == 0 || IsWindowEnabled(host)))
                     {
                         tabCaptured = true; Queue(new(NavigationInputKind.Overview, PointD.Zero)); return 1;
                     }
@@ -412,6 +416,7 @@ public sealed class GlobalNavigationInput : IDisposable
     [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowEnabled(nint window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, StringBuilder name, int count);
     [DllImport("user32.dll", SetLastError = true)] private static extern int GetMessage(out Message message, nint window, uint min, uint max);
     [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool PeekMessage(out Message message, nint window, uint min, uint max, uint remove);

@@ -7,12 +7,13 @@ public sealed class OverviewInputSession
     public bool IsOpen { get; private set; }
     public bool Preparing { get; private set; }
     public nint Host { get; private set; }
+    public nint RequestForeground { get; private set; }
 
-    public bool Begin(long generation)
+    public bool Begin(long generation, nint foreground = 0)
     {
         if (generation <= 0) throw new ArgumentOutOfRangeException(nameof(generation));
         if (generation <= Generation) return false;
-        Generation = generation; IsOpen = Preparing = true; Host = 0; return true;
+        Generation = generation; IsOpen = Preparing = true; Host = 0; RequestForeground = foreground; return true;
     }
     public bool AttachHost(long generation, nint host, nint foreground)
     {
@@ -28,11 +29,15 @@ public sealed class OverviewInputSession
     public bool Close(long generation)
     {
         if (!IsOpen || generation != Generation) return false;
-        IsOpen = Preparing = false; Host = 0; return true;
+        IsOpen = Preparing = false; Host = RequestForeground = 0; return true;
     }
-    public bool CapturesTab(nint foreground, bool modified, bool menuActive)
+    public bool CapturesTab(nint foreground, bool modified, bool menuActive, bool hostUnderPointer = false, bool hostEnabled = true)
     {
         ObserveForeground(foreground);
-        return OverviewTogglePolicy.CapturesTab(IsOpen, Preparing, Host, foreground, modified, menuActive);
+        // A request may be shown without acquiring foreground (notably after a
+        // shell window was selected). Its visible surface still owns desktop Tab.
+        // Preparation must not capture Tab after the user switches to another app.
+        var preparingHere = Preparing && foreground == RequestForeground;
+        return OverviewTogglePolicy.CapturesTab(IsOpen, preparingHere, Host, foreground, modified, menuActive, hostUnderPointer, hostEnabled);
     }
 }

@@ -271,7 +271,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             overview = dialog; var retainedFocus = focus;
             if (openingCloseRequested) dialog.ToggleOverview();
             dialog.Shown += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle);
-            dialog.Activated += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle, activated: true);
+            dialog.Activated += (_, _) => globalInput?.SetOverviewHost(inputSession, dialog.Handle);
             dialog.SetPreviewSources(OverviewPreviewSources());
             // Presentation can finish synchronously (cancelled before Shown). End
             // this preparation before completion/focus probes can reenter a new open.
