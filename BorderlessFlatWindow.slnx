@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/BorderlessFlatWindow.Presentation/BorderlessFlatWindow.Presentation.csproj" />
     <Project Path="src/BorderlessFlatWindow.Core/BorderlessFlatWindow.Core.csproj" />
     <Project Path="src/BorderlessFlatWindow.Application/BorderlessFlatWindow.Application.csproj" />
     <Project Path="src/BorderlessFlatWindow.Windows/BorderlessFlatWindow.Windows.csproj" />

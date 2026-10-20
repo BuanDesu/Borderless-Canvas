@@ -46,7 +46,7 @@ internal sealed partial class MainForm
     {
         if (popupServices) return; popupServices = true;
         SystemEvents.UserPreferenceChanged += WallpaperPreferenceChanged;
-        DockPopup(Screen.FromControl(this)); _ = RefreshPaletteAsync();
+        DockPopup(Screen.FromControl(this)); WallpaperPaletteReader.PreloadPreview(); _ = RefreshPaletteAsync();
     }
     private void StopPopupServices()
     {
@@ -57,7 +57,7 @@ internal sealed partial class MainForm
     {
         if (!IsHandleCreated || IsDisposed || Disposing) return;
         if (e.Category is UserPreferenceCategory.Desktop or UserPreferenceCategory.Color or UserPreferenceCategory.General)
-            try { BeginInvoke(() => _ = RefreshPaletteAsync()); } catch (InvalidOperationException) { }
+            try { BeginInvoke(() => { WallpaperPaletteReader.PreloadPreview(invalidate: true); _ = RefreshPaletteAsync(); }); } catch (InvalidOperationException) { }
     }
     private async Task RefreshPaletteAsync()
     {

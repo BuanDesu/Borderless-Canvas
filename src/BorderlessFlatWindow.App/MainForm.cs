@@ -57,7 +57,7 @@ internal sealed partial class MainForm : Form
         ClientSize = showWithoutActivation ? new Size(1100, 740) : new Size(432, 700);
         MinimumSize = showWithoutActivation ? new Size(800, 560) : new Size(360, 540);
         StartPosition = FormStartPosition.CenterScreen;
-        Font = PixelFont.Create(9);
+        Font = new Font("Segoe UI", 10);
         KeyPreview = true;
         Icon = brandIcon;
 
@@ -82,7 +82,7 @@ internal sealed partial class MainForm : Form
         management.StatusChanged += UpdateCameraStatus;
         management.StatusChanged += bookmarkControl.RefreshNavigationState;
         management.WallpaperColorsChanged += enabled => { followWallpaper = enabled; _ = RefreshPaletteAsync(); };
-        management.WallpaperRefreshRequested += () => _ = RefreshPaletteAsync();
+        management.WallpaperRefreshRequested += () => { WallpaperPaletteReader.PreloadPreview(invalidate: true); _ = RefreshPaletteAsync(); };
         tabs.SelectedIndexChanged += (_, _) =>
         {
             if (tabs.SelectedIndex == 6) { management.EndNavigationForEditing(); bookmarkControl.RefreshNavigationState(); }
@@ -236,7 +236,14 @@ internal sealed partial class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (!showWithoutActivation) { InitializeTray(); management.InitializeGlobalInput(); StartPopupServices(); }
+        if (!showWithoutActivation)
+        {
+            InitializeTray(); StartPopupServices();
+            // Pay WPF initialization once at startup, before installing the input watchdog.
+            try { BorderlessFlatWindow.Presentation.CompositionSurface.WarmUp(); }
+            catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException) { }
+            management.InitializeGlobalInput();
+        }
         try
         {
             listener = new();
@@ -253,6 +260,9 @@ internal sealed partial class MainForm : Form
 
     private void FlushEvents()
     {
+        // WinEvent hints remain queued. COM catalog reads and rebuilding hidden diagnostics
+        // must not interrupt moving thumbnails; confirmation still revalidates its target.
+        if (management.IsOverviewTransitioning) return;
         eventTimer.Stop();
         try
         {

@@ -9,6 +9,14 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var motionCheck = Array.IndexOf(args, "--motion-check");
+        if (motionCheck >= 0) return motionCheck + 1 < args.Length ? OverviewRenderCheck.Run(Path.GetFullPath(args[motionCheck + 1])) : 1;
+        var metricsIndex = Array.IndexOf(args, "--motion-metrics");
+        if (metricsIndex >= 0)
+        {
+            if (metricsIndex + 1 >= args.Length) return 1;
+            SpatialOverviewForm.MotionMetricsPath = Path.GetFullPath(args[metricsIndex + 1]);
+        }
         var smoke = args.Contains("--smoke-check", StringComparer.Ordinal);
         var journalIndex = Array.IndexOf(args, "--journal");
         if (journalIndex >= 0 && journalIndex + 1 >= args.Length) return 1;

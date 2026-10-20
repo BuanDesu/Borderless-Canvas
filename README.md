@@ -4,7 +4,7 @@
 
 Windows 原生的连续二维窗口画布：窗口保留空间位置，屏幕作为可移动视口；通过空间总览定位窗口。应用窗口保持原生比例。
 
-**糖果掌机面板**：右下角竖向弹窗、壁纸取色、像素字体与 SVG 游戏机按键；Tab 往返总览，地图保留所有可用窗口预览，CRT 工作区显示对应视窗的真实内容。缓存覆盖层与 DWM 资源复用用于减少进出闪烁和刷新负担。规则与验证边界见[总览合成与像素按键](docs/overview-compositor.md)、[面板与取色](docs/console-and-wallpaper.md)及[试用指南](docs/trial-guide.zh-CN.md)。
+**Fluent 糖果控制台**：右下角竖向弹窗、壁纸取色、像素品牌字与对齐的游戏机按键；Tab 往返总览，地图保留所有可用窗口预览，CRT 工作区显示对应视窗的真实内容。WPF 合成层取代逐帧整屏 CPU 混合，DWM 继续负责真实窗口预览。参考 vxwm 的连续空间交互，具体取舍、性能数据和验收边界见 [Fluent 控制台与合成层过渡](docs/fluent-motion.md)及[试用指南](docs/trial-guide.zh-CN.md)。
 
 ## 快速开始
 
@@ -71,6 +71,7 @@ src/
   BorderlessFlatWindow.Application/   # 画布会话、导航历史、位置书签、平台端口
   BorderlessFlatWindow.Windows/       # Win32 发现、事件、受保护移动、恢复和预览
   BorderlessFlatWindow.App/           # WinForms 管理入口、空间地图与诊断
+  BorderlessFlatWindow.Presentation/  # WPF 纹理合成与逐帧时钟
   BorderlessFlatWindow.Recovery/      # 独立控制台恢复入口，不依赖 GUI 启动
 tests/
   BorderlessFlatWindow.Checks/        # 无第三方依赖的可执行模型检查

@@ -47,6 +47,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private WindowCatalogSnapshot? lastSnapshot;
     private bool overviewRequested, overviewScheduled, openingOverview;
     internal bool HasOverview => overview is not null;
+    internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
     internal void CancelOverview() => overview?.CancelOverview();
     internal bool ProcessOverviewKey(Keys keys) => overview?.HandleCommand(keys) == true;
     private readonly Label overviewShortcutStatus = new() { AutoSize = true, Padding = new(4) };
@@ -139,6 +140,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private void NavigationFrame()
     {
         if (IsDisposed) return;
+        // The camera is suspended in overview. Keep the input watchdog alive, and defer
+        // catalog/UI reconciliation until the short compositor transition has finished.
+        if (IsOverviewTransitioning) { globalInput?.Heartbeat(); return; }
         if (reading || session?.IsBusy == true) { globalInput?.Heartbeat(); return; }
         var events = globalInput?.Drain() ?? [];
         navigationState = globalInput?.State;
