@@ -29,6 +29,21 @@ internal sealed partial class SpatialOverviewForm : Form
     private bool closing, refreshingPreviews;
     internal bool IsTransitioning => entering || exiting;
     internal bool WantsPresentation => desiredOpen && !closing && !IsDisposed && !Disposing;
+    internal int LivePreviewCount => previews?.ResourceCount ?? 0;
+    internal double IdlePreparationMilliseconds;
+    internal void SetInitialSelection(Guid? selected)
+    {
+        if (overviewShown) throw new InvalidOperationException("Selection must be set before presentation.");
+        if (selected is { } id && model.Select(id)) RefreshSelection();
+    }
+    internal double PrepareHiddenHost()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        if (Visible || overviewShown || scene is null) throw new InvalidOperationException("Only an unused retained overview can be prepared.");
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        _ = Handle; _ = scene.Handle; PerformLayout(); scene.EnsureLayout();
+        return System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    }
     internal CanvasWindow? ConfirmedTarget { get; private set; }
     internal PointD? ConfirmedCameraPosition { get; private set; }
     private readonly WorkspaceStrip? legacyWorkspaces;
@@ -48,7 +63,7 @@ internal sealed partial class SpatialOverviewForm : Form
         backdropBounds = bounds;
         model = new(windows, camera, new(1000, 700), selected);
         Text = "BFW 空间总览"; StartPosition = FormStartPosition.Manual; FormBorderStyle = FormBorderStyle.None;
-        Bounds = bounds; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
+        Bounds = bounds; ShowInTaskbar = false; KeyPreview = true;
         Font = new Font("Segoe UI", 12); BackColor = Color.FromArgb(20, 25, 35); ForeColor = Color.White;
         var monitorViewports = viewports?.ToArray() ?? [camera.Bounds];
         ConfigureOptions();
@@ -105,6 +120,19 @@ internal sealed partial class SpatialOverviewForm : Form
         ChromeTheme.StyleMenu(options); showPreviews.CheckedChanged += (_, _) => RefreshSelection();
     }
     protected override bool ShowWithoutActivation => showWithoutActivation;
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            // Form.TopMost reapplies SetWindowPos without SWP_NOACTIVATE during
+            // handle creation, even while hidden. Establish native z-order in the
+            // creation style instead, so speculative handles cannot take focus.
+            parameters.ExStyle |= 0x00000008; // WS_EX_TOPMOST
+            if (showWithoutActivation) parameters.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+            return parameters;
+        }
+    }
     private static void MakeTransparent(Control root)
     {
         if (root is Panel or UserControl or Button or Label) root.BackColor = Color.Transparent;

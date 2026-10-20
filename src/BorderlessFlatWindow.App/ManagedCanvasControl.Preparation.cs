@@ -1,0 +1,91 @@
+using System.Diagnostics;
+using BorderlessFlatWindow.Application.Displays;
+using BorderlessFlatWindow.Application.Management;
+using BorderlessFlatWindow.Application.Overview;
+using BorderlessFlatWindow.Core.Geometry;
+
+namespace BorderlessFlatWindow.App;
+
+internal sealed partial class ManagedCanvasControl
+{
+    private const int PreparationIdleMilliseconds = 350;
+    private readonly System.Windows.Forms.Timer preparationTimer = new() { Interval = PreparationIdleMilliseconds };
+    private readonly OverviewPreparationSlot<SpatialOverviewForm> preparedOverview = new();
+    private OverviewPreparationSnapshot? failedPreparation;
+    private bool preparingOverviewHost;
+    private long lastCanvasInput;
+
+    private bool CanPrepareOverview => !IsDisposed && !Disposing && IsHandleCreated && !reading
+        && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null
+        && session is { IsRunning: true, IsBusy: false, HasPending: false } && layout?.SupportsCanvas == true
+        && gestures?.HasGesture != true && !moreMenu.Visible
+        && FindForm() is MainForm { AllowsOverviewPreparation: true } host
+        && !host.OwnedForms.Any(form => form.Visible && form.Modal);
+
+    private OverviewPreparationSnapshot PreparationSnapshot(ManagedCanvasSession owner, MainForm host)
+        => new(owner, owner.Workspace.Camera, OverviewWindows(), layout!.Monitors, bookmarks.Collection.Items,
+            bookmarks.CanWrite, bookmarks.Message, ChromeTheme.Candy.Select(c => c.ToArgb()),
+            overviewAnimation.Checked, host.OverviewShowsInTaskbar);
+
+    private SpatialOverviewForm CreateOverview(OverviewPreparationSnapshot snapshot)
+    {
+        var display = new DisplayLayout(snapshot.Monitors); var area = display.Primary.WorkArea;
+        return new(snapshot.Windows, snapshot.Camera, new(area.Left, area.Top, area.Width, area.Height),
+            bookmarks: bookmarks, viewports: snapshot.Monitors.Select(m => new RectD(
+                snapshot.Camera.Position + m.WorkArea.Position - display.CanvasWorkArea.Position, m.WorkArea.Size)),
+            animate: snapshot.Animate) { ShowInTaskbar = snapshot.ShowInTaskbar };
+    }
+
+    private void ScheduleOverviewPreparation()
+    {
+        // Keep an already prepared resource until OpenOverview can validate and take
+        // it. A request during handle creation is deferred by ScheduleOverview.
+        if (overviewRequested || openingOverview || preparingOverviewHost) { preparationTimer.Stop(); return; }
+        if (!CanPrepareOverview) { InvalidateOverviewPreparation(); return; }
+        if (!preparationTimer.Enabled) preparationTimer.Start();
+    }
+
+    private void PrepareOverviewWhileIdle()
+    {
+        preparationTimer.Stop();
+        if (!CanPrepareOverview) return;
+        if (lastCanvasInput > 0 && Stopwatch.GetElapsedTime(lastCanvasInput).TotalMilliseconds < PreparationIdleMilliseconds)
+        { preparationTimer.Start(); return; }
+        var owner = session!; var host = (MainForm)FindForm()!;
+        var key = PreparationSnapshot(owner, host);
+        if (preparedOverview.Contains(key) || key.Matches(failedPreparation)) return;
+        preparingOverviewHost = true;
+        SpatialOverviewForm? candidate = null;
+        try
+        {
+            var ticket = preparedOverview.Begin(); var started = Stopwatch.GetTimestamp();
+            candidate = CreateOverview(key);
+            candidate.PrepareHiddenHost();
+            candidate.IdlePreparationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            // HWND/WPF creation may pump UI messages. Never publish after pause,
+            // disposal, display/model changes, or a request to show the overview.
+            if (IsDisposed || Disposing || !host.AllowsOverviewPreparation || !ReferenceEquals(owner, session) || !owner.IsRunning || overviewRequested
+                || openingOverview || overview is not null || reading || owner.IsBusy || owner.HasPending
+                || !key.Matches(PreparationSnapshot(owner, host))) return;
+            var resource = candidate; candidate = null;
+            preparedOverview.Publish(ticket, key, resource);
+            failedPreparation = null;
+        }
+        catch (Exception error) when (Expected(error))
+        {
+            // Speculative work cannot prevent a normal open. Retry only after an
+            // input changes; a stable failure must not create a recurring idle loop.
+            failedPreparation = key;
+        }
+        finally
+        {
+            candidate?.Dispose(); preparingOverviewHost = false;
+            if (!IsDisposed && !Disposing) ScheduleOverview();
+        }
+    }
+
+    private void InvalidateOverviewPreparation()
+    {
+        preparationTimer.Stop(); preparedOverview.Invalidate(); failedPreparation = null;
+    }
+}

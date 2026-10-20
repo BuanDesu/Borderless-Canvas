@@ -23,6 +23,8 @@ internal sealed partial class MainForm : Form
     private WindowEventListener? listener;
     private readonly bool showWithoutActivation;
     private readonly bool reviewPanel;
+    internal bool AllowsOverviewPreparation => !showWithoutActivation && !IsDisposed && !Disposing;
+    internal bool OverviewShowsInTaskbar => reviewPanel;
     protected override bool ShowWithoutActivation => showWithoutActivation;
     private readonly CanvasPreviewControl preview;
     private readonly ToolStripStatusLabel cameraStatus = new();
