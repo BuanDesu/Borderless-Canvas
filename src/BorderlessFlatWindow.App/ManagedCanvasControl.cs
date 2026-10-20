@@ -207,6 +207,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
+        if (preparationDisposed) return;
         preparationTimer.Stop();
         if (overview is not null) { overview.ToggleOverview(capturedTimestamp); return; }
         // COM probes can pump messages before the form exists. Retain every toggle
@@ -239,14 +240,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void ScheduleOverview()
     {
-        if (!overviewRequested || overviewScheduled || openingOverview || preparingOverviewHost || reading || session?.IsBusy == true || session?.HasPending == true || IsDisposed) return;
+        if (preparationDisposed || !overviewRequested || overviewScheduled || openingOverview || preparingOverviewHost || reading || session?.IsBusy == true || session?.HasPending == true || IsDisposed) return;
         if (session?.IsRunning != true) { overviewRequested = false; globalInput?.EndOverview(overviewInputSession); return; }
         overviewScheduled = true;
         BeginInvoke(() => { overviewScheduled = false; OpenOverview(); });
     }
     private void OpenOverview()
     {
-        if (!overviewRequested || openingOverview || preparingOverviewHost || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
+        if (preparationDisposed || !overviewRequested || openingOverview || preparingOverviewHost || reading || session?.IsRunning != true || session.IsBusy || session.HasPending || layout is null) return;
         overviewRequested = false; openingOverview = true; openingCloseRequested = false;
         var openStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         var inputSession = overviewInputSession;
@@ -485,7 +486,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { preparationTimer.Dispose(); preparedOverview.Dispose(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }
 }

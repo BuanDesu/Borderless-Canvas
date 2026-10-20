@@ -12,10 +12,10 @@ internal sealed partial class ManagedCanvasControl
     private readonly System.Windows.Forms.Timer preparationTimer = new() { Interval = PreparationIdleMilliseconds };
     private readonly OverviewPreparationSlot<SpatialOverviewForm> preparedOverview = new();
     private OverviewPreparationSnapshot? failedPreparation;
-    private bool preparingOverviewHost;
+    private bool preparingOverviewHost, preparationDisposed;
     private long lastCanvasInput;
 
-    private bool CanPrepareOverview => !IsDisposed && !Disposing && IsHandleCreated && !reading
+    private bool CanPrepareOverview => !preparationDisposed && !IsDisposed && !Disposing && IsHandleCreated && !reading
         && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null
         && session is { IsRunning: true, IsBusy: false, HasPending: false } && layout?.SupportsCanvas == true
         && gestures?.HasGesture != true && !moreMenu.Visible
@@ -38,6 +38,7 @@ internal sealed partial class ManagedCanvasControl
 
     private void ScheduleOverviewPreparation()
     {
+        if (preparationDisposed) return;
         // Keep an already prepared resource until OpenOverview can validate and take
         // it. A request during handle creation is deferred by ScheduleOverview.
         if (overviewRequested || openingOverview || preparingOverviewHost) { preparationTimer.Stop(); return; }
@@ -86,6 +87,14 @@ internal sealed partial class ManagedCanvasControl
 
     private void InvalidateOverviewPreparation()
     {
+        if (preparationDisposed) return;
         preparationTimer.Stop(); preparedOverview.Invalidate(); failedPreparation = null;
+    }
+    private void DisposeOverviewPreparation()
+    {
+        if (preparationDisposed) return;
+        // Cancelling a visible overview can synchronously reenter RefreshState
+        // before Control.Dispose has set Disposing. Do not restart a dead timer.
+        preparationDisposed = true; preparationTimer.Dispose(); preparedOverview.Dispose(); failedPreparation = null;
     }
 }
