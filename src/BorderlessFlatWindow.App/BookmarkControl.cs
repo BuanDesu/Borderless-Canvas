@@ -15,11 +15,11 @@ internal sealed class BookmarkControl : UserControl
     private readonly ListView list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, AccessibleName = "位置标签列表" };
     private readonly Label position = new() { Dock = DockStyle.Top, Height = 32, Padding = new(12, 2, 12, 2) };
     private readonly TextBox status = new() { Dock = DockStyle.Bottom, Height = 112, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, AccessibleName = "标签状态" };
-    private readonly Button add = new() { Text = "保存当前位置", AutoSize = true };
-    private readonly Button rename = new() { Text = "重命名", AutoSize = true };
-    private readonly Button remove = new() { Text = "删除标签", AutoSize = true };
-    private readonly Button go = new() { Text = "跳转", AutoSize = true };
-    private readonly Button reset = new() { Text = "备份原文件并新建", AutoSize = true };
+    private readonly ChromeButton add = new() { Text = "保存当前位置", AutoSize = true };
+    private readonly ChromeButton rename = new() { Text = "重命名", AutoSize = true };
+    private readonly ChromeButton remove = new() { Text = "删除标签", AutoSize = true };
+    private readonly ChromeButton go = new() { Text = "跳转", AutoSize = true };
+    private readonly ChromeButton reset = new() { Text = "备份原文件并新建", AutoSize = true };
     private Guid? SelectedId => list.SelectedItems.Count == 1 ? list.SelectedItems[0].Tag as Guid? : null;
     private bool refreshing;
 
@@ -31,7 +31,7 @@ internal sealed class BookmarkControl : UserControl
         actions.Controls.AddRange([name, add, rename, remove, go]);
         var searchPanel = new Panel { Dock = DockStyle.Top, Height = 48, Padding = new(12, 8, 12, 8) }; searchPanel.Controls.Add(search);
         var files = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 54, Padding = new(10, 4, 10, 4), AutoScroll = true };
-        var reload = new Button { Text = "重新读取标签", AutoSize = true }; files.Controls.AddRange([reload, reset]);
+        var reload = new ChromeButton { Text = "重新读取标签", AutoSize = true }; files.Controls.AddRange([reload, reset]);
         list.Columns.Add("名称", 260); list.Columns.Add("相机坐标 (X, Y)", 280); list.Columns.Add("稳定 ID", 120);
         search.TextChanged += (_, _) => RefreshList(SelectedId);
         name.Enter += (_, _) => endNavigation(); search.Enter += (_, _) => endNavigation();

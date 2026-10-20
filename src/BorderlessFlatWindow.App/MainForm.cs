@@ -57,7 +57,7 @@ internal sealed partial class MainForm : Form
         ClientSize = showWithoutActivation ? new Size(1100, 740) : new Size(432, 700);
         MinimumSize = showWithoutActivation ? new Size(800, 560) : new Size(360, 540);
         StartPosition = FormStartPosition.CenterScreen;
-        Font = new Font("Microsoft YaHei UI", 10);
+        Font = PixelFont.Create(9);
         KeyPreview = true;
         Icon = brandIcon;
 
@@ -114,11 +114,11 @@ internal sealed partial class MainForm : Form
         liveTab.Controls.Add(livePreview);
         liveTab.Controls.Add(liveStatus);
         var liveActions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new(6) };
-        var fit = new Button { Text = "适配全部窗口", AutoSize = true };
+        var fit = new ChromeButton { Text = "适配全部窗口", AutoSize = true };
         fit.Click += (_, _) => livePreview.FitToContent();
-        var home = new Button { Text = "返回原点视角", AutoSize = true };
+        var home = new ChromeButton { Text = "返回原点视角", AutoSize = true };
         home.Click += (_, _) => { liveWorkspace.ReturnHome(); livePreview.Invalidate(); };
-        var reconcile = new Button { Text = "重新检查桌面", AutoSize = true };
+        var reconcile = new ChromeButton { Text = "重新检查桌面", AutoSize = true };
         reconcile.Click += (_, _) => RefreshCatalog();
         liveActions.Controls.AddRange([fit, home, reconcile]);
         liveTab.Controls.Add(liveActions);
@@ -163,7 +163,7 @@ internal sealed partial class MainForm : Form
         windowList.Columns.Add("窗口类", 210);
         catalogTab.Controls.Add(windowList);
         var catalogActions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(6) };
-        var refresh = new Button { Text = "检查窗口（只读）", AutoSize = true };
+        var refresh = new ChromeButton { Text = "检查窗口（只读）", AutoSize = true };
         refresh.Click += (_, _) => RefreshCatalog();
         showExcluded.CheckedChanged += (_, _) => RenderSnapshot();
         catalogActions.Controls.AddRange([refresh, showExcluded, catalogSummary]);
@@ -200,7 +200,7 @@ internal sealed partial class MainForm : Form
 
     private void AddButton(FlowLayoutPanel parent, string text, Action action)
     {
-        var button = new Button { Text = text, AutoSize = true, Height = 32 };
+        var button = new ChromeButton { Text = text, AutoSize = true, Height = 32 };
         button.Click += (_, _) => Navigate(action);
         parent.Controls.Add(button);
     }
@@ -430,7 +430,6 @@ internal sealed partial class MainForm : Form
     internal void PresentOverview(SpatialOverviewForm overview, Action completed)
     {
         overview.ShowInTaskbar = reviewPanel;
-        overview.CaptureBackdrop();
         var wasVisible = Visible;
         var restored = false;
         void Restore()
@@ -449,7 +448,8 @@ internal sealed partial class MainForm : Form
         try
         {
             // An independent, fully composed top-level host avoids stretching/recreating the popup HWND.
-            if (!showWithoutActivation) Hide();
+            if (!showWithoutActivation) { Hide(); if (wasVisible) FrostedBackdrop.FlushPresentation(); }
+            overview.CaptureBackdrop();
             overview.Show(); if (!showWithoutActivation) overview.Activate();
         }
         catch { Restore(); throw; }

@@ -18,15 +18,16 @@ internal sealed class GameCommandDeck : Panel
         ChromeTheme.Game(start, ChromeTheme.Purple); ChromeTheme.Game(pause, ChromeTheme.Pink); ChromeTheme.Game(overview, ChromeTheme.Cyan);
         void Direction(string text, string name, Point slot, Action action)
         {
-            var button = new Button { Text = text, AccessibleName = name, TabStop = true };
-            button.Click += (_, _) => action(); pad.Add(button, slot); Controls.Add(button); ChromeTheme.Game(button);
+            var button = new ChromeButton { Text = text, AccessibleName = name, TabStop = true };
+            button.Click += (_, _) => action(); pad.Add(button, slot); Controls.Add(button); ChromeTheme.Game(button, square: true);
         }
         Direction("↑", "向上移动视角", new(1, 0), () => pan(new(0, -120)));
         Direction("←", "向左移动视角", new(0, 1), () => pan(new(-120, 0)));
         Direction("●", "返回原点", new(1, 1), home);
         Direction("→", "向右移动视角", new(2, 1), () => pan(new(120, 0)));
         Direction("↓", "向下移动视角", new(1, 2), () => pan(new(0, 120)));
-        back = new() { Text = "返回", AccessibleName = "上一视角" }; back.Click += (_, _) => previous(); Controls.Add(back);
+        back = new ChromeButton { Text = "返回", AccessibleName = "上一视角" }; back.Click += (_, _) => previous(); Controls.Add(back);
+        ChromeTheme.Game(back, ChromeTheme.Cyan, square: true); ChromeTheme.Game(more, ChromeTheme.Pink, square: true);
     }
     internal void SetRunning(bool running) { foreach (var button in pad.Keys) button.Enabled = running; back.Enabled = running; }
     protected override void OnLayout(LayoutEventArgs e)

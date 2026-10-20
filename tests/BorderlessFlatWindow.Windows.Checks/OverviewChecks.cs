@@ -17,6 +17,7 @@ internal static class OverviewChecks
         check("Independent overview focus markers release without changing foreground or each other", IndependentMarkers);
         check("Native overview preview uses the actual top-level host and releases on search, disable and close", PreviewLifecycle);
         check("Native overview preview rejects a changed process identity and invalidates a closed source", PreviewIdentity);
+        check("Native previews crop workspace slices, animate opacity, and retain parked and duplicate source views", PreviewSlices);
     }
     private static void PreviewLifecycle()
     {
@@ -53,6 +54,22 @@ internal static class OverviewChecks
         Require(preview is not null && preview.IsCurrent && preview.SourceSize is { IsPositive: true }, "Native preview unavailable.");
         source.Close();
         Require(!preview!.IsCurrent && !preview.Update(new(0, 0, 100, 100)), "Closed source remained usable.");
+    }
+    private static void PreviewSlices()
+    {
+        var foreground = WindowEventListener.ForegroundWindow;
+        using var host = new Fixture(); host.Show(); using var source = new Fixture(); source.Show();
+        using var ready = CaptureReady(source.Handle);
+        var identity = new DesktopWindowCatalog(0).GetWindows().Single(window => window.Handle == source.Handle).Identity;
+        using var session = new OverviewPreviewSession(new DwmOverviewPreviewPort(host.Handle));
+        source.Location = new(30000, 30000); System.Windows.Forms.Application.DoEvents();
+        var cards = Enumerable.Range(0, 24).Select(i => new PreviewCard(Guid.NewGuid(), identity, new PixelRect(i * 8, 10, i * 8 + 50, 60), null,
+            new RectD(new(.25, .25), new(.5, .5)))).ToArray();
+        session.Synchronize(cards, null, true, 0);
+        Require(session.ResourceCount == 24 && session.States.Values.All(s => s == PreviewState.Preview), "Parked or additional workspace registrations were filtered.");
+        session.Animate(cards, 127); session.Synchronize(cards.Select(c => c with { SourceFraction = null }), null, true);
+        Require(session.States.Values.All(s => s == PreviewState.Preview), "Crop reset or opacity transition failed.");
+        Require(foreground == WindowEventListener.ForegroundWindow, "Workspace preview activated a source.");
     }
     private static void Lifetime()
     {

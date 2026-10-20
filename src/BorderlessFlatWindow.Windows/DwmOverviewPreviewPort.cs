@@ -6,7 +6,7 @@ using BorderlessFlatWindow.Windows.Interop;
 
 namespace BorderlessFlatWindow.Windows;
 
-/// <summary>No pixel freshness assertion: parked/partly offscreen sources are filtered by the caller.</summary>
+/// <summary>DWM supplies every available source, including parked windows. Offscreen content can stop repainting.</summary>
 public sealed class DwmOverviewPreviewPort(nint destination) : IOverviewPreviewPort
 {
     public IOverviewPreview? Create(NativeWindowIdentity identity)
@@ -14,7 +14,7 @@ public sealed class DwmOverviewPreviewPort(nint destination) : IOverviewPreviewP
         var resource = new Resource(identity);
         try
         {
-            if (!resource.Matches || !resource.Mark() || !resource.IsCurrent) { resource.Dispose(); return null; }
+            if (!resource.Matches || !resource.Mark() || !resource.IsCurrent || !resource.Matches) { resource.Dispose(); return null; }
             var thumbnail = DwmWindowPreview.TryCreate(destination, identity.Handle);
             if (thumbnail is null) { resource.Dispose(); return null; }
             resource.Thumbnail = thumbnail;
@@ -42,9 +42,18 @@ public sealed class DwmOverviewPreviewPort(nint destination) : IOverviewPreviewP
             }
         }
         internal bool Mark() => marked = NativeMethods.SetPropW(identity.Handle, markerName, marker);
-        public bool IsCurrent => !disposed && marked && NativeMethods.GetPropW(identity.Handle, markerName) == marker && Matches;
+        public bool IsCurrent
+        {
+            get
+            {
+                if (disposed || !marked || NativeMethods.GetPropW(identity.Handle, markerName) != marker) return false;
+                NativeMethods.GetWindowThreadProcessId(identity.Handle, out var pid);
+                return pid == identity.ProcessId;
+            }
+        }
         public SizeD? SourceSize => Thumbnail?.GetSourceSize() is { } size ? new(size.Width, size.Height) : null;
-        public bool Update(PixelRect bounds) => IsCurrent && Thumbnail?.Update(bounds) == true;
+        public bool Update(PixelRect bounds) => IsCurrent && Thumbnail?.Update(bounds, useCachedSourceSize: true) == true;
+        public bool Update(PixelRect bounds, RectD? sourceFraction, byte opacity) => IsCurrent && Thumbnail?.Update(bounds, true, sourceFraction, opacity, useCachedSourceSize: true) == true;
         public void Dispose()
         {
             if (disposed) return;

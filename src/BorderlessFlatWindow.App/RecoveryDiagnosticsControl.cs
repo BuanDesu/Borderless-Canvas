@@ -9,8 +9,8 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
 {
     private readonly string journalPath;
     private readonly Label summary = new() { Dock = DockStyle.Fill, Padding = new(14) };
-    private readonly Button recover = new() { Text = "启动独立恢复程序", AutoSize = true, Enabled = false };
-    private readonly Button refresh = new() { Text = "检查恢复日志", AutoSize = true };
+    private readonly ChromeButton recover = new() { Text = "启动独立恢复程序", AutoSize = true, Enabled = false };
+    private readonly ChromeButton refresh = new() { Text = "检查恢复日志", AutoSize = true };
     private bool running;
     internal bool RequiresAttention { get; private set; }
 

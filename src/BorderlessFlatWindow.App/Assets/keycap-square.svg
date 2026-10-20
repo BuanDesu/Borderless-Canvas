@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="shell" data-angle="80"><stop offset="0" stop-color="tint"/><stop offset="1" stop-color="accent"/></linearGradient>
+    <linearGradient id="shine" data-angle="90"><stop offset="0" stop-color="white" stop-opacity="0.8"/><stop offset="1" stop-color="white" stop-opacity="0.06"/></linearGradient>
+  </defs>
+  <rect x="3" y="9" width="94" height="89" rx="25" fill="shadow"/>
+  <rect x="6" y="3" width="88" height="87" rx="23" fill="url(#shell)" stroke="white" stroke-width="2"/>
+  <rect x="12" y="8" width="76" height="37" rx="18" fill="url(#shine)"/>
+  <rect x="20" y="12" width="43" height="3" rx="1.5" fill="white" opacity="0.8"/>
+</svg>

@@ -117,7 +117,7 @@ public sealed class GlobalNavigationInput : IDisposable
             if (timer == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法启动输入看门狗。");
             RegisterToggle(NavigationHotkey.Default);
             overviewRegistered = RegisterHotKey(0, OverviewId, 3 | 0x4000, 0x4F);
-            Volatile.Write(ref overviewMessage, overviewRegistered ? "桌面空白处 Tab / Shift+Tab 打开总览；Ctrl+Alt+O 也可打开/关闭。"
+            Volatile.Write(ref overviewMessage, overviewRegistered ? "桌面空白处 Tab / Shift+Tab 进入总览，总览内再次按下返回；Ctrl+Alt+O 也可打开/关闭。"
                 : $"总览快捷键 Ctrl+Alt+O 注册失败（{Marshal.GetLastPInvokeError()}），可用界面按钮。");
             Wake(); ready.Set();
             while (Volatile.Read(ref stopping) == 0)

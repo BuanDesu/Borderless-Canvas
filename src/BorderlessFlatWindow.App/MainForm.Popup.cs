@@ -13,10 +13,11 @@ internal sealed partial class MainForm
     {
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = reviewPanel; TopMost = true;
         StartPosition = FormStartPosition.Manual; DoubleBuffered = true; Padding = new(6);
-        var collapse = new Button { Text = "×", AccessibleName = "收起面板", Size = new(38, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        var collapse = new ChromeButton { Text = "×", AccessibleName = "收起面板", Size = new(38, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         header.Controls.Add(collapse); collapse.Location = new(header.Width - 48, 17);
         header.SizeChanged += (_, _) => collapse.Location = new(header.Width - collapse.Width - 12, Math.Max(8, (header.Height - collapse.Height) / 2 - 3));
         collapse.Click += (_, _) => Hide(); ChromeTheme.Apply(collapse);
+        collapse.BackColor = Color.Transparent;
         Deactivate += (_, _) => { if (!IsDisposed) dismissPopup.Start(); };
         dismissPopup.Tick += (_, _) =>
         {

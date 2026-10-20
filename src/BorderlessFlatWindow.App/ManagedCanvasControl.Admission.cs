@@ -7,7 +7,7 @@ internal sealed partial class ManagedCanvasControl
 {
     private readonly RuntimeAdmissionTracker admissionTracker = new();
     private readonly System.Windows.Forms.Timer admissionTimer = new() { Interval = 220 };
-    private readonly Button addWindows = new() { Text = "加入勾选窗口", AutoSize = true, Enabled = false };
+    private readonly ChromeButton addWindows = new() { Text = "加入勾选窗口", AutoSize = true, Enabled = false };
     private readonly CheckBox automaticAdmission = new() { Text = "自动接入新窗口", AutoSize = true, Checked = true };
     private readonly HashSet<nint> admissionDestroyedHints = [];
     private bool admissionIdentityGap, renderingCandidates;
