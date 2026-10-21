@@ -19,6 +19,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     private readonly PixelRect bounds;
     private readonly BookmarkLibrary? bookmarks;
     private readonly bool animate, showWithoutActivation;
+    private readonly Func<nint, IOverviewPreviewPort> createPreviewPort;
     private readonly ContextMenuStrip options = new();
     private readonly List<ContextMenuStrip> menus = [];
     private readonly ToolStripMenuItem previewOption = new("窗口预览（可能停帧）") { Checked = true, CheckOnClick = true };
@@ -26,16 +27,21 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     private IReadOnlyDictionary<Guid, OverviewPreviewSource> sources = new Dictionary<Guid, OverviewPreviewSource>();
     private OverviewPreviewSession? previews;
     private PreviewCard[] cards = [];
+    private PreviewCard[]? synchronizedLayout;
     private OverviewPreviewSource? focusSource;
     private PixelRect? focusFrom, focusTo;
     private bool prepared, shown, disposed, syncing, desiredOpen = true, canConfirm = true;
+    private bool previewsDirty = true, refreshRequested, refreshQueued;
     private int modalDepth, menuDepth, frames, previewSyncs, reversals;
+    private int geometryRefreshSkips;
     private int metricsDpi;
     private double progress, hideMs, showMs, reconcileMs, constructionMs, dispatchMs, queueMs, prepareMs;
     private long requested, firstFrame, previousFrame;
     private bool firstFrameActive, firstFrameForeground;
     private long lastToggleRequested, lastToggleFrame;
     private readonly List<double> gaps = [];
+    private readonly List<double> animationWork = [];
+    private double previewLayoutMs, previewSyncMs;
     private NativeOverviewBackdrop.Result backdrop = NativeOverviewBackdrop.Result.Unavailable;
     public event EventHandler? Shown;
     public event EventHandler? Activated;
@@ -55,13 +61,18 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     internal bool AnimationsEnabled => animate;
     internal bool FramesStopped => !view.IsAnimating;
     internal int FrameCount => frames;
+    internal int PreviewSynchronizationCount => previewSyncs;
     internal void SetFixtureQuery(string query) { if (!showWithoutActivation) throw new InvalidOperationException("Synthetic fixture only."); view.SetQuery(query); }
+    internal void SetFixturePreviews(bool enabled) { if (!showWithoutActivation) throw new InvalidOperationException("Synthetic fixture only."); previewOption.Checked = enabled; }
     internal event Action<double>? FrameObserved;
 
     internal NativeOverviewPresenter(IEnumerable<CanvasWindow> windows, Camera2D camera, PixelRect bounds, BookmarkLibrary? bookmarks,
-        RectD[] viewports, bool animate = true, bool showInTaskbar = false, bool showWithoutActivation = false)
+        RectD[] viewports, bool animate = true, bool showInTaskbar = false, bool showWithoutActivation = false,
+        Func<nint, IOverviewPreviewPort>? fixturePreviewPort = null)
     {
+        if (fixturePreviewPort is not null && !showWithoutActivation) throw new ArgumentException("Preview instrumentation requires a synthetic fixture.", nameof(fixturePreviewPort));
         this.bounds = bounds; this.bookmarks = bookmarks; this.showWithoutActivation = showWithoutActivation;
+        createPreviewPort = fixturePreviewPort ?? (handle => new DwmOverviewPreviewPort(handle));
         this.animate = animate && CompositionSurface.RenderingTier > 0 && SystemParametersInfo(0x1042, 0, out var enabled, 0) && enabled != 0;
         model = new(windows, camera, new(bounds.Width, bounds.Height));
         view = new(model, camera.Position, camera.ViewportSize, viewports.Select(r => new RectD(r.Position - camera.Position, r.Size)).ToArray(), ChromeTheme.Candy);
@@ -79,7 +90,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
         surface.Activated += (_, _) => Activated?.Invoke(this, EventArgs.Empty);
         surface.Closed += (_, _) => OnClosed();
         options.Items.AddRange([previewOption, viewportOption]);
-        previewOption.CheckedChanged += (_, _) => { previews?.RetryFailed(); RefreshPreviews(); };
+        previewOption.CheckedChanged += (_, _) => { previews?.RetryFailed(); previewsDirty = true; RefreshPreviews(); };
         viewportOption.CheckedChanged += (_, _) => view.ShowViewports(viewportOption.Checked);
         ChromeTheme.StyleMenu(options); RefreshWorkspaces();
     }
@@ -94,7 +105,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     {
         var next = values.ToDictionary(source => source.Id);
         if (next.Count == sources.Count && next.All(pair => sources.GetValueOrDefault(pair.Key) == pair.Value)) return;
-        sources = next;
+        sources = next; previewsDirty = true;
         if (focusSource is { } old && sources.GetValueOrDefault(old.Id) != old) { focusSource = null; focusFrom = focusTo = null; }
         RefreshPreviews();
     }
@@ -102,10 +113,13 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     {
         if (disposed || model.Status != OverviewStatus.Open) return;
         var next = windows.ToArray();
+        var windowsChanged = !model.Windows.SequenceEqual(next);
+        var availabilityChanged = canConfirm != running;
         canConfirm = running;
-        if (!model.Windows.SequenceEqual(next)) { model.Synchronize(next); view.RefreshWindows(); }
+        if (windowsChanged || availabilityChanged) previewsDirty = true;
+        if (windowsChanged) { model.Synchronize(next); view.RefreshWindows(); }
         view.SetStatus(running ? bookmarks is { CanWrite: false } ? bookmarks.Message : null : "管理已暂停，暂不可跳转。" + message);
-        RefreshPreviews();
+        if (windowsChanged || availabilityChanged) RefreshPreviews();
     }
     public void SetOpenTimings(long requested, double reconcile, double construction, double dispatch = 0, double queue = 0)
     { this.requested = requested; reconcileMs = reconcile; constructionMs = construction; dispatchMs = dispatch; queueMs = queue; }
@@ -113,8 +127,10 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     public void PreparePresentation()
     {
         var started = Stopwatch.GetTimestamp(); _ = surface.Handle; metricsDpi = surface.Dpi;
-        previews ??= new(new DwmOverviewPreviewPort(surface.Handle)); prepared = true;
-        surface.EnsureLayout(); view.RefreshWindows(); RefreshPreviews();
+        previews ??= new(createPreviewPort(surface.Handle));
+        // Finalize the hidden geometry before acquiring native relations. Layout
+        // notifications during this preparation must not synchronize intermediate states.
+        surface.EnsureLayout(); view.RefreshWindows(); prepared = true; RefreshPreviews();
         if (animate && model.SelectedId is { } id && sources.GetValueOrDefault(id) is { FullyOnscreen: true, ScreenBounds: { } screen } source)
         {
             var rect = new PixelRect((int)screen.Position.X, (int)screen.Position.Y, (int)screen.Right, (int)screen.Bottom);
@@ -165,28 +181,48 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
             case Keys.Control | Keys.Tab: model.Cycle(1); break;
             case Keys.Control | Keys.Shift | Keys.Tab: model.Cycle(-1); break;
             case Keys.Control | Keys.F: view.FocusSearch(true); return true;
-            case Keys.F5: previews?.RetryFailed(); surface.EnsureLayout(); break;
+            case Keys.F5: previews?.RetryFailed(); previewsDirty = true; surface.EnsureLayout(); break;
             default: return false;
         }
-        view.RefreshWindows(); return true;
+        if (!disposed) view.RefreshWindows(); return true;
     }
     private void Confirm() { if (!disposed && canConfirm && modalDepth == 0 && model.Confirm() is { } target) { ConfirmedTarget = target; CloseNow(); } }
     private void RefreshPreviews()
     {
-        if (disposed || syncing || !prepared || previews is null) return;
+        if (disposed || !prepared || previews is null) return;
+        if (syncing) { refreshRequested = true; return; }
         syncing = true;
         try
         {
+            var measuring = OverviewRuntimeOptions.MetricsPath is not null;
+            var started = measuring ? Stopwatch.GetTimestamp() : 0;
             var next = view.PreviewLayout().Select(card => new PreviewCard(card.Id, sources.GetValueOrDefault(card.Window)?.Identity, card.Bounds, card.Fallback, card.Fraction)).ToArray();
+            if (measuring) previewLayoutMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            // This cache describes requested geometry only. Semantic source changes,
+            // availability, preview options and retries still force live validation.
+            if (!previewsDirty && synchronizedLayout is { } previous && next.SequenceEqual(previous)) { geometryRefreshSkips++; return; }
+            previewsDirty = false;
+            if (measuring) started = Stopwatch.GetTimestamp();
             previews.Synchronize(next, null, previewOption.Checked && canConfirm, shown ? (byte)Math.Clamp((int)Math.Round(progress * 255), 0, 255) : (byte)0);
+            if (measuring) previewSyncMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             if (disposed) return;
-            previewSyncs++;
+            previewSyncs++; synchronizedLayout = next;
             cards = next.Select(card => card.SourceFraction is null && card.ContentBounds is { } box && previews.SourceSize(card.Id) is { } size
                 ? card with { ContentBounds = OverviewPreviewSession.Fit(size, box) } : card).ToArray();
             if (focusSource is { } source) focusTo = cards.FirstOrDefault(card => card.Id == source.Id)?.ContentBounds;
             AnimatePreviews(progress);
         }
-        finally { syncing = false; }
+        finally
+        {
+            syncing = false;
+            // Native validation can dispatch nested UI messages. Preserve a refresh
+            // requested during that work, but never recursively enter the native batch.
+            if (!disposed && (refreshRequested || previewsDirty) && !refreshQueued)
+            {
+                refreshRequested = false; refreshQueued = true;
+                surface.Post(() => { refreshQueued = false; RefreshPreviews(); });
+            }
+        }
     }
     private void AnimatePreviews(double value)
     {
@@ -210,7 +246,9 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
         if (firstFrame == 0) { firstFrame = now; firstFrameActive = surface.Active; firstFrameForeground = WindowEventListener.ForegroundWindow == surface.Handle; }
         if (lastToggleRequested > 0 && lastToggleFrame == 0 && now >= lastToggleRequested) lastToggleFrame = now;
         if (previousFrame > 0) gaps.Add(Stopwatch.GetElapsedTime(previousFrame, now).TotalMilliseconds);
-        previousFrame = now; frames++; AnimatePreviews(value); FrameObserved?.Invoke(value);
+        previousFrame = now; frames++; AnimatePreviews(value);
+        if (OverviewRuntimeOptions.MetricsPath is not null) animationWork.Add(Stopwatch.GetElapsedTime(now).TotalMilliseconds);
+        FrameObserved?.Invoke(value);
         if (disposed) return;
         if (desiredOpen && value >= 1) { view.StopMotion(); if (!showWithoutActivation) view.FocusSearch(); }
         else if (!desiredOpen && value <= 0) CloseNow();
@@ -267,7 +305,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     private void OnClosed()
     {
         if (disposed) return;
-        disposed = true; previews?.Dispose(); previews = null;
+        disposed = true; previews?.Dispose(); previews = null; synchronizedLayout = null;
         options.Dispose(); foreach (var menu in menus.ToArray()) menu.Dispose(); menus.Clear();
         if (ConfirmedTarget is null && ConfirmedCameraPosition is null) model.Cancel();
         WriteMetrics(); FrameObserved = null;
@@ -277,7 +315,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     private void WriteMetrics()
     {
         if (OverviewRuntimeOptions.MetricsPath is not { } path) return;
-        var sorted = gaps.Order().ToArray();
+        var sorted = gaps.Order().ToArray(); var work = animationWork.Order().ToArray();
         var record = new { Renderer = "NativeRetained", bounds.Width, bounds.Height, Dpi = metricsDpi,
             DesktopReadback = false, BackdropAccepted = backdrop.Accepted, BackdropSetHResult = backdrop.SetHResult,
             BackdropNonClientSetHResult = backdrop.NonClientSetHResult, BackdropNonClientReadHResult = backdrop.NonClientReadHResult,
@@ -285,6 +323,9 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
             FirstFrameActive = firstFrame > 0 ? (bool?)firstFrameActive : null,
             FirstFrameForegroundMatches = firstFrame > 0 ? (bool?)firstFrameForeground : null,
             PreviewCount = cards.Length, Frames = frames, PreviewSyncCalls = previewSyncs, Reversals = reversals,
+            PreviewGeometrySkips = geometryRefreshSkips, PreviewLayoutMs = previewLayoutMs, PreviewSyncMs = previewSyncMs,
+            AnimationWorkP95Ms = work.Length > 0 ? (double?)work[(int)Math.Ceiling(work.Length * .95) - 1] : null,
+            AnimationWorkMaxMs = work.Length > 0 ? (double?)work[^1] : null,
             HostPrepared = IdlePreparationMilliseconds > 0, IdlePreparationMs = IdlePreparationMilliseconds,
             PrepareMs = prepareMs, HostHideMs = hideMs, HostShowMs = showMs, ReconcileMs = reconcileMs, ConstructionMs = constructionMs,
             InputDispatchMs = dispatchMs, UiQueueMs = queueMs, FocusEligible = focusSource is not null,
