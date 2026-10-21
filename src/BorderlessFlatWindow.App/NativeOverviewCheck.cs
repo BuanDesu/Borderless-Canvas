@@ -122,6 +122,7 @@ internal static class NativeOverviewCheck
             CheckDetachedDpi();
             CheckHiddenInteractive();
             CheckCancelled();
+            CheckRefreshChurn();
             driver.Start(); watchdog.Start(); System.Windows.Forms.Application.Run(context);
             if (failure is not null) throw new InvalidOperationException("Native presenter check failed.", failure);
             if (results.Count != 8 || (animatedCases > 0 && totalFrames < 12)) throw new InvalidOperationException("Native presenter cases were incomplete.");
@@ -140,7 +141,70 @@ internal static class NativeOverviewCheck
         }
         Console.WriteLine("PASS Native full-scene presenter retains space/workspace previews, reverses after idle, passes disabled-host Tab, searches, selects and releases on a WinForms loop");
         Console.WriteLine("PASS Native initial-request and later-retarget timings remain distinct");
+        Console.WriteLine("PASS Native preview refreshes coalesce unchanged geometry and retain explicit validation");
         return 0;
+
+        void CheckRefreshChurn()
+        {
+            RefreshPort? port = null;
+            using var local = new NativeOverviewPresenter(models, camera, new(work.Left, work.Top, work.Left + 1000, work.Top + 700), labels,
+                [camera.Bounds], animate: false, showWithoutActivation: true,
+                fixturePreviewPort: handle => port = new RefreshPort(new DwmOverviewPreviewPort(handle)));
+            local.SetPreviewSources(Sources()); local.PrepareHiddenHost(); local.PreparePresentation();
+            if (local.PreviewSynchronizationCount != 1)
+                throw new InvalidOperationException($"Initial native preparation repeated preview synchronization {local.PreviewSynchronizationCount} times.");
+            local.Show(false); System.Windows.Forms.Application.DoEvents();
+            var stable = local.PreviewSynchronizationCount;
+            for (var iteration = 0; iteration < 20; iteration++)
+            { local.UpdateWindows(models, true, ""); local.SetPreviewSources(Sources()); }
+            if (local.PreviewSynchronizationCount != stable)
+                throw new InvalidOperationException("Unchanged native snapshots repeated preview synchronization.");
+            var renamed = models.Select((window, position) => position == 0 ? window with { Title = "Changed synthetic title" } : window).ToArray();
+            local.UpdateWindows(renamed, true, "");
+            if (local.PreviewSynchronizationCount != ++stable)
+                throw new InvalidOperationException("A changed source snapshot did not validate exactly once.");
+            local.SetFixtureQuery("no-synthetic-match");
+            if (local.PreviewSynchronizationCount != ++stable || local.LivePreviewCount >= 8)
+                throw new InvalidOperationException("Native search did not update preview eligibility.");
+            local.SetFixtureQuery("");
+            if (local.PreviewSynchronizationCount != ++stable || local.LivePreviewCount < 4)
+                throw new InvalidOperationException("Native search did not restore previews.");
+            local.HandleCommand(Keys.F5);
+            if (local.PreviewSynchronizationCount != ++stable)
+                throw new InvalidOperationException("Explicit native retry failed to revalidate unchanged geometry.");
+            local.SetFixturePreviews(false);
+            if (local.PreviewSynchronizationCount != ++stable || local.LivePreviewCount != 0)
+                throw new InvalidOperationException("Disabling previews retained resources with unchanged geometry.");
+            local.SetFixturePreviews(true);
+            if (local.PreviewSynchronizationCount != ++stable || local.LivePreviewCount < 4)
+                throw new InvalidOperationException("Enabling previews failed to acquire unchanged geometry.");
+            local.UpdateWindows(renamed, false, "Fixture pause");
+            if (local.PreviewSynchronizationCount != ++stable || local.LivePreviewCount != 0)
+                throw new InvalidOperationException("Native pause retained preview resources.");
+            local.UpdateWindows(renamed, true, "");
+            if (local.PreviewSynchronizationCount != ++stable || local.LivePreviewCount < 4)
+                throw new InvalidOperationException("Native resume failed to restore preview resources.");
+            var nestedModels = renamed.Select((window, position) => position == 0 ? window with { Title = "Nested synthetic change" } : window).ToArray();
+            port!.OnBatch = () => local.UpdateWindows(nestedModels, true, "");
+            var beforeNested = port.Batches;
+            local.SetPreviewSources(Sources().Select(source => source with { FullyOnscreen = true }));
+            if (port.Batches != beforeNested + 1 || port.MaxDepth != 1)
+                throw new InvalidOperationException("Native refresh recursively entered a preview batch.");
+            System.Windows.Forms.Application.DoEvents();
+            if (port.Batches != beforeNested + 2 || port.MaxDepth != 1)
+                throw new InvalidOperationException("A semantic change during native validation was lost or repeated.");
+            var unchanged = port.Batches;
+            local.UpdateWindows(nestedModels, true, ""); System.Windows.Forms.Application.DoEvents();
+            if (port.Batches != unchanged) throw new InvalidOperationException("Deferred native refresh kept retrying unchanged input.");
+            port.OnBatch = () => local.UpdateWindows(renamed, true, "");
+            local.SetPreviewSources(Sources());
+            var beforeClose = port.Batches;
+            local.CancelOverview();
+            System.Windows.Forms.Application.DoEvents();
+            if (port.Batches != beforeClose) throw new InvalidOperationException("A queued native refresh ran after closure.");
+            if (local.LivePreviewCount != 0 || WindowEventListener.ForegroundWindow != before)
+                throw new InvalidOperationException("Native refresh checks leaked previews or changed foreground.");
+        }
 
         void CheckHiddenInteractive()
         {
@@ -224,6 +288,24 @@ internal static class NativeOverviewCheck
             manager.PresentOverview(cancelled, () => { completion++; cancelled.Dispose(); });
             if (displays != 0 || completion != 1 || !cancelled.IsDisposed || manager.Visible || WindowEventListener.ForegroundWindow != before)
                 throw new InvalidOperationException("Cancelled native presenter was shown or completed twice.");
+        }
+    }
+    private sealed class RefreshPort(IOverviewPreviewPort inner) : IOverviewPreviewPort
+    {
+        internal Action? OnBatch;
+        internal int Batches, MaxDepth;
+        private int depth;
+        public IOverviewPreview? Create(NativeWindowIdentity identity) => inner.Create(identity);
+        public IDisposable BeginBatch()
+        {
+            var scope = inner.BeginBatch(); Batches++; MaxDepth = Math.Max(MaxDepth, ++depth);
+            try { var callback = OnBatch; OnBatch = null; callback?.Invoke(); return new Scope(this, scope); }
+            catch { scope?.Dispose(); depth--; throw; }
+        }
+        private sealed class Scope(RefreshPort owner, IDisposable? inner) : IDisposable
+        {
+            private bool disposed;
+            public void Dispose() { if (disposed) return; disposed = true; try { inner?.Dispose(); } finally { owner.depth--; } }
         }
     }
     private sealed class SourceWindow(int index) : Form
