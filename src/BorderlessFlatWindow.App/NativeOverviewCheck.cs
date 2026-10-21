@@ -76,6 +76,8 @@ internal static class NativeOverviewCheck
             if (local.Visible || local.LivePreviewCount != 0 || WindowEventListener.ForegroundWindow != before)
                 throw new InvalidOperationException("Native hidden preparation activated or acquired previews.");
             local.PreparePresentation(); local.Show(false); maxResources = local.LivePreviewCount;
+            if (local.NativeBackdropAccepted && (DwmGetWindowAttribute(local.Handle, 1, out var nonClientEnabled, sizeof(int)) < 0 || nonClientEnabled == 0))
+                throw new InvalidOperationException("Accepted native backdrop lost non-client rendering after show.");
             if (local.AnimationsEnabled) animatedCases++;
             else { phase = 6; idleFrames = local.FrameCount; idleStarted = Stopwatch.GetTimestamp(); }
             if (shown != 1 || maxResources < 4 || WindowEventListener.ForegroundWindow != before)
@@ -234,4 +236,5 @@ internal static class NativeOverviewCheck
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool EnableWindow(nint window, bool enabled);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowEnabled(nint window);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PostMessage(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint window, int attribute, out int value, int size);
 }

@@ -21,6 +21,7 @@ public sealed class SpatialOverviewWindow : IDisposable
     public event EventHandler? Closed;
     public bool IsClosed => closed;
     public bool Visible => !closed && window.IsVisible;
+    public bool Active => !closed && window.IsActive;
     public bool NativeBackdropAccepted { get; private set; }
     public bool ShowInTaskbar { get => window.ShowInTaskbar; set { if (!closed && window.ShowInTaskbar != value) window.ShowInTaskbar = value; } }
     public nint Handle => closed ? 0 : new WindowInteropHelper(window).EnsureHandle();

@@ -1,4 +1,4 @@
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks, [switch]$LiveSurfaceChecks, [switch]$NativeOverviewChecks)
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks, [switch]$LiveSurfaceChecks, [switch]$NativeOverviewChecks, [switch]$NativeBackdropChecks)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
@@ -24,6 +24,12 @@ try {
         New-Item -ItemType Directory -Path $nativeDirectory | Out-Null
         dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --native-overview-check (Join-Path $nativeDirectory 'presenter.json')
         if ($LASTEXITCODE -ne 0) { throw "Native overview checks failed: $LASTEXITCODE" }
+    }
+    if ($NativeBackdropChecks) {
+        $backdropDirectory = Join-Path $taskRoot "artifacts/native-backdrop/$([Guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $backdropDirectory | Out-Null
+        dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --native-backdrop-check (Join-Path $backdropDirectory 'backdrop.json')
+        if ($LASTEXITCODE -ne 0) { throw "Native backdrop checks failed: $LASTEXITCODE" }
     }
     if ($LiveSurfaceChecks) {
         # Opt-in desktop integration lab, separate from the production presenter and headless CI.
