@@ -37,7 +37,7 @@ internal interface IOverviewPresenter : IDisposable
 
 internal static class OverviewRuntimeOptions
 {
-    internal static bool NativeRequested;
+    internal static bool UseNative;
     internal static bool ForceSolid;
     internal static string? MetricsPath;
 }

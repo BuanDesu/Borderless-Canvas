@@ -31,7 +31,7 @@ internal sealed partial class ManagedCanvasControl
     {
         var display = new DisplayLayout(snapshot.Monitors); var area = display.Primary.WorkArea;
         var viewports = snapshot.Monitors.Select(m => new RectD(snapshot.Camera.Position + m.WorkArea.Position - display.CanvasWorkArea.Position, m.WorkArea.Size)).ToArray();
-        if (OverviewRuntimeOptions.NativeRequested)
+        if (OverviewRuntimeOptions.UseNative)
             return new NativeOverviewPresenter(snapshot.Windows, snapshot.Camera, area, bookmarks, viewports, snapshot.Animate, snapshot.ShowInTaskbar);
         return new FormOverviewPresenter(new(snapshot.Windows, snapshot.Camera, new(area.Left, area.Top, area.Width, area.Height),
             bookmarks: bookmarks, viewports: snapshot.Monitors.Select(m => new RectD(

@@ -1,23 +1,24 @@
 # 完整总览的原生宿主适配
 
-这是上一轮[原生宿主实验](live-overview-surface.md)的生产结构适配，仍需显式启用。默认启动保留 WinForms 顶层窗口，新路径使用真实 WPF 顶层窗口；两者复用同一个 `SpatialOverviewView`，地图、搜索、工作区和 CRT 内容不再分别实现。
+这是上一轮[原生宿主实验](live-overview-surface.md)的生产结构适配。Windows 11 build 22621 及以上默认使用真实 WPF 顶层窗口，较早系统默认保留 WinForms 顶层窗口；两者复用同一个 `SpatialOverviewView`，地图、搜索、工作区和 CRT 内容不再分别实现。
 
 ## 使用与边界
 
-试用包的 `Start.cmd` 继续启动默认路径。要验证新路径，先从托盘“退出并恢复窗口”，再双击 `Start-NativeOverview.cmd`；也可以运行：
+试用包的 `Start.cmd` 和直接运行 EXE 使用上述系统版本规则。`Start-NativeOverview.cmd` 可显式选择原生路径，`Start-FormOverview.cmd` 可返回旧窗体路径。更换入口前先从托盘“退出并恢复窗口”；也可以运行：
 
 ```powershell
 ./BorderlessFlatWindow.App.exe --native-overview
+./BorderlessFlatWindow.App.exe --form-overview
 ```
 
-它接入现有管理器、画布会话、全局快捷键、选窗和恢复流程。`--native-overview-solid` 可强制纯色降级。Windows 11 build 22621 起可请求系统 Desktop Acrylic；系统不支持或高对比度时使用纯色。接口成功仍不证明实际背景视觉符合要求，不修改系统透明度设置。
+它接入现有管理器、画布会话、全局快捷键、选窗和恢复流程。`--native-overview-solid` 同时选择原生路径并强制纯色。`--form-overview` 优先于全部原生参数，保证旧快捷方式附带参数时仍能明确回退。预热与实际创建使用同一次启动选择，不混用两种宿主。Windows 11 build 22621 起可请求系统 Desktop Acrylic；系统不支持或高对比度时使用纯色。材质请求失败在原生宿主内降级，不会自动启动第二个管理器，也不修改系统透明度设置。
 
-这里尚未将原生路径设为默认，也没有完成真实连续呈现、自然操作、混合 DPI 或全部兼容验收。最初工具画面中背景仍呈纯色，后续[背景配置修正与合成验证](native-backdrop-validation.md)已定位并解决本机非客户区渲染策略问题；下文保留适配初轮的证据。目标是保留空间关系并减少同步桌面读回，不能以降低总览功能或静态卡片列表替代需求。
+2026-10-21，用户体验 `BorderlessFlatWindow-show-3e1843d` 的原生总览后确认：远控 PC 中没有明显卡顿或渲染色块刷新，观感良好。此次主观视觉验收通过，支持把原生宿主用于上述较新系统的正常启动；没有据此外推本地 GPU 帧时间、物理快速连按、真实焦点缩小或完整硬件矩阵均通过。此前资源管理器选窗后的 Tab 焦点故障已独立通过用户自然操作复验。最初的纯色背景问题已在[背景配置修正与合成验证](native-backdrop-validation.md)定位并解决；下文保留各轮历史证据。目标仍是保留空间关系并减少同步桌面读回。
 
 ## 结构与所有权
 
 - `SpatialOverviewView` 是可直接放入 WPF 窗口的视图，负责布局、空间投影、搜索、工作区、输入命令和唯一 WPF 动画值。
-- `SpatialOverviewScene` 是保留原 API 的薄 `ElementHost` 适配器。默认窗体继续使用它；重复释放不会再次访问已销毁的 ElementHost 内部对象。
+- `SpatialOverviewScene` 是保留原 API 的薄 `ElementHost` 适配器。旧窗体继续使用它；重复释放不会再次访问已销毁的 ElementHost 内部对象。
 - `IOverviewPresenter` 是管理器与具体宿主之间的边界。`FormOverviewPresenter` 包装已有窗体，`NativeOverviewPresenter` 使用 `SpatialOverviewWindow`。接口的 Handle、Visible、Closed 都对应实际显示的顶层窗口，没有隐藏或覆盖 Form 属性来伪装宿主。
 - 空闲缓存继续保存一个尚未使用的 presenter，沿用完整输入快照、重入代号和单次转移。原生隐藏准备不激活、不绑定外部预览、不读取桌面；背景接口和布局可以提前准备。后续实际打开才重新提供、核验源并注册预览。启动时原生路径只预热共享视图，不创建旧 ElementHost 场景。
 
@@ -50,7 +51,7 @@
 
 ## 减少重复预览同步
 
-背景修正之后，实机匿名记录暴露出单源会话仍有 80 / 88 次预览同步。检查发现两处重复工作：隐藏准备尚未完成时，布局事件已开始同步中间几何；管理器反复提供相同窗口快照时，原生 presenter 仍无条件同步。这里优化原生路径，默认 WinForms 路径保持原有行为。
+背景修正之后，实机匿名记录暴露出单源会话仍有 80 / 88 次预览同步。检查发现两处重复工作：隐藏准备尚未完成时，布局事件已开始同步中间几何；管理器反复提供相同窗口快照时，原生 presenter 仍无条件同步。这里优化原生路径，旧 WinForms 路径保持原有行为。
 
 现在先完成隐藏布局，再一次性建立原生关系。后续几何通知只比较完整的预览请求，包括身份、物理矩形、裁剪、资格及顺序；请求未变化时不进入原生批次。它缓存的是布局请求，不缓存窗口身份、可见性或桌面归属的核验结果。源快照或可用性变化、源元数据变化、预览开关和 F5 显式重试仍强制运行原有验证。原生调用中发生的刷新请求会在当前批次之后排队处理，关闭后直接失效，避免丢失嵌套更新或递归查询。
 
@@ -62,7 +63,7 @@
 
 ## 显示阶段与截图前等待
 
-生产交接现在由 `RequiresDesktopSnapshot` 声明是否需要桌面快照。默认交互式窗体仍在隐藏可见面板后调用 `DwmFlush`，随后读取背景；原生 presenter 不读取桌面位图，因此跳过这项等待。合成验证窗体本身不采集桌面，也不需要该等待。[微软文档](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)说明 `DwmFlush` 会阻塞调用者，但不刷新整个会话的渲染批次；这里没有把它当作所有第三方内容均已呈现的保证。
+生产交接现在由 `RequiresDesktopSnapshot` 声明是否需要桌面快照。旧交互式窗体仍在隐藏可见面板后调用 `DwmFlush`，随后读取背景；原生 presenter 不读取桌面位图，因此跳过这项等待。合成验证窗体本身不采集桌面，也不需要该等待。[微软文档](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush)说明 `DwmFlush` 会阻塞调用者，但不刷新整个会话的渲染批次；这里没有把它当作所有第三方内容均已呈现的保证。
 
 匿名指标增加 `DesktopFlushMs`，属于 `HostHideMs` 内部阶段。原生窗口在显式开启计时时进一步拆分 `WindowShowCallMs`、`PostShowLayoutMs`、`ShownNotificationMs` 和 `ActivateCallMs`，分别记录 WPF Show 调用、后置布局、显示通知与显式激活请求。没有执行或尚未完成的阶段保留 null，隐藏准备不产生显示计时；这些值仍不是屏幕呈现延迟，不能与包含它们的 HostShow 重复相加。
 
@@ -92,4 +93,4 @@
 
 差异没有一致方向，样本少且仍受缓存和调度影响，不能支持把禁用系统过渡作为生产优化。生产窗口保持现有系统过渡策略，此开关只存在于显式对照检查。原始报告和工具画面不提交仓库。
 
-下一步仍需不同配置下的背景与连续过渡实际呈现、自然快速连按、真实工作区编辑、多窗口/长期资源、跨进程遮挡与裁剪，以及多屏/DPI/特殊状态的完整验收；T11/T12 保持开放。
+下一步仍需不同配置下的背景与连续过渡实际呈现、物理快速连按矩阵、原生宿主中的真实工作区编辑、多窗口/长期资源、跨进程遮挡与裁剪，以及多屏/DPI/特殊状态的完整验收；不重复要求已通过的远控观感与资源管理器 Tab 故障复验。T11/T12 保持开放。
