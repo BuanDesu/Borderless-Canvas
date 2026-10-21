@@ -43,7 +43,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private GlobalNavigationState? navigationState;
     private bool? inputAvailable;
     private NavigationInputOptions inputOptions = new();
-    private SpatialOverviewForm? overview;
+    private IOverviewPresenter? overview;
     private WindowCatalogSnapshot? lastSnapshot;
     private bool overviewRequested, overviewScheduled, openingOverview, openingCloseRequested;
     private long overviewInputSession;
@@ -229,12 +229,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
         foreach (ToolStripMenuItem item in moreMenu.Items.OfType<ToolStripMenuItem>()) if (item.HasDropDownItems) ChromeTheme.StyleMenu(item.DropDown);
         ScheduleOverviewPreparation();
     }
-    private IEnumerable<SpatialOverviewForm.PreviewSource> OverviewPreviewSources()
+    private IEnumerable<OverviewPreviewSource> OverviewPreviewSources()
     {
         if (lastSnapshot is null || layout is null) return [];
         var managedIds = OverviewWindows().Select(window => window.Id).ToHashSet();
         return lastSnapshot.Entries.Where(entry => entry.Id is { } id && managedIds.Contains(id) && entry.Observation.Identity is not null)
-            .Select(entry => new SpatialOverviewForm.PreviewSource(entry.Id!.Value, entry.Observation.Identity!.Value,
+            .Select(entry => new OverviewPreviewSource(entry.Id!.Value, entry.Observation.Identity!.Value,
                 entry.Observation.Bounds is { } bounds && layout.Monitors.Any(m => bounds.Position.X >= m.WorkArea.Left && bounds.Position.Y >= m.WorkArea.Top
                 && bounds.Right <= m.WorkArea.Right && bounds.Bottom <= m.WorkArea.Bottom), entry.Observation.Bounds)).ToArray();
     }
@@ -300,7 +300,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             }
         }
     }
-    private void FinishOverview(SpatialOverviewForm dialog, ManagedCanvasSession managed, ForegroundWindowBookmark? focus, long inputSession)
+    private void FinishOverview(IOverviewPresenter dialog, ManagedCanvasSession managed, ForegroundWindowBookmark? focus, long inputSession)
     {
         if (!IsDisposed && !Disposing) hints.Active = true;
         if (ReferenceEquals(overview, dialog)) overview = null;

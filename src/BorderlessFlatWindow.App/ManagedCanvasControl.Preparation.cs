@@ -10,7 +10,7 @@ internal sealed partial class ManagedCanvasControl
 {
     private const int PreparationIdleMilliseconds = 350;
     private readonly System.Windows.Forms.Timer preparationTimer = new() { Interval = PreparationIdleMilliseconds };
-    private readonly OverviewPreparationSlot<SpatialOverviewForm> preparedOverview = new();
+    private readonly OverviewPreparationSlot<IOverviewPresenter> preparedOverview = new();
     private OverviewPreparationSnapshot? failedPreparation, settlingPreparation;
     private bool preparingOverviewHost, preparationDisposed;
     private long lastCanvasInput;
@@ -27,13 +27,16 @@ internal sealed partial class ManagedCanvasControl
             bookmarks.CanWrite, bookmarks.Message, ChromeTheme.Candy.Select(c => c.ToArgb()),
             overviewAnimation.Checked, host.OverviewShowsInTaskbar);
 
-    private SpatialOverviewForm CreateOverview(OverviewPreparationSnapshot snapshot)
+    private IOverviewPresenter CreateOverview(OverviewPreparationSnapshot snapshot)
     {
         var display = new DisplayLayout(snapshot.Monitors); var area = display.Primary.WorkArea;
-        return new(snapshot.Windows, snapshot.Camera, new(area.Left, area.Top, area.Width, area.Height),
+        var viewports = snapshot.Monitors.Select(m => new RectD(snapshot.Camera.Position + m.WorkArea.Position - display.CanvasWorkArea.Position, m.WorkArea.Size)).ToArray();
+        if (OverviewRuntimeOptions.NativeRequested)
+            return new NativeOverviewPresenter(snapshot.Windows, snapshot.Camera, area, bookmarks, viewports, snapshot.Animate, snapshot.ShowInTaskbar);
+        return new FormOverviewPresenter(new(snapshot.Windows, snapshot.Camera, new(area.Left, area.Top, area.Width, area.Height),
             bookmarks: bookmarks, viewports: snapshot.Monitors.Select(m => new RectD(
                 snapshot.Camera.Position + m.WorkArea.Position - display.CanvasWorkArea.Position, m.WorkArea.Size)),
-            animate: snapshot.Animate) { ShowInTaskbar = snapshot.ShowInTaskbar };
+            animate: snapshot.Animate) { ShowInTaskbar = snapshot.ShowInTaskbar });
     }
 
     private void ScheduleOverviewPreparation()
@@ -65,7 +68,7 @@ internal sealed partial class ManagedCanvasControl
         { settlingPreparation = key; preparationTimer.Start(); return; }
         settlingPreparation = null;
         preparingOverviewHost = true;
-        SpatialOverviewForm? candidate = null;
+        IOverviewPresenter? candidate = null;
         try
         {
             var ticket = preparedOverview.Begin(); var started = Stopwatch.GetTimestamp();

@@ -6,7 +6,7 @@ namespace BorderlessFlatWindow.App;
 
 internal sealed partial class SpatialOverviewForm
 {
-    internal static string? MotionMetricsPath { get; set; }
+    internal static string? MotionMetricsPath { get => OverviewRuntimeOptions.MetricsPath; set => OverviewRuntimeOptions.MetricsPath = value; }
     private readonly List<double> motionSamples = [], motionTimes = [];
     private double prepareMilliseconds, captureMilliseconds, sceneSnapshotMilliseconds, uploadMilliseconds;
     private double rawCaptureMilliseconds, focusEligibilityMilliseconds, focusCloneMilliseconds, focusRecheckMilliseconds;

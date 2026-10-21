@@ -183,7 +183,7 @@ internal sealed class WorkspaceStrip : UserControl
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
         if (button.Focused) { using var focus = ChromeTheme.Round(body, 18); using var pen = new Pen(ChromeTheme.Purple, 2); g.DrawPath(pen, focus); }
     }
-    internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, SpatialOverviewForm.PreviewSource> sources, Control host)
+    internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, OverviewPreviewSource> sources, Control host)
     {
         foreach (var (button, position) in positions)
         {
