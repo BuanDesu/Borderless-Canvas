@@ -251,7 +251,7 @@ internal sealed partial class MainForm : Form
             // Pay WPF initialization once at startup, before installing the input watchdog.
             try
             {
-                if (OverviewRuntimeOptions.NativeRequested) BorderlessFlatWindow.Presentation.SpatialOverviewView.WarmUp();
+                if (OverviewRuntimeOptions.UseNative) BorderlessFlatWindow.Presentation.SpatialOverviewView.WarmUp();
                 else { BorderlessFlatWindow.Presentation.CompositionSurface.WarmUp(); BorderlessFlatWindow.Presentation.SpatialOverviewScene.WarmUp(); }
             }
             catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException) { }

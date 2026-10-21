@@ -11,8 +11,9 @@ internal static class Program
         using var pixelFont = new PixelFont();
         var backdropCheck = Array.IndexOf(args, "--native-backdrop-check");
         if (backdropCheck >= 0) return backdropCheck + 1 < args.Length ? NativeBackdropCheck.Run(Path.GetFullPath(args[backdropCheck + 1])) : 1;
-        OverviewRuntimeOptions.NativeRequested = args.Contains("--native-overview", StringComparer.Ordinal);
-        OverviewRuntimeOptions.ForceSolid = args.Contains("--native-overview-solid", StringComparer.Ordinal);
+        var overviewHost = BorderlessFlatWindow.Application.Overview.OverviewHostOptions.Resolve(args, Environment.OSVersion.Version);
+        OverviewRuntimeOptions.UseNative = overviewHost.UseNative;
+        OverviewRuntimeOptions.ForceSolid = overviewHost.ForceSolid;
         var nativeCheck = Array.IndexOf(args, "--native-overview-check");
         if (nativeCheck >= 0) return nativeCheck + 1 < args.Length ? NativeOverviewCheck.Run(Path.GetFullPath(args[nativeCheck + 1]),
             args.Contains("--compare-system-transitions", StringComparer.Ordinal)) : 1;

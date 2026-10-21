@@ -54,6 +54,8 @@ dotnet run --project src/BorderlessFlatWindow.App
 
 试用目录无需源码或 SDK，双击 `Start.cmd` 即可；需已安装 .NET 10 Windows Desktop Runtime x64。`Recover.cmd` 独立恢复，`Inspect-Recovery.cmd` 仅检查。`manifest.json` 记录版本和文件 SHA-256；包不含运行时，生成物位于 ignored `artifacts/trial/`。
 
+Windows 11 build 22621 及以上默认使用无桌面位图读回的原生总览，较早系统保留窗体总览。用户远控体验已确认无明显卡顿或色块刷新。兼容问题可先退出再用 `Start-FormOverview.cmd` 回退；`Start-NativeOverview.cmd` 保留显式启用入口。完整矩阵仍在验收，详见[原生总览](docs/native-overview-presenter.md)。
+
 ## 当前可以操作什么
 
 - 在“窗口画布”勾选普通窗口并开始；开始前已有的未选窗口保持排除。
@@ -67,7 +69,7 @@ dotnet run --project src/BorderlessFlatWindow.App
 - 同 DPI 的多屏共享连续画布，聚焦目标回主屏。混合/未知 DPI 仍明确拒绝；最大化、全屏和置顶等不支持的状态需要先解除。
 - 关闭或最小化管理器收入托盘，画布继续运行；双击托盘图标返回。暂停恢复原位；托盘“退出并恢复窗口”才真正退出。异常退出可用“恢复中心”或独立恢复程序。
 
-总览桌面背景仅在内存中模糊，关闭释放；预览可能停帧或降级为标题卡片。真实多屏、广泛应用、性能和正式发布矩阵尚未全部验收，具体边界见[改进说明](docs/interaction-refresh.md)。
+原生总览由系统合成背景，不读取桌面位图；旧窗体路径的背景仅在内存中模糊，关闭释放。预览可能停帧或降级为标题卡片。真实多屏、广泛应用、性能和正式发布矩阵尚未全部验收，具体边界见[改进说明](docs/interaction-refresh.md)。
 
 ## 目录
 
@@ -104,8 +106,8 @@ docs/
 - [全局导航](docs/global-navigation.md)：T07 模式、快捷键、手势历史、线程与输入释放边界。
 - [空间总览](docs/spatial-overview.md)：T08 稳定投影、搜索/选择、确认/取消、焦点保护与生命周期。
 - [总览预览与降级](docs/overview-previews.md)：T09 资源生命周期、离屏标题占位、失败重试和真实画面验证。
-- [无桌面读回的原生宿主实验](docs/live-overview-surface.md)：独立的系统背景与实时矩形过渡验证，尚未切换默认总览。
-- [完整总览的原生适配](docs/native-overview-presenter.md)：共享地图/工作区视图、真实 HWND 与输入/恢复接入，使用 `--native-overview` 显式试用。
+- [无桌面读回的原生宿主实验](docs/live-overview-surface.md)：独立的系统背景与实时矩形过渡验证历史。
+- [完整总览的原生适配](docs/native-overview-presenter.md)：共享地图/工作区视图、真实 HWND 与输入/恢复接入，按系统版本默认选择并保留显式回退。
 - [原生背景配置与合成验证](docs/native-backdrop-validation.md)：修正无边框宿主的非客户区渲染策略，以自有图案验证透明模糊和系统降级。
 - [位置标签与存储](docs/location-bookmarks.md)：T10 命名位置、重名区分、真实跳转、重启及文件损坏处理。
 - [运行中新窗口接入](docs/runtime-window-admission.md)：FR-02 手动/自动接入、空位放置、失败恢复及五窗故障演练。
