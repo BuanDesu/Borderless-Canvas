@@ -16,12 +16,13 @@ internal sealed partial class SpatialOverviewForm
     private int cropOcclusionKinds;
     private double reconcileMilliseconds, constructionMilliseconds;
     private double dispatchMilliseconds, queueMilliseconds, hostHideMilliseconds, hostShowMilliseconds;
+    private double? desktopFlushMilliseconds;
     private double sceneLayoutMilliseconds, previewLayoutMilliseconds, previewSyncMilliseconds;
     private int previewSyncCalls;
     private long requestTimestamp, firstCallbackTimestamp;
     internal void SetOpenTimings(long requested, double reconcile, double construction, double dispatch = 0, double queue = 0)
     { requestTimestamp = requested; reconcileMilliseconds = reconcile; constructionMilliseconds = construction; dispatchMilliseconds = dispatch; queueMilliseconds = queue; }
-    internal void SetHostTimings(double hide, double show) { hostHideMilliseconds = hide; hostShowMilliseconds = show; }
+    internal void SetHostTimings(double hide, double show, double? desktopFlush = null) { hostHideMilliseconds = hide; hostShowMilliseconds = show; desktopFlushMilliseconds = desktopFlush; }
 
     private void WriteMotionMetrics()
     {
@@ -48,6 +49,7 @@ internal sealed partial class SpatialOverviewForm
             ReconcileMs = reconcileMilliseconds, ConstructionMs = constructionMilliseconds,
             InputDispatchMs = dispatchMilliseconds, UiQueueMs = queueMilliseconds,
             HostHideMs = hostHideMilliseconds, HostShowMs = hostShowMilliseconds,
+            DesktopFlushMs = desktopFlushMilliseconds,
             SceneLayoutMs = sceneLayoutMilliseconds, PreviewLayoutMs = previewLayoutMilliseconds,
             PreviewSyncMs = previewSyncMilliseconds, PreviewSyncCalls = previewSyncCalls,
             RequestToFirstCallbackMs = requestTimestamp > 0 && firstCallbackTimestamp >= requestTimestamp

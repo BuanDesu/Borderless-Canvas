@@ -17,6 +17,7 @@ internal interface IOverviewPresenter : IDisposable
     bool IsDisposed { get; }
     bool IsTransitioning { get; }
     bool WantsPresentation { get; }
+    bool RequiresDesktopSnapshot { get; }
     bool ShowInTaskbar { get; set; }
     double IdlePreparationMilliseconds { get; set; }
     CanvasWindow? ConfirmedTarget { get; }
@@ -26,7 +27,7 @@ internal interface IOverviewPresenter : IDisposable
     void SetPreviewSources(IEnumerable<OverviewPreviewSource> sources);
     void UpdateWindows(IEnumerable<CanvasWindow> windows, bool running, string message);
     void SetOpenTimings(long requested, double reconcile, double construction, double dispatch = 0, double queue = 0);
-    void SetHostTimings(double hide, double show);
+    void SetHostTimings(double hide, double show, double? desktopFlush = null);
     void PreparePresentation();
     void Show(bool activate);
     void ToggleOverview(long capturedTimestamp = 0);
@@ -59,6 +60,7 @@ internal sealed class FormOverviewPresenter : IOverviewPresenter
     public bool IsDisposed => form.IsDisposed;
     public bool IsTransitioning => form.IsTransitioning;
     public bool WantsPresentation => form.WantsPresentation;
+    public bool RequiresDesktopSnapshot => form.RequiresDesktopSnapshot;
     public bool ShowInTaskbar { get => form.ShowInTaskbar; set => form.ShowInTaskbar = value; }
     public double IdlePreparationMilliseconds { get => form.IdlePreparationMilliseconds; set => form.IdlePreparationMilliseconds = value; }
     public CanvasWindow? ConfirmedTarget => form.ConfirmedTarget;
@@ -68,7 +70,7 @@ internal sealed class FormOverviewPresenter : IOverviewPresenter
     public void SetPreviewSources(IEnumerable<OverviewPreviewSource> sources) => form.SetPreviewSources(sources);
     public void UpdateWindows(IEnumerable<CanvasWindow> windows, bool running, string message) => form.UpdateWindows(windows, running, message);
     public void SetOpenTimings(long requested, double reconcile, double construction, double dispatch = 0, double queue = 0) => form.SetOpenTimings(requested, reconcile, construction, dispatch, queue);
-    public void SetHostTimings(double hide, double show) => form.SetHostTimings(hide, show);
+    public void SetHostTimings(double hide, double show, double? desktopFlush = null) => form.SetHostTimings(hide, show, desktopFlush);
     public void PreparePresentation() => form.CaptureBackdrop();
     public void Show(bool activate) { form.Show(); if (activate && !form.IsDisposed && form.Visible) form.Activate(); }
     public void ToggleOverview(long capturedTimestamp = 0) => form.ToggleOverview(capturedTimestamp);
