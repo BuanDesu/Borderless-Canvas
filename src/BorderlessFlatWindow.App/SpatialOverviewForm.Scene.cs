@@ -69,27 +69,31 @@ internal sealed partial class SpatialOverviewForm
     private void CaptureSceneBackdrop()
     {
         var started = Stopwatch.GetTimestamp();
-        using var raw = FrostedBackdrop.CaptureRaw(backdropBounds);
-        if (raw is null) return;
         var source = model.SelectedId is { } id ? previewSources.GetValueOrDefault(id) : null;
+        focusWasForeground = source is not null && WindowEventListener.ForegroundWindow == source.Identity.Handle;
+        Rectangle? candidate = null; Func<DesktopCropStatus>? eligibility = null;
         if (animateEntrance && source is { FullyOnscreen: true, ScreenBounds: { } bounds })
         {
             var rect = new PixelRect((int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom);
             if (new PixelRect(backdropBounds.Left, backdropBounds.Top, backdropBounds.Right, backdropBounds.Bottom).Contains(rect))
             {
-                focusCropStatus = (int)DesktopCropEligibility.Evaluate(source.Identity, rect, rect);
-                if (focusCropStatus == 0)
+                candidate = new(rect.Left, rect.Top, rect.Width, rect.Height);
+                eligibility = () =>
                 {
-                    try
-                    {
-                        focusFrame = raw.Clone(new Rectangle(rect.Left - backdropBounds.Left, rect.Top - backdropBounds.Top, rect.Width, rect.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-                        if (!DesktopCropEligibility.IsUnobscured(source.Identity, rect)) { focusFrame.Dispose(); focusFrame = null; }
-                    }
-                    catch (Exception error) when (error is ArgumentException or OutOfMemoryException or System.Runtime.InteropServices.ExternalException)
-                    { focusFrame?.Dispose(); focusFrame = null; }
-                }
+                    if (MotionMetricsPath is null) return DesktopCropEligibility.Evaluate(source.Identity, rect, rect);
+                    var status = DesktopCropEligibility.Evaluate(source.Identity, rect, rect, out var kinds);
+                    cropOcclusionKinds |= kinds; return status;
+                };
             }
         }
+        using var capture = OverviewBackdropCapture.Capture(backdropBounds, candidate, eligibility);
+        rawCaptureMilliseconds = capture.RawMilliseconds; backdropCaptured = capture.Captured;
+        readbackBackend = FrostedBackdrop.LastReadback;
+        focusEligibilityMilliseconds = capture.EligibilityMilliseconds;
+        focusCloneMilliseconds = capture.CloneMilliseconds; focusRecheckMilliseconds = capture.RecheckMilliseconds;
+        focusCropStatus = capture.FocusStatus;
+        focusFrame?.Dispose(); focusFrame = capture.TakeFocus();
+        if (capture.Backdrop is not { } raw) { captureMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds; return; }
         var uploading = Stopwatch.GetTimestamp(); scene!.SetBackdrop(raw);
         uploadMilliseconds = Stopwatch.GetElapsedTime(uploading).TotalMilliseconds;
         captureMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;

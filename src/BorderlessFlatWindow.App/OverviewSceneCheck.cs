@@ -15,6 +15,8 @@ internal static class OverviewSceneCheck
     internal static int Run(string output)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        OverviewBackdropChecks.Run();
+        DesktopReadbackChecks.Run(output);
         var warming = Stopwatch.StartNew(); SpatialOverviewScene.WarmUp(); var warmupMs = warming.Elapsed.TotalMilliseconds;
         CheckHiddenPreparation(output);
         CheckVisualClock();
