@@ -9,6 +9,8 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var backdropCheck = Array.IndexOf(args, "--native-backdrop-check");
+        if (backdropCheck >= 0) return backdropCheck + 1 < args.Length ? NativeBackdropCheck.Run(Path.GetFullPath(args[backdropCheck + 1])) : 1;
         OverviewRuntimeOptions.NativeRequested = args.Contains("--native-overview", StringComparer.Ordinal);
         OverviewRuntimeOptions.ForceSolid = args.Contains("--native-overview-solid", StringComparer.Ordinal);
         var nativeCheck = Array.IndexOf(args, "--native-overview-check");

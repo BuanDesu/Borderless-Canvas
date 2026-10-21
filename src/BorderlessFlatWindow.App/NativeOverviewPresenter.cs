@@ -33,6 +33,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     private int metricsDpi;
     private double progress, hideMs, showMs, reconcileMs, constructionMs, dispatchMs, queueMs, prepareMs;
     private long requested, firstFrame, previousFrame;
+    private bool firstFrameActive, firstFrameForeground;
     private long lastToggleRequested, lastToggleFrame;
     private readonly List<double> gaps = [];
     private NativeOverviewBackdrop.Result backdrop = NativeOverviewBackdrop.Result.Unavailable;
@@ -206,7 +207,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     {
         if (disposed) return;
         progress = value; var now = Stopwatch.GetTimestamp();
-        if (firstFrame == 0) firstFrame = now;
+        if (firstFrame == 0) { firstFrame = now; firstFrameActive = surface.Active; firstFrameForeground = WindowEventListener.ForegroundWindow == surface.Handle; }
         if (lastToggleRequested > 0 && lastToggleFrame == 0 && now >= lastToggleRequested) lastToggleFrame = now;
         if (previousFrame > 0) gaps.Add(Stopwatch.GetElapsedTime(previousFrame, now).TotalMilliseconds);
         previousFrame = now; frames++; AnimatePreviews(value); FrameObserved?.Invoke(value);
@@ -279,6 +280,10 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
         var sorted = gaps.Order().ToArray();
         var record = new { Renderer = "NativeRetained", bounds.Width, bounds.Height, Dpi = metricsDpi,
             DesktopReadback = false, BackdropAccepted = backdrop.Accepted, BackdropSetHResult = backdrop.SetHResult,
+            BackdropNonClientSetHResult = backdrop.NonClientSetHResult, BackdropNonClientReadHResult = backdrop.NonClientReadHResult,
+            BackdropNonClientEnabled = backdrop.NonClientEnabled,
+            FirstFrameActive = firstFrame > 0 ? (bool?)firstFrameActive : null,
+            FirstFrameForegroundMatches = firstFrame > 0 ? (bool?)firstFrameForeground : null,
             PreviewCount = cards.Length, Frames = frames, PreviewSyncCalls = previewSyncs, Reversals = reversals,
             HostPrepared = IdlePreparationMilliseconds > 0, IdlePreparationMs = IdlePreparationMilliseconds,
             PrepareMs = prepareMs, HostHideMs = hideMs, HostShowMs = showMs, ReconcileMs = reconcileMs, ConstructionMs = constructionMs,
