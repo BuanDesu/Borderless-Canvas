@@ -28,6 +28,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private bool closing, refreshingPreviews;
     internal bool IsTransitioning => entering || exiting;
     internal bool WantsPresentation => desiredOpen && !closing && !IsDisposed && !Disposing;
+    internal bool RequiresDesktopSnapshot => !showWithoutActivation;
     internal int LivePreviewCount => previews?.ResourceCount ?? 0;
     internal double IdlePreparationMilliseconds;
     internal void SetInitialSelection(Guid? selected)

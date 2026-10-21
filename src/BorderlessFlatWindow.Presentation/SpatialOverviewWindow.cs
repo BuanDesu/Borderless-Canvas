@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -8,6 +9,8 @@ using BorderlessFlatWindow.Core.Geometry;
 
 namespace BorderlessFlatWindow.Presentation;
 
+public readonly record struct OverviewShowStages(double? WindowShowMs, double? LayoutMs, double? NotificationMs, double? ActivationMs);
+
 /// <summary>A real WPF top-level window. Its HWND is the preview and input destination.</summary>
 public sealed class SpatialOverviewWindow : IDisposable
 {
@@ -15,6 +18,7 @@ public sealed class SpatialOverviewWindow : IDisposable
     private readonly SpatialOverviewView view;
     private readonly PixelRect bounds;
     private readonly Func<nint, bool, bool> configure;
+    private readonly bool measureShow;
     private bool closed, disposing, shown;
     public event EventHandler? Shown;
     public event EventHandler? Activated;
@@ -22,6 +26,7 @@ public sealed class SpatialOverviewWindow : IDisposable
     public bool IsClosed => closed;
     public bool Visible => !closed && window.IsVisible;
     public bool Active => !closed && window.IsActive;
+    public OverviewShowStages ShowStages { get; private set; }
     public bool NativeBackdropAccepted { get; private set; }
     public bool ShowInTaskbar { get => window.ShowInTaskbar; set { if (!closed && window.ShowInTaskbar != value) window.ShowInTaskbar = value; } }
     public nint Handle => closed ? 0 : new WindowInteropHelper(window).EnsureHandle();
@@ -29,9 +34,9 @@ public sealed class SpatialOverviewWindow : IDisposable
     public bool Enabled => !closed && IsWindowEnabled(Handle);
     public SizeD ClientPixels => GetClientRect(Handle, out var rect) ? new(rect.Right, rect.Bottom) : bounds.Size;
 
-    public SpatialOverviewWindow(SpatialOverviewView view, PixelRect bounds, Func<nint, bool, bool> configure, bool showInTaskbar)
+    public SpatialOverviewWindow(SpatialOverviewView view, PixelRect bounds, Func<nint, bool, bool> configure, bool showInTaskbar, bool measureShow = false)
     {
-        this.view = view; this.bounds = bounds; this.configure = configure;
+        this.view = view; this.bounds = bounds; this.configure = configure; this.measureShow = measureShow;
         window = new Window { Title = "BFW 空间总览", WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize,
             AllowsTransparency = false, Background = Brushes.Transparent, Topmost = true, ShowActivated = false,
             ShowInTaskbar = showInTaskbar, Width = bounds.Width, Height = bounds.Height, Content = view };
@@ -68,11 +73,26 @@ public sealed class SpatialOverviewWindow : IDisposable
     public void Show(bool activate)
     {
         ObjectDisposedException.ThrowIf(closed, this);
+        if (measureShow) ShowStages = default;
+        var started = measureShow ? Stopwatch.GetTimestamp() : 0;
         window.ShowActivated = activate; window.Show();
+        if (measureShow) ShowStages = ShowStages with { WindowShowMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds };
         if (closed) return;
+        if (measureShow) started = Stopwatch.GetTimestamp();
         EnsureLayout();
-        if (!shown) { shown = true; Shown?.Invoke(this, EventArgs.Empty); }
-        if (activate && !closed) window.Activate();
+        if (measureShow) ShowStages = ShowStages with { LayoutMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds };
+        if (!shown)
+        {
+            if (measureShow) started = Stopwatch.GetTimestamp();
+            shown = true; Shown?.Invoke(this, EventArgs.Empty);
+            if (measureShow) ShowStages = ShowStages with { NotificationMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds };
+        }
+        if (activate && !closed)
+        {
+            if (measureShow) started = Stopwatch.GetTimestamp();
+            window.Activate();
+            if (measureShow) ShowStages = ShowStages with { ActivationMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds };
+        }
     }
     public void Close() { if (!closed) window.Close(); }
     public void Post(Action action) { if (closed) action(); else window.Dispatcher.BeginInvoke(action); }

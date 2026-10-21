@@ -15,7 +15,7 @@ namespace BorderlessFlatWindow.App;
 /// <summary>Full native presenter on a real WinForms message loop, with synthetic owned sources only.</summary>
 internal static class NativeOverviewCheck
 {
-    internal static int Run(string output)
+    internal static int Run(string output, bool compareSystemTransitions = false)
     {
         if (File.Exists(output)) throw new IOException("Use a new native overview report path.");
         var directory = Path.Combine(Path.GetDirectoryName(output)!, "native-presenter-" + Guid.NewGuid().ToString("N"));
@@ -41,17 +41,24 @@ internal static class NativeOverviewCheck
         var disabledPassed = false; var selectionPassed = false; var searchPassed = false;
         using var context = new ApplicationContext();
         using var driver = new System.Windows.Forms.Timer { Interval = 20 };
-        using var watchdog = new System.Windows.Forms.Timer { Interval = 30000 };
+        using var watchdog = new System.Windows.Forms.Timer { Interval = compareSystemTransitions ? 120000 : 30000 };
         var sizes = new[] { new Size(1920, 1080), new Size(3440, 1440), new Size(960, 720) };
+        var caseCount = compareSystemTransitions ? 24 : 6;
+        Size activeSize = default;
+        bool? transitionsDisabled = null;
+        int? transitionsHResult = null;
         OverviewPreviewSource[] Sources() => sourceForms.Select((source, position) => new OverviewPreviewSource(ids[position],
             new NativeWindowIdentity(source.Handle, (uint)Environment.ProcessId, process.StartTime.ToUniversalTime().ToFileTimeUtc()), false)).ToArray();
         void Fail(Exception error)
         { failure = error; driver.Stop(); watchdog.Stop(); current?.Dispose(); current = null; context.ExitThread(); }
         void StartCase()
         {
-            if (++index >= 6) { driver.Stop(); CheckNoAnimation(); CheckModalInput(); context.ExitThread(); return; }
+            if (++index >= caseCount) { driver.Stop(); CheckNoAnimation(); CheckModalInput(); context.ExitThread(); return; }
             phase = 0; shown = closed = maxResources = 0; idleStarted = 0;
-            var size = sizes[index % sizes.Length]; OverviewRuntimeOptions.ForceSolid = index >= 3;
+            var size = activeSize = sizes[compareSystemTransitions ? index / 8 : index % sizes.Length];
+            OverviewRuntimeOptions.ForceSolid = compareSystemTransitions ? index % 8 >= 4 : index >= 3;
+            transitionsDisabled = compareSystemTransitions ? index % 4 is 1 or 2 : null;
+            transitionsHResult = null;
             current = new(models, camera, new(work.Left, work.Top, work.Left + size.Width, work.Top + size.Height), labels,
                 [camera.Bounds], animate: true, showWithoutActivation: true);
             var local = current;
@@ -73,6 +80,11 @@ internal static class NativeOverviewCheck
                 catch (Exception error) { Fail(error); }
             };
             local.PrepareHiddenHost();
+            if (transitionsDisabled is { } disabled)
+            {
+                var value = disabled ? 1 : 0;
+                transitionsHResult = DwmSetWindowAttribute(local.Handle, 3, in value, sizeof(int));
+            }
             if (local.Visible || local.LivePreviewCount != 0 || WindowEventListener.ForegroundWindow != before)
                 throw new InvalidOperationException("Native hidden preparation activated or acquired previews.");
             local.PreparePresentation(); local.Show(false); maxResources = local.LivePreviewCount;
@@ -107,7 +119,8 @@ internal static class NativeOverviewCheck
                 selectionPassed = local.ConfirmedTarget is { } target && target.Id != ids[0];
                 if (!selectionPassed || closed != 1 || !local.IsDisposed || local.LivePreviewCount != 0 || WindowEventListener.ForegroundWindow != before)
                     throw new InvalidOperationException("Native selection, release, completion or foreground failed.");
-                results.Add(new { Case = index, sizes[index % sizes.Length].Width, sizes[index % sizes.Length].Height,
+                results.Add(new { Case = index, activeSize.Width, activeSize.Height,
+                    SystemTransitionsDisabled = transitionsDisabled, SystemTransitionsHResult = transitionsHResult, ShowStages = local.ShowStages,
                     ForceSolid = OverviewRuntimeOptions.ForceSolid, AnimationEnabled = local.AnimationsEnabled, MaxResources = maxResources, Shown = shown, Closed = closed,
                     DisabledTabPassed = disabledPassed, SearchPassed = searchPassed, SelectionPassed = selectionPassed, Frames = local.FrameCount,
                     ForegroundUnchanged = true });
@@ -125,12 +138,17 @@ internal static class NativeOverviewCheck
             CheckRefreshChurn();
             driver.Start(); watchdog.Start(); System.Windows.Forms.Application.Run(context);
             if (failure is not null) throw new InvalidOperationException("Native presenter check failed.", failure);
-            if (results.Count != 8 || (animatedCases > 0 && totalFrames < 12)) throw new InvalidOperationException("Native presenter cases were incomplete.");
+            if (results.Count != caseCount + 2 || (animatedCases > 0 && totalFrames < 12)) throw new InvalidOperationException("Native presenter cases were incomplete.");
             var metrics = File.ReadAllLines(metricPath).Select(line => JsonSerializer.Deserialize<JsonElement>(line))
                 .Where(row => row.GetProperty("RequestToFirstCallbackMs").ValueKind == JsonValueKind.Number).ToArray();
             if (metrics.Length != animatedCases || metrics.Any(row => row.GetProperty("RequestToFirstCallbackMs").GetDouble() <= 0
                 || row.GetProperty("LastToggleToCallbackMs").ValueKind != JsonValueKind.Number))
                 throw new InvalidOperationException("Retargeting overwrote the initial request timing.");
+            if (metrics.Any(row => row.GetProperty("WindowShowCallMs").ValueKind != JsonValueKind.Number
+                || row.GetProperty("PostShowLayoutMs").ValueKind != JsonValueKind.Number
+                || row.GetProperty("ShownNotificationMs").ValueKind != JsonValueKind.Number
+                || row.GetProperty("ActivateCallMs").ValueKind != JsonValueKind.Null))
+                throw new InvalidOperationException("Native show timings lost completed stages or invented an activation stage.");
         }
         finally
         {
@@ -142,6 +160,7 @@ internal static class NativeOverviewCheck
         Console.WriteLine("PASS Native full-scene presenter retains space/workspace previews, reverses after idle, passes disabled-host Tab, searches, selects and releases on a WinForms loop");
         Console.WriteLine("PASS Native initial-request and later-retarget timings remain distinct");
         Console.WriteLine("PASS Native preview refreshes coalesce unchanged geometry and retain explicit validation");
+        if (compareSystemTransitions) Console.WriteLine("Native show comparison: 24 owned presenter samples in enabled/disabled/disabled/enabled order; no desktop capture or activation requested.");
         return 0;
 
         void CheckRefreshChurn()
@@ -213,7 +232,7 @@ internal static class NativeOverviewCheck
                 using var hidden = new NativeOverviewPresenter(models, camera, new(work.Left, work.Top, work.Left + size.Width, work.Top + size.Height), labels,
                     [camera.Bounds], showWithoutActivation: false);
                 hidden.PrepareHiddenHost();
-                if (hidden.Visible || hidden.LivePreviewCount != 0 || WindowEventListener.ForegroundWindow != before)
+                if (hidden.Visible || hidden.LivePreviewCount != 0 || hidden.ShowStages != default || WindowEventListener.ForegroundWindow != before)
                     throw new InvalidOperationException("Interactive WPF hidden host changed foreground.");
             }
         }
@@ -319,4 +338,5 @@ internal static class NativeOverviewCheck
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowEnabled(nint window);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool PostMessage(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint window, int attribute, out int value, int size);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, int attribute, in int value, int size);
 }

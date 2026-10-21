@@ -36,6 +36,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     private int geometryRefreshSkips;
     private int metricsDpi;
     private double progress, hideMs, showMs, reconcileMs, constructionMs, dispatchMs, queueMs, prepareMs;
+    private double? desktopFlushMs;
     private long requested, firstFrame, previousFrame;
     private bool firstFrameActive, firstFrameForeground;
     private long lastToggleRequested, lastToggleFrame;
@@ -51,6 +52,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     public bool IsDisposed => disposed || surface.IsClosed;
     public bool IsTransitioning => !disposed && view.IsAnimating;
     public bool WantsPresentation => desiredOpen && !IsDisposed;
+    public bool RequiresDesktopSnapshot => false;
     public bool ShowInTaskbar { get => surface.ShowInTaskbar; set => surface.ShowInTaskbar = value; }
     public double IdlePreparationMilliseconds { get; set; }
     public CanvasWindow? ConfirmedTarget { get; private set; }
@@ -58,6 +60,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     internal int LivePreviewCount => previews?.ResourceCount ?? 0;
     internal double Position => progress;
     internal bool NativeBackdropAccepted => surface.NativeBackdropAccepted;
+    internal OverviewShowStages ShowStages => surface.ShowStages;
     internal bool AnimationsEnabled => animate;
     internal bool FramesStopped => !view.IsAnimating;
     internal int FrameCount => frames;
@@ -80,7 +83,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
         {
             if (allowNative && !OverviewRuntimeOptions.ForceSolid) backdrop = NativeOverviewBackdrop.TryApply(handle);
             return backdrop.Accepted;
-        }, showInTaskbar);
+        }, showInTaskbar, measureShow: OverviewRuntimeOptions.MetricsPath is not null);
         view.GeometryChanged += RefreshPreviews; view.Frame += Advance;
         view.ConfirmRequested += Confirm; view.CancelRequested += RequestClose; view.Command += HandleCommand;
         view.WorkspaceRequested += position => { if (!canConfirm || disposed || modalDepth > 0) return; ConfirmedCameraPosition = position; CloseNow(); };
@@ -123,7 +126,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     }
     public void SetOpenTimings(long requested, double reconcile, double construction, double dispatch = 0, double queue = 0)
     { this.requested = requested; reconcileMs = reconcile; constructionMs = construction; dispatchMs = dispatch; queueMs = queue; }
-    public void SetHostTimings(double hide, double show) { hideMs = hide; showMs = show; }
+    public void SetHostTimings(double hide, double show, double? desktopFlush = null) { hideMs = hide; showMs = show; desktopFlushMs = desktopFlush; }
     public void PreparePresentation()
     {
         var started = Stopwatch.GetTimestamp(); _ = surface.Handle; metricsDpi = surface.Dpi;
@@ -328,6 +331,9 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
             AnimationWorkMaxMs = work.Length > 0 ? (double?)work[^1] : null,
             HostPrepared = IdlePreparationMilliseconds > 0, IdlePreparationMs = IdlePreparationMilliseconds,
             PrepareMs = prepareMs, HostHideMs = hideMs, HostShowMs = showMs, ReconcileMs = reconcileMs, ConstructionMs = constructionMs,
+            DesktopFlushMs = desktopFlushMs,
+            WindowShowCallMs = surface.ShowStages.WindowShowMs, PostShowLayoutMs = surface.ShowStages.LayoutMs,
+            ShownNotificationMs = surface.ShowStages.NotificationMs, ActivateCallMs = surface.ShowStages.ActivationMs,
             InputDispatchMs = dispatchMs, UiQueueMs = queueMs, FocusEligible = focusSource is not null,
             RequestToFirstCallbackMs = requested > 0 && firstFrame >= requested ? (double?)Stopwatch.GetElapsedTime(requested, firstFrame).TotalMilliseconds : null,
             LastToggleToCallbackMs = lastToggleRequested > 0 && lastToggleFrame >= lastToggleRequested ? (double?)Stopwatch.GetElapsedTime(lastToggleRequested, lastToggleFrame).TotalMilliseconds : null,

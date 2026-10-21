@@ -475,7 +475,18 @@ internal sealed partial class MainForm : Form
             if (!overview.WantsPresentation) { Restore(); return; }
             // An independent, fully composed top-level host avoids stretching/recreating the popup HWND.
             var hiding = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (!showWithoutActivation) { Hide(); if (wasVisible) FrostedBackdrop.FlushPresentation(); }
+            double? flushMs = null;
+            if (!showWithoutActivation)
+            {
+                Hide();
+                // Snapshot presenters need the hidden manager committed before
+                // reading pixels. A native compositor surface has no such readback.
+                if (wasVisible && overview.RequiresDesktopSnapshot)
+                {
+                    var flushing = System.Diagnostics.Stopwatch.GetTimestamp(); FrostedBackdrop.FlushPresentation();
+                    flushMs = System.Diagnostics.Stopwatch.GetElapsedTime(flushing).TotalMilliseconds;
+                }
+            }
             var hideMs = System.Diagnostics.Stopwatch.GetElapsedTime(hiding).TotalMilliseconds;
             overview.PreparePresentation();
             // A COM/capture call can dispatch a queued Tab. An already cancelled
@@ -483,7 +494,7 @@ internal sealed partial class MainForm : Form
             if (!overview.WantsPresentation) { Restore(); return; }
             var showing = System.Diagnostics.Stopwatch.GetTimestamp();
             overview.Show(!showWithoutActivation);
-            overview.SetHostTimings(hideMs, System.Diagnostics.Stopwatch.GetElapsedTime(showing).TotalMilliseconds);
+            overview.SetHostTimings(hideMs, System.Diagnostics.Stopwatch.GetElapsedTime(showing).TotalMilliseconds, flushMs);
         }
         catch { Restore(); throw; }
     }

@@ -14,7 +14,8 @@ internal static class Program
         OverviewRuntimeOptions.NativeRequested = args.Contains("--native-overview", StringComparer.Ordinal);
         OverviewRuntimeOptions.ForceSolid = args.Contains("--native-overview-solid", StringComparer.Ordinal);
         var nativeCheck = Array.IndexOf(args, "--native-overview-check");
-        if (nativeCheck >= 0) return nativeCheck + 1 < args.Length ? NativeOverviewCheck.Run(Path.GetFullPath(args[nativeCheck + 1])) : 1;
+        if (nativeCheck >= 0) return nativeCheck + 1 < args.Length ? NativeOverviewCheck.Run(Path.GetFullPath(args[nativeCheck + 1]),
+            args.Contains("--compare-system-transitions", StringComparer.Ordinal)) : 1;
         var liveLab = Array.IndexOf(args, "--live-overview-lab");
         if (liveLab >= 0) return liveLab + 1 < args.Length ? LiveOverviewLab.Run(Path.GetFullPath(args[liveLab + 1]),
             args.Contains("--lab-interactive", StringComparer.Ordinal), args.Contains("--lab-solid", StringComparer.Ordinal)) : 1;
