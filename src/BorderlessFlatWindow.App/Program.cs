@@ -9,6 +9,9 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var liveLab = Array.IndexOf(args, "--live-overview-lab");
+        if (liveLab >= 0) return liveLab + 1 < args.Length ? LiveOverviewLab.Run(Path.GetFullPath(args[liveLab + 1]),
+            args.Contains("--lab-interactive", StringComparer.Ordinal), args.Contains("--lab-solid", StringComparer.Ordinal)) : 1;
         FrostedBackdrop.DirectReadback = args.Contains("--direct-readback", StringComparer.Ordinal);
         var overviewBenchmark = Array.IndexOf(args, "--overview-benchmark");
         if (overviewBenchmark >= 0) return overviewBenchmark + 1 < args.Length ? OverviewLoadBenchmark.Run(Path.GetFullPath(args[overviewBenchmark + 1])) : 1;

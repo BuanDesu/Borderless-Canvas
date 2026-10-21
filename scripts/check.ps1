@@ -1,4 +1,4 @@
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks)
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks, [switch]$LiveSurfaceChecks)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
@@ -18,5 +18,14 @@ try {
     } else {
         dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build -- --storage-only
         if ($LASTEXITCODE -ne 0) { throw "Recovery storage checks failed: $LASTEXITCODE" }
+    }
+    if ($LiveSurfaceChecks) {
+        # Opt-in desktop integration lab, separate from the production presenter and headless CI.
+        $labDirectory = Join-Path $taskRoot "artifacts/live-surface/$([Guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $labDirectory | Out-Null
+        dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --live-overview-lab (Join-Path $labDirectory 'native.json')
+        if ($LASTEXITCODE -ne 0) { throw "Native live-surface checks failed: $LASTEXITCODE" }
+        dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --live-overview-lab (Join-Path $labDirectory 'solid.json') --lab-solid
+        if ($LASTEXITCODE -ne 0) { throw "Fallback live-surface checks failed: $LASTEXITCODE" }
     }
 } finally { Pop-Location }
