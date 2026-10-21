@@ -16,7 +16,7 @@ internal sealed partial class SpatialOverviewForm
     private double entranceProgress;
     private long entranceStarted;
     private RectD? entranceStart, entranceEnd, entranceContentEnd;
-    private PreviewSource? entranceSource;
+    private OverviewPreviewSource? entranceSource;
     private TransitionCover? transitionCover;
     private CompositionSurface? compositionSurface;
     private PreviewCard[]? animationCards;

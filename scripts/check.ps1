@@ -1,4 +1,4 @@
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks, [switch]$LiveSurfaceChecks)
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug', [switch]$SmokeUi, [switch]$NativeChecks, [switch]$LiveSurfaceChecks, [switch]$NativeOverviewChecks)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
@@ -18,6 +18,12 @@ try {
     } else {
         dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build -- --storage-only
         if ($LASTEXITCODE -ne 0) { throw "Recovery storage checks failed: $LASTEXITCODE" }
+    }
+    if ($NativeOverviewChecks) {
+        $nativeDirectory = Join-Path $taskRoot "artifacts/native-overview/$([Guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $nativeDirectory | Out-Null
+        dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --native-overview-check (Join-Path $nativeDirectory 'presenter.json')
+        if ($LASTEXITCODE -ne 0) { throw "Native overview checks failed: $LASTEXITCODE" }
     }
     if ($LiveSurfaceChecks) {
         # Opt-in desktop integration lab, separate from the production presenter and headless CI.

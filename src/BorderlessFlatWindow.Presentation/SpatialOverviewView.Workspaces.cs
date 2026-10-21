@@ -15,7 +15,7 @@ using Image = System.Windows.Controls.Image;
 
 namespace BorderlessFlatWindow.Presentation;
 
-public sealed partial class SpatialOverviewScene
+public sealed partial class SpatialOverviewView
 {
     public void SetWorkspaces(IEnumerable<SceneWorkspace> workspaces)
     {
@@ -43,10 +43,11 @@ public sealed partial class SpatialOverviewScene
         }
         root.UpdateLayout(); LayoutScene();
     }
-    public void SetWallpaper(Bitmap bitmap, RectD? backgroundFraction = null)
+    public void SetWallpaper(Bitmap bitmap, RectD? backgroundFraction = null, bool includeBackdrop = true)
     {
         wallpaper = Upload(bitmap);
         foreach (var (_, screen) in workspaceScreens) ((Image)screen.Child).Source = wallpaper;
+        if (!includeBackdrop) return;
         // The overview background follows the primary monitor's wallpaper, not the
         // old application rectangles. Workspace screens keep the complete atlas.
         if (backgroundFraction is { } f)

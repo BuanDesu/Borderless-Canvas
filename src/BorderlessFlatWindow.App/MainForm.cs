@@ -249,7 +249,11 @@ internal sealed partial class MainForm : Form
         {
             InitializeTray(); StartPopupServices();
             // Pay WPF initialization once at startup, before installing the input watchdog.
-            try { BorderlessFlatWindow.Presentation.CompositionSurface.WarmUp(); BorderlessFlatWindow.Presentation.SpatialOverviewScene.WarmUp(); }
+            try
+            {
+                if (OverviewRuntimeOptions.NativeRequested) BorderlessFlatWindow.Presentation.SpatialOverviewView.WarmUp();
+                else { BorderlessFlatWindow.Presentation.CompositionSurface.WarmUp(); BorderlessFlatWindow.Presentation.SpatialOverviewScene.WarmUp(); }
+            }
             catch (Exception error) when (error is InvalidOperationException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException) { }
             management.InitializeGlobalInput();
         }
@@ -447,7 +451,8 @@ internal sealed partial class MainForm : Form
         }
     }
 
-    internal void PresentOverview(SpatialOverviewForm overview, Action completed)
+    internal void PresentOverview(SpatialOverviewForm overview, Action completed) => PresentOverview(new FormOverviewPresenter(overview), completed);
+    internal void PresentOverview(IOverviewPresenter overview, Action completed)
     {
         overview.ShowInTaskbar = reviewPanel;
         var wasVisible = Visible;
@@ -464,7 +469,7 @@ internal sealed partial class MainForm : Form
             }
             finally { completed(); }
         }
-        overview.FormClosed += (_, _) => Restore();
+        overview.Closed += (_, _) => Restore();
         try
         {
             if (!overview.WantsPresentation) { Restore(); return; }
@@ -472,12 +477,12 @@ internal sealed partial class MainForm : Form
             var hiding = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!showWithoutActivation) { Hide(); if (wasVisible) FrostedBackdrop.FlushPresentation(); }
             var hideMs = System.Diagnostics.Stopwatch.GetElapsedTime(hiding).TotalMilliseconds;
-            overview.CaptureBackdrop();
+            overview.PreparePresentation();
             // A COM/capture call can dispatch a queued Tab. An already cancelled
             // overview must not create a visible host just to close it in Shown.
             if (!overview.WantsPresentation) { Restore(); return; }
             var showing = System.Diagnostics.Stopwatch.GetTimestamp();
-            overview.Show(); if (!showWithoutActivation && !overview.IsDisposed && overview.Visible) overview.Activate();
+            overview.Show(!showWithoutActivation);
             overview.SetHostTimings(hideMs, System.Diagnostics.Stopwatch.GetElapsedTime(showing).TotalMilliseconds);
         }
         catch { Restore(); throw; }

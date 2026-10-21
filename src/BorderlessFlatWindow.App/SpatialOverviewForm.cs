@@ -10,7 +10,6 @@ namespace BorderlessFlatWindow.App;
 
 internal sealed partial class SpatialOverviewForm : Form
 {
-    internal sealed record PreviewSource(Guid Id, NativeWindowIdentity Identity, bool FullyOnscreen, RectD? ScreenBounds = null);
     private readonly SpatialOverviewSession model;
     private readonly TextBox search = new() { Dock = DockStyle.Fill, PlaceholderText = "搜索窗口", AccessibleName = "搜索窗口" };
     private readonly Label summary = new InlineSelectionLabel { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleRight, Padding = new(6, 0, 12, 0) };
@@ -21,7 +20,7 @@ internal sealed partial class SpatialOverviewForm : Form
     private bool canConfirm = true;
     private string? managementNotice;
     private readonly CheckBox showPreviews = new() { Text = "窗口预览（可能停帧）", AutoSize = true, Checked = true };
-    private IReadOnlyDictionary<Guid, PreviewSource> previewSources = new Dictionary<Guid, PreviewSource>();
+    private IReadOnlyDictionary<Guid, OverviewPreviewSource> previewSources = new Dictionary<Guid, OverviewPreviewSource>();
     private OverviewPreviewSession? previews;
     private PreviewCard[] displayCards = [];
     private Control? previewHost;
@@ -205,7 +204,7 @@ internal sealed partial class SpatialOverviewForm : Form
         else { entranceBackground?.Dispose(); entranceBackground = null; RefreshPreviews(); }
         if (!showWithoutActivation) search.Focus();
     }
-    internal void SetPreviewSources(IEnumerable<PreviewSource> sources)
+    internal void SetPreviewSources(IEnumerable<OverviewPreviewSource> sources)
     {
         var next = sources.ToDictionary(source => source.Id);
         if (next.Count == previewSources.Count && next.All(pair => previewSources.TryGetValue(pair.Key, out var old) && old == pair.Value)) return;
@@ -378,7 +377,7 @@ internal sealed partial class SpatialOverviewForm : Form
             var right = Math.Min(Width, rectangle.Right); var bottom = Math.Min(Height, rectangle.Bottom);
             return right <= left || bottom <= top ? null : new RectangleF((float)left, (float)top, (float)(right - left), (float)(bottom - top));
         }
-        internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, PreviewSource> sources, Control host)
+        internal IEnumerable<PreviewCard> PreviewCards(IReadOnlyDictionary<Guid, OverviewPreviewSource> sources, Control host)
         {
             var rectangles = model.Windows.ToDictionary(window => window.Id, window => model.Projection.ToMap(window.Bounds));
             foreach (var window in model.Windows.OrderBy(window => window.Id == model.SelectedId))

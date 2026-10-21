@@ -105,6 +105,7 @@ docs/
 - [空间总览](docs/spatial-overview.md)：T08 稳定投影、搜索/选择、确认/取消、焦点保护与生命周期。
 - [总览预览与降级](docs/overview-previews.md)：T09 资源生命周期、离屏标题占位、失败重试和真实画面验证。
 - [无桌面读回的原生宿主实验](docs/live-overview-surface.md)：独立的系统背景与实时矩形过渡验证，尚未切换默认总览。
+- [完整总览的原生适配](docs/native-overview-presenter.md)：共享地图/工作区视图、真实 HWND 与输入/恢复接入，使用 `--native-overview` 显式试用。
 - [位置标签与存储](docs/location-bookmarks.md)：T10 命名位置、重名区分、真实跳转、重启及文件损坏处理。
 - [运行中新窗口接入](docs/runtime-window-admission.md)：FR-02 手动/自动接入、空位放置、失败恢复及五窗故障演练。
 - [可试用原型交付检查](docs/prototype-plan.md)：持续目标的实际功能与验收边界。

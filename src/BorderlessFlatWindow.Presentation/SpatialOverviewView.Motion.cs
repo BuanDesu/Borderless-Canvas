@@ -14,7 +14,7 @@ using DrawingPixelFormat = System.Drawing.Imaging.PixelFormat;
 
 namespace BorderlessFlatWindow.Presentation;
 
-public sealed partial class SpatialOverviewScene
+public sealed partial class SpatialOverviewView
 {
     private readonly ReversibleTransition motion = new();
     private EventHandler? frameHandler;

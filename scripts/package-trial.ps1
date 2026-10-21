@@ -1,13 +1,14 @@
 param(
     [string]$OutputDirectory,
-    [switch]$NativeChecks
+    [switch]$NativeChecks,
+    [switch]$NativeOverviewChecks
 )
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $taskRoot
 try {
     # Check the same sources before publishing. Native checks require an interactive Windows desktop.
-    & (Join-Path $PSScriptRoot 'check.ps1') -Configuration Release -SmokeUi -NativeChecks:$NativeChecks
+    & (Join-Path $PSScriptRoot 'check.ps1') -Configuration Release -SmokeUi -NativeChecks:$NativeChecks -NativeOverviewChecks:$NativeOverviewChecks
     if ($LASTEXITCODE -ne 0) { throw "Trial checks failed: $LASTEXITCODE" }
     $revision = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source revision.' }
@@ -55,6 +56,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/retained-overview.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/overview-load-baseline.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/capture-readback.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/native-overview-presenter.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start-NativeOverview.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Recover.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Inspect-Recovery.cmd') -Destination $destination
@@ -65,7 +68,7 @@ try {
         schemaVersion = 1; sourceRevision = $revision; trackedSourcesModified = $dirty
         builtAtUtc = [DateTime]::UtcNow.ToString('O'); platform = 'win-x64'; frameworkDependent = $true
         requiredRuntime = 'Microsoft.WindowsDesktop.App 10.0 x64'; sdk = (dotnet --version)
-        nativeChecksRun = [bool]$NativeChecks; files = $files
+        nativeChecksRun = [bool]$NativeChecks; nativeOverviewChecksRun = [bool]$NativeOverviewChecks; files = $files
     }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $destination 'manifest.json') -Encoding utf8
     Compress-Archive -LiteralPath $destination -DestinationPath "$destination.zip"
