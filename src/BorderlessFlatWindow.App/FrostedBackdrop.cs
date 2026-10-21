@@ -7,6 +7,8 @@ namespace BorderlessFlatWindow.App;
 /// <summary>A short-lived blurred desktop snapshot. Never written to disk or included in diagnostics.</summary>
 internal static class FrostedBackdrop
 {
+    internal static bool DirectReadback { get; set; }
+    internal static string LastReadback { get; private set; } = "None";
     internal static void FlushPresentation() => DwmFlush();
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     internal static Bitmap? Capture(Rectangle bounds)
@@ -16,11 +18,15 @@ internal static class FrostedBackdrop
     }
     internal static Bitmap? CaptureRaw(Rectangle bounds)
     {
+        LastReadback = "None";
+        if (DirectReadback && DesktopReadback.Capture(bounds) is { } direct)
+        { LastReadback = "DirectDib"; return direct; }
         Bitmap? bitmap = null;
         try
         {
             bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppPArgb);
             using var graphics = Graphics.FromImage(bitmap); graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+            LastReadback = "Graphics";
             return bitmap;
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or ArgumentException or OutOfMemoryException or ExternalException) { bitmap?.Dispose(); return null; }

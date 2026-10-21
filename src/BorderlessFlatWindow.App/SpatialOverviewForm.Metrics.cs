@@ -9,6 +9,11 @@ internal sealed partial class SpatialOverviewForm
     internal static string? MotionMetricsPath { get; set; }
     private readonly List<double> motionSamples = [], motionTimes = [];
     private double prepareMilliseconds, captureMilliseconds, sceneSnapshotMilliseconds, uploadMilliseconds;
+    private double rawCaptureMilliseconds, focusEligibilityMilliseconds, focusCloneMilliseconds, focusRecheckMilliseconds;
+    private bool backdropCaptured;
+    private string readbackBackend = "None";
+    private bool focusWasForeground;
+    private int cropOcclusionKinds;
     private double reconcileMilliseconds, constructionMilliseconds;
     private double dispatchMilliseconds, queueMilliseconds, hostHideMilliseconds, hostShowMilliseconds;
     private double sceneLayoutMilliseconds, previewLayoutMilliseconds, previewSyncMilliseconds;
@@ -35,6 +40,11 @@ internal sealed partial class SpatialOverviewForm
             CompositorFocus = compositorFocus,
             FocusCropStatus = focusCropStatus,
             CaptureMs = captureMilliseconds, PrepareMs = prepareMilliseconds,
+            RawCaptureMs = rawCaptureMilliseconds, FocusEligibilityMs = focusEligibilityMilliseconds,
+            BackdropCaptured = backdropCaptured,
+            ReadbackBackend = readbackBackend, FocusWasForeground = focusWasForeground,
+            CropOcclusionKinds = cropOcclusionKinds,
+            FocusCloneMs = focusCloneMilliseconds, FocusRecheckMs = focusRecheckMilliseconds,
             ReconcileMs = reconcileMilliseconds, ConstructionMs = constructionMilliseconds,
             InputDispatchMs = dispatchMilliseconds, UiQueueMs = queueMilliseconds,
             HostHideMs = hostHideMilliseconds, HostShowMs = hostShowMilliseconds,

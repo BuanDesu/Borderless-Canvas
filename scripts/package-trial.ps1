@@ -54,6 +54,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/responsive-transitions.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/retained-overview.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/overview-load-baseline.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/capture-readback.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Recover.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Inspect-Recovery.cmd') -Destination $destination

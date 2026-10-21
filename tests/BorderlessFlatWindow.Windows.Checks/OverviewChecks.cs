@@ -51,7 +51,8 @@ internal static class OverviewChecks
         using var blockerReady = CaptureReady(blocker.Handle);
         Require(source.Bounds.IntersectsWith(blocker.Bounds), "Fixture placement did not create an overlap.");
         foreground = WindowEventListener.ForegroundWindow;
-        Require(!DesktopCropEligibility.IsUnobscured(identity, rect), "Occluding own window ignored.");
+        Require(DesktopCropEligibility.Evaluate(identity, rect, rect, out var kinds) == DesktopCropStatus.Occluded
+            && (kinds & 35) == 35, "Occluding own window or anonymous classification was lost.");
         Require(WindowEventListener.ForegroundWindow == foreground, "Eligibility check changed foreground.");
         blocker.Hide(); source.BringToFront(); System.Windows.Forms.Application.DoEvents(); foreground = WindowEventListener.ForegroundWindow;
         eligibility = DesktopCropEligibility.Evaluate(identity, rect, rect);

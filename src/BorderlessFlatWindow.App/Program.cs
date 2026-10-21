@@ -9,6 +9,7 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        FrostedBackdrop.DirectReadback = args.Contains("--direct-readback", StringComparer.Ordinal);
         var overviewBenchmark = Array.IndexOf(args, "--overview-benchmark");
         if (overviewBenchmark >= 0) return overviewBenchmark + 1 < args.Length ? OverviewLoadBenchmark.Run(Path.GetFullPath(args[overviewBenchmark + 1])) : 1;
         var sceneCheck = Array.IndexOf(args, "--scene-check");
