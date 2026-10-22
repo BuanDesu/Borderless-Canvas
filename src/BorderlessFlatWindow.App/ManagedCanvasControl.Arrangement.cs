@@ -9,7 +9,7 @@ internal sealed partial class ManagedCanvasControl
     private bool editingArrangement;
     private readonly ToolStripMenuItem arrangeWindows = new("平铺窗口…");
     private readonly ToolStripMenuItem undoArrangement = new("撤销上次整理");
-    private bool CanArrange => !reading && !editingArrangement && !openingOverview && !overviewRequested && overview is null
+    private bool CanArrange => !reading && !editingArrangement && !editingSettings && !panelActionPending && !openingOverview && !overviewRequested && overview is null
         && session is { IsRunning: true, IsBusy: false, HasPending: false };
     private void InitializeArrangementMenu()
     {

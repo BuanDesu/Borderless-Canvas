@@ -16,6 +16,8 @@ M4 已补充[区域平铺预览与撤销](region-arrangement.md)，保留连续�
 
 ## 下一步任务
 
+托盘现可查看运行/暂停/待恢复状态并直达共享设置和恢复中心；独立恢复与模态编辑的动作隔离、总览结束后的面板交接及重复暂停保留证据已补齐，详见[托盘记录](tray-control.md)。
+
 1. M3 证据见[总览说明](spatial-overview.md)、[预览说明](overview-previews.md)和[标签说明](location-bookmarks.md)；进入可试用原型集成验收。
 2. FR-02 已实现运行中加入新窗、视口附近空位和原布局保留，五窗主 GUI 强杀/重启/独立恢复已通过；见[接入说明](runtime-window-admission.md)。
 3. 用户已补齐 Shift/双键、整段返回和任务栏找回证据；后续继续输入异常压力和完整快捷键配置，见[导航说明](global-navigation.md)。

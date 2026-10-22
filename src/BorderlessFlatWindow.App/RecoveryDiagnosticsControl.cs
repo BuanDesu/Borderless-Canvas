@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 using BorderlessFlatWindow.Windows.Recovery;
+using BorderlessFlatWindow.Application.Recovery;
 
 namespace BorderlessFlatWindow.App;
 
@@ -12,7 +13,11 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
     private readonly ChromeButton recover = new() { Text = "启动独立恢复程序", AutoSize = true, Enabled = false };
     private readonly ChromeButton refresh = new() { Text = "检查恢复日志", AutoSize = true };
     private bool running;
+    private HashSet<Guid> inspectedRecoveryIds = [];
     internal bool RequiresAttention { get; private set; }
+    internal bool IsRunning => running;
+    internal event Action? StateChanged;
+    internal event Action<RecoveryReport>? RecoveryCompleted;
 
     internal RecoveryDiagnosticsControl(string? journalPath = null)
     {
@@ -34,7 +39,13 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
     internal int RefreshJournal()
     {
         if (running) return 0;
+        try { return InspectJournal(); }
+        finally { StateChanged?.Invoke(); }
+    }
+    private int InspectJournal()
+    {
         RequiresAttention = false;
+        inspectedRecoveryIds = [];
         recover.Enabled = false;
         if (!File.Exists(journalPath))
         {
@@ -45,6 +56,7 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
         {
             using var store = new JsonRecoveryJournalStore(journalPath);
             var journal = store.Load()!;
+            inspectedRecoveryIds = journal.Entries.Select(entry => entry.Id).ToHashSet();
             recover.Enabled = journal.Entries.Count > 0;
             RequiresAttention = recover.Enabled;
             summary.Text = $"待处理记录：{journal.Entries.Count}，其中已完成接管登记：{journal.Entries.Count(entry => entry.Armed)}。\n\n"
@@ -70,8 +82,15 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
 
     private async Task RecoverAsync()
     {
+        if (running || !recover.Enabled) return;
+        // Re-read before launch, and require the subprocess report to cover that exact batch.
+        // A missing/deleted journal or an unrelated stale success response is not proof of recovery.
+        InspectJournal();
+        if (!recover.Enabled) { StateChanged?.Invoke(); return; }
+        var expectedIds = inspectedRecoveryIds.ToHashSet();
         running = true; recover.Enabled = false; refresh.Enabled = false;
         summary.Text = "独立恢复程序正在处理；结果将在此显示。";
+        StateChanged?.Invoke();
         try
         {
             var executable = FindRecoveryExecutable();
@@ -88,22 +107,45 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
             await process.WaitForExitAsync();
             var text = await output; var errors = await error;
             if (IsDisposed) return;
-            running = false; RefreshJournal();
             if (process.ExitCode is 0 or 2)
             {
-                using var report = JsonDocument.Parse(text);
-                var outcomes = report.RootElement.GetProperty("Results").EnumerateArray().ToArray();
-                var restored = outcomes.Count(item => item.GetProperty("Outcome").GetString() == "Restored");
-                summary.Text = $"已恢复 {restored} 个窗口；剩余 {report.RootElement.GetProperty("Remaining").GetInt32()} 项。\n\n"
-                    + string.Join("\n", outcomes.Select(item => item.GetProperty("Detail").GetString()));
+                var report = ParseReport(text, process.ExitCode, expectedIds);
+                InspectJournal();
+                var restored = report.Results.Count(item => item.Outcome == RecoveryOutcome.Restored);
+                summary.Text = $"已恢复 {restored} 个窗口；剩余 {report.Remaining} 项。\n\n"
+                    + string.Join("\n", report.Results.Select(item => item.Detail));
+                if (report.IsComplete && !RequiresAttention) RecoveryCompleted?.Invoke(report);
             }
             else summary.Text = $"恢复未完成，日志已保留。\n\n{errors}";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Win32Exception
             or InvalidOperationException or JsonException)
         { if (!IsDisposed) summary.Text = $"恢复未完成，日志已保留。\n\n{exception.Message}"; }
-        finally { running = false; if (!IsDisposed) refresh.Enabled = true; }
+        finally
+        {
+            running = false;
+            if (!IsDisposed) { refresh.Enabled = true; StateChanged?.Invoke(); }
+        }
     }
+
+    internal static RecoveryReport ParseReport(string text, int exitCode, IReadOnlySet<Guid>? expectedIds = null)
+    {
+        var report = JsonSerializer.Deserialize<RecoveryReport>(text, new JsonSerializerOptions
+        {
+            RespectRequiredConstructorParameters = true,
+            UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(allowIntegerValues: false) }
+        });
+        if (exitCode is not (0 or 2) || report is not { Results: not null } || report.Remaining < 0
+            || report.Results.Count > 10000 || (exitCode == 0) != report.IsComplete
+            || report.Results.Any(item => item is null || item.EntryId == Guid.Empty || item.Detail is null || !Enum.IsDefined(item.Outcome))
+            || report.Remaining != report.Results.Count(item => !item.IsTerminal)
+            || report.Results.Select(item => item.EntryId).Distinct().Count() != report.Results.Count
+            || report.IsComplete && report.Results.Any(item => !item.IsTerminal)
+            || expectedIds is not null && !expectedIds.SetEquals(report.Results.Select(item => item.EntryId))) throw new JsonException("恢复结果不完整或记录批次已改变，未更改画布状态。");
+        return report;
+    }
+    internal Task RunFixtureRecovery() => RecoverAsync();
 
     private static string FindRecoveryExecutable()
     {

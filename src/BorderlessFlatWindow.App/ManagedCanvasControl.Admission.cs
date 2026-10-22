@@ -112,7 +112,7 @@ internal sealed partial class ManagedCanvasControl
     private void AddAutomaticWindows()
     {
         if (!automaticAdmission.Checked || session?.IsRunning != true) { admissionTimer.Stop(); return; }
-        if (reading || session.IsBusy || session.HasPending || overview is not null || openingOverview
+        if (reading || editingSettings || session.IsBusy || session.HasPending || overview is not null || openingOverview
             || gestures?.HasGesture == true || navigationState is { Active: true, Manual: true }) return;
         admissionTimer.Stop();
         try

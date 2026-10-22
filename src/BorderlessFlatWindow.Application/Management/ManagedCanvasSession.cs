@@ -381,6 +381,9 @@ public sealed partial class ManagedCanvasSession : IDisposable
     }
     private void PauseInternal(string reason)
     {
+        // A failed/inherited journal is no longer owned by this session. Repeated pause/exit must
+        // not announce success without performing recovery or checking its durable outcome.
+        if (recovery is null && Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Idle) return;
         lastArrangement = null; arrangementOwner = new();
         activation = null;
         foreach (var state in managed.Values) { state.Deadline = null; state.Expected.Clear(); }
@@ -395,6 +398,24 @@ public sealed partial class ManagedCanvasSession : IDisposable
         finally { recovery?.Dispose(); recovery = null; }
     }
     public bool MatchesDisplay(DisplayLayout current) => layout.Monitors.SequenceEqual(current.Monitors);
+    public bool RecheckAfterExternalRecovery(RecoveryReport report)
+    {
+        if (disposed || busy || recovery is not null || Status != CanvasSessionStatus.RecoveryRequired
+            || report is not { Remaining: 0, Results: { Count: > 0 } }
+            || report.Results.Any(result => result is null || result.EntryId == Guid.Empty || !Enum.IsDefined(result.Outcome) || !result.IsTerminal)) return false;
+        busy = true;
+        try
+        {
+            using var checkedRecovery = createRecovery();
+            if (checkedRecovery.Journal.Entries.Count != 0) return false;
+            Status = CanvasSessionStatus.Paused;
+            Message = "独立恢复已完成；画布保持暂停，请明确选择并开始。";
+            return true;
+        }
+        catch (Exception error) when (IsExpected(error))
+        { Message = $"恢复结果尚未确认，请检查恢复中心：{error.Message}"; return false; }
+        finally { ExitBusy(); }
+    }
     private static bool IsExpected(Exception exception) => exception is IOException or InvalidDataException or UnauthorizedAccessException
         or InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception or OverflowException;
     private void ThrowIfClosing()
