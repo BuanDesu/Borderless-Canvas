@@ -51,8 +51,11 @@ public sealed class GlobalNavigationInput : IDisposable
     private bool overviewRegistered;
     private string overviewMessage = "正在注册总览快捷键。";
 
-    public GlobalNavigationInput(Action wakeUi)
+    public GlobalNavigationInput(Action wakeUi, NavigationInputOptions? options = null, NavigationHotkey? hotkey = null)
     {
+        if (hotkey is not null) ValidateHotkey(hotkey);
+        gate.Options = options ?? new();
+        state = new(false, false, hotkey ?? NavigationHotkey.Default, "正在注册快捷键。");
         this.wakeUi = wakeUi; callback = MouseCallback; keyboardCallback = KeyboardCallback;
         thread = new(ThreadMain) { IsBackground = true, Name = "BFW navigation input" };
         thread.SetApartmentState(ApartmentState.STA); thread.Start();
@@ -92,10 +95,14 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     public void ChangeHotkey(NavigationHotkey hotkey)
     {
+        ValidateHotkey(hotkey);
+        Post(() => RegisterToggle(hotkey));
+    }
+    private static void ValidateHotkey(NavigationHotkey hotkey)
+    {
         ArgumentNullException.ThrowIfNull(hotkey);
         if (hotkey.Key is < 0x20 or > 0xFE || hotkey.Key == 0x7B || hotkey.Modifiers is 0 or > 7)
             throw new ArgumentException("请选择包含 Ctrl/Alt/Shift 的非保留快捷键。", nameof(hotkey));
-        Post(() => RegisterToggle(hotkey));
     }
     public IReadOnlyList<TimedNavigationInput> Drain()
     {
@@ -130,7 +137,7 @@ public sealed class GlobalNavigationInput : IDisposable
             if (keyboardHook == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法安装桌面总览键盘钩子。");
             timer = SetTimer(0, 0, 100, 0);
             if (timer == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法启动输入看门狗。");
-            RegisterToggle(NavigationHotkey.Default);
+            RegisterToggle(State.Hotkey);
             overviewRegistered = RegisterHotKey(0, OverviewId, 3 | 0x4000, 0x4F);
             Volatile.Write(ref overviewMessage, overviewRegistered ? "桌面空白处 Tab / Shift+Tab 进入总览，总览内再次按下返回；Ctrl+Alt+O 也可打开/关闭。"
                 : $"总览快捷键 Ctrl+Alt+O 注册失败（{Marshal.GetLastPInvokeError()}），可用界面按钮。");

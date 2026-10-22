@@ -7,6 +7,8 @@ using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows;
 using BorderlessFlatWindow.Application.Bookmarks;
 using BorderlessFlatWindow.Windows.Bookmarks;
+using BorderlessFlatWindow.Application.Preferences;
+using BorderlessFlatWindow.Windows.Preferences;
 
 namespace BorderlessFlatWindow.App;
 
@@ -43,6 +45,7 @@ internal sealed partial class MainForm : Form
     private readonly RecoveryDiagnosticsControl recovery;
     private readonly ManagedCanvasControl management;
     private readonly BookmarkLibrary bookmarks;
+    private readonly PreferencesSession preferences;
     private readonly BookmarkControl bookmarkControl;
     private readonly ListView windowList = new()
     {
@@ -51,11 +54,14 @@ internal sealed partial class MainForm : Form
         FullRowSelect = true
     };
 
-    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null, bool reviewPanel = false)
+    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null, bool reviewPanel = false, string? settingsPath = null)
     {
         this.reviewPanel = reviewPanel;
         this.catalog = catalog;
         this.showWithoutActivation = showWithoutActivation;
+        if (!showWithoutActivation || settingsPath is not null)
+            JsonPreferencesStore.EnsureSeparateDataFiles(settingsPath ?? JsonPreferencesStore.DefaultPath,
+                journalPath ?? BorderlessFlatWindow.Windows.Recovery.JsonRecoveryJournalStore.DefaultPath, bookmarksPath ?? JsonBookmarkStore.DefaultPath);
         Text = "Borderless Flat Window · 无限桌面";
         ClientSize = showWithoutActivation ? new Size(1100, 740) : new Size(432, 700);
         MinimumSize = showWithoutActivation ? new Size(800, 560) : new Size(360, 540);
@@ -77,8 +83,10 @@ internal sealed partial class MainForm : Form
         livePreview.CameraPanRequested += delta => { liveWorkspace.PanBy(delta); livePreview.Invalidate(); };
         eventTimer.Tick += (_, _) => FlushEvents();
 
+        preferences = new(() => showWithoutActivation && settingsPath is null ? new EphemeralPreferencesStore() : new JsonPreferencesStore(settingsPath ?? JsonPreferencesStore.DefaultPath));
+        preferences.Reload(); followWallpaper = preferences.Current.FollowWallpaper;
         bookmarks = new(() => new JsonBookmarkStore(bookmarksPath ?? JsonBookmarkStore.DefaultPath)); bookmarks.Reload();
-        management = new(catalog, journalPath, bookmarks) { Dock = DockStyle.Fill };
+        management = new(catalog, journalPath, bookmarks, preferences) { Dock = DockStyle.Fill };
         bookmarkControl = new(bookmarks, () => management.BookmarkPosition, () => management.CanJumpToBookmark,
             management.GoToBookmark, management.EndNavigationForEditing)
         { Dock = DockStyle.Fill };
@@ -312,6 +320,7 @@ internal sealed partial class MainForm : Form
             trayIcon.Dispose(); brandIcon.Dispose();
             foreach (var page in verificationPages) page.Dispose();
             bookmarks?.Dispose();
+            preferences?.Dispose();
         }
         base.Dispose(disposing);
     }
