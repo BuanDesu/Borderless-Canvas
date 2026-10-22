@@ -1,3 +1,6 @@
 @echo off
-cd /d "%~dp0"
-start "" "%~dp0BorderlessFlatWindow.App.exe"
+setlocal
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Launch.ps1" -Mode App
+set "bfw_exit=%errorlevel%"
+if not "%bfw_exit%"=="0" pause
+exit /b %bfw_exit%

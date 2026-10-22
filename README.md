@@ -38,6 +38,9 @@ dotnet run --project tests/BorderlessFlatWindow.Probe --configuration Release
 
 # 检查后生成包含 GUI、独立恢复、测试窗口及中文说明的试用目录和 ZIP
 .\scripts\package-trial.ps1 -NativeChecks
+
+# 自带运行时的 Windows x64 便携包
+.\scripts\package-trial.ps1 -SelfContained -RuntimeVersion 10.0.13 -NativeChecks -NativeOverviewChecks
 ```
 
 也可以直接用 SDK：
@@ -52,7 +55,7 @@ dotnet run --project src/BorderlessFlatWindow.App
 
 多窗口预览同步现在复用同一批次的虚拟桌面查询服务，并保留逐窗核验；计时拆分和本机负载数据见[总览负载基线](docs/overview-load-baseline.md)。它不代表真实输入延迟或实际呈现帧率已验收。
 
-试用目录无需源码或 SDK，双击 `Start.cmd` 即可；需已安装 .NET 10 Windows Desktop Runtime x64。`Recover.cmd` 独立恢复，`Inspect-Recovery.cmd` 仅检查。`manifest.json` 记录版本和文件 SHA-256；包不含运行时，生成物位于 ignored `artifacts/trial/`。
+试用目录无需源码或 SDK，双击 `Start.cmd` 即可。框架依赖版需 .NET 10 Windows Desktop Runtime x64，自包含便携版携带运行时；模式与补丁版本记录在 manifest。启动入口提供依赖/缺文件提示，恢复脚本保留退出码；目录和 ZIP 自动核验，调试符号及用户运行数据不入包。升级、移除和许可来源见[部署说明](docs/deployment.md)与[第三方清单](THIRD-PARTY-NOTICES.md)，生成物位于 ignored `artifacts/trial/`。
 
 Windows 11 build 22621 及以上默认使用无桌面位图读回的原生总览，较早系统保留窗体总览。用户远控体验已确认无明显卡顿或色块刷新。兼容问题可先退出再用 `Start-FormOverview.cmd` 回退；`Start-NativeOverview.cmd` 保留显式启用入口。完整矩阵仍在验收，详见[原生总览](docs/native-overview-presenter.md)。
 

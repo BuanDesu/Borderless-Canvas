@@ -71,7 +71,7 @@ internal static class OverviewChecks
         using var child = new Form { TopLevel = false }; host.Controls.Add(child); child.Show();
         using var source = new Fixture(); source.Show();
         using var ready = CaptureReady(source.Handle);
-        var identity = new DesktopWindowCatalog(0).GetWindows().Single(window => window.Handle == source.Handle).Identity;
+        var identity = FixtureReadiness.Wait(source.Handle).Identity;
         var id = Guid.NewGuid(); var card = new PreviewCard(id, identity, new PixelRect(20, 30, 220, 180), null);
         var previews = new OverviewPreviewSession(new DwmOverviewPreviewPort(child.TopLevelControl!.Handle));
         try
@@ -97,7 +97,7 @@ internal static class OverviewChecks
     {
         using var host = new Fixture(); host.Show(); using var source = new Fixture(); source.Show();
         using var ready = CaptureReady(source.Handle);
-        var identity = new DesktopWindowCatalog(0).GetWindows().Single(window => window.Handle == source.Handle).Identity;
+        var identity = FixtureReadiness.Wait(source.Handle).Identity;
         var port = new DwmOverviewPreviewPort(host.Handle);
         using var wrong = port.Create(identity with { ProcessCreationFileTime = identity.ProcessCreationFileTime + 1 });
         Require(wrong is null, "Stale identity admitted.");
@@ -129,7 +129,7 @@ internal static class OverviewChecks
         var foreground = WindowEventListener.ForegroundWindow;
         using var host = new Fixture(); host.Show(); using var source = new Fixture(); source.Show();
         using var ready = CaptureReady(source.Handle);
-        var identity = new DesktopWindowCatalog(0).GetWindows().Single(window => window.Handle == source.Handle).Identity;
+        var identity = FixtureReadiness.Wait(source.Handle).Identity;
         using var session = new OverviewPreviewSession(new DwmOverviewPreviewPort(host.Handle));
         source.Location = new(30000, 30000); System.Windows.Forms.Application.DoEvents();
         var cards = Enumerable.Range(0, 24).Select(i => new PreviewCard(Guid.NewGuid(), identity, new PixelRect(i * 8, 10, i * 8 + 50, 60), null,
@@ -170,8 +170,9 @@ internal static class OverviewChecks
             Thread.Sleep(10);
         } while (watch.Elapsed < TimeSpan.FromSeconds(2));
         var catalog = new DesktopWindowCatalog(0); catalog.RefreshWindow(handle);
-        var entry = catalog.Current.Entries.Single(item => item.Observation.Handle == handle);
-        throw new InvalidOperationException($"Cannot mark own fixture: {entry.Admission.Reason}, visible={entry.Observation.IsVisible}, desktop={entry.Observation.IsOnCurrentDesktop}, cloak={entry.Observation.IsCloaked}, identity={entry.Observation.Identity is not null}.");
+        var entry = catalog.Current.Entries.FirstOrDefault(item => item.Observation.Handle == handle);
+        throw new InvalidOperationException(entry is null ? "Cannot mark own fixture: target observation unavailable."
+            : $"Cannot mark own fixture: {entry.Admission.Reason}, visible={entry.Observation.IsVisible}, desktop={entry.Observation.IsOnCurrentDesktop}, cloak={entry.Observation.IsCloaked}, identity={entry.Observation.Identity is not null}.");
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

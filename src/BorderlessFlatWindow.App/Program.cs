@@ -11,6 +11,14 @@ internal static class Program
             System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var recoveryCheck = Array.IndexOf(args, "--trial-recovery-check");
+        if (recoveryCheck >= 0)
+        {
+            if (recoveryCheck + 1 >= args.Length || args[recoveryCheck + 1].StartsWith("--", StringComparison.Ordinal)) return 1;
+            try { MainForm.CheckTrayRecoveryProcess(Path.GetFullPath(args[recoveryCheck + 1])); return 0; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+            { Console.Error.WriteLine("Trial recovery check failed: " + error.Message); return 1; }
+        }
         var backdropCheck = Array.IndexOf(args, "--native-backdrop-check");
         if (backdropCheck >= 0) return backdropCheck + 1 < args.Length ? NativeBackdropCheck.Run(Path.GetFullPath(args[backdropCheck + 1])) : 1;
         var overviewHost = BorderlessFlatWindow.Application.Overview.OverviewHostOptions.Resolve(args, Environment.OSVersion.Version);

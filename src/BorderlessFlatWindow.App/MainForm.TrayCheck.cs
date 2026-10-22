@@ -69,6 +69,8 @@ internal sealed partial class MainForm
     }
     internal static void CheckTrayRecoveryProcess(string directory)
     {
+        if (Directory.Exists(directory) && Directory.EnumerateFileSystemEntries(directory).Any())
+            throw new InvalidOperationException("Recovery fixture output must be a new or empty directory.");
         Directory.CreateDirectory(directory);
         var journalPath = Path.Combine(directory, "recovery.json");
         var journal = RecoveryJournal.Empty().WithEntries([new(Guid.NewGuid(), new(0x42424242, 424242, 123456789),
