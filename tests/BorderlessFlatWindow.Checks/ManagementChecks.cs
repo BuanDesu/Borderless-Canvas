@@ -4,7 +4,7 @@ using BorderlessFlatWindow.Application.Management;
 using BorderlessFlatWindow.Application.Recovery;
 using BorderlessFlatWindow.Core.Geometry;
 
-internal static class ManagementChecks
+internal static partial class ManagementChecks
 {
     internal static IEnumerable<(string Name, Action Run)> Cases()
     {
@@ -39,6 +39,7 @@ internal static class ManagementChecks
         yield return ("Same DPI multiscreen pans, primary-screen focus and recovery preserve world layout", MultipleScreens);
         yield return ("Rapid window cycling advances even before foreground callbacks arrive", Cycle);
         yield return ("Display geometry and DPI changes invalidate the active baseline", Displays);
+        foreach (var item in ArrangementCases()) yield return item;
     }
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 0, 0, 0, TimeSpan.FromHours(8));
     private static RectD Rect(double x, double y, double width = 640, double height = 480) => new(new PointD(x, y), new SizeD(width, height));
@@ -56,6 +57,7 @@ internal static class ManagementChecks
         internal int Restorations;
         internal nint? CaptureFailure;
         internal Action<nint>? DuringCapture;
+        internal Action? DuringBatch;
         internal int InvalidDataSaves;
         internal IReadOnlyList<WindowTranslation> LastBatch = [];
         internal readonly List<IReadOnlyList<WindowTranslation>> Pending = [];
@@ -89,6 +91,7 @@ internal static class ManagementChecks
             Batches++;
             LastBatch = translations.ToArray();
             Require(translations.All(item => recovery.CanMove(item.RecoveryId)), "Batch lacks durable ownership.");
+            DuringBatch?.Invoke();
             if (RejectPartial) { Apply(translations.Take(1).ToArray()); return new(false, "Controlled partial rejection."); }
             if (Delayed) Pending.Add(translations.ToArray()); else Apply(translations);
             return new(true, "Controlled acceptance.");

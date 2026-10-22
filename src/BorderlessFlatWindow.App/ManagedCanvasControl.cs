@@ -90,6 +90,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         navigation.DropDownItems.Add("手动导航", null, (_, _) => globalInput?.Toggle());
         ChromeTheme.StyleMenu(navigation.DropDown);
         moreMenu.Items.Add(navigation);
+        InitializeArrangementMenu();
         moreMenu.Items.Add("管理窗口", null, (_, _) => { showWindowPicker = !selector.Visible; RefreshState(); });
         moreMenu.Items.Add("刷新窗口", null, (_, _) => RefreshCandidates());
         moreMenu.Items.Add(new ToolStripSeparator());
@@ -207,6 +208,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
+        if (editingArrangement) return;
         if (preparationDisposed) return;
         preparationTimer.Stop();
         if (overview is not null) { overview.ToggleOverview(capturedTimestamp); return; }
@@ -441,8 +443,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var running = session?.IsRunning == true;
         if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
         UpdateAdmissionState();
-        if (globalInput is not null && inputAvailable != running)
-        { inputAvailable = running; globalInput.SetAvailable(running); }
+        var available = running && !editingArrangement;
+        if (globalInput is not null && inputAvailable != available)
+        { inputAvailable = available; globalInput.SetAvailable(available); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());

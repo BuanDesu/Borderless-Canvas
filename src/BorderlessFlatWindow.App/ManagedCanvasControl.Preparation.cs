@@ -15,7 +15,7 @@ internal sealed partial class ManagedCanvasControl
     private bool preparingOverviewHost, preparationDisposed;
     private long lastCanvasInput;
 
-    private bool CanPrepareOverview => !preparationDisposed && !IsDisposed && !Disposing && IsHandleCreated && !reading
+    private bool CanPrepareOverview => !preparationDisposed && !IsDisposed && !Disposing && IsHandleCreated && !reading && !editingArrangement
         && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null
         && session is { IsRunning: true, IsBusy: false, HasPending: false } && layout?.SupportsCanvas == true
         && gestures?.HasGesture != true && !moreMenu.Visible
