@@ -14,6 +14,11 @@ internal sealed class NavigationSettingsDialog : Form
     private readonly ComboBox shortcut = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 230 };
     internal NavigationHotkey Hotkey => (NavigationHotkey)shortcut.SelectedItem!;
     internal NavigationInputOptions Options => new(vertical.Checked, horizontal.Checked, drag.Checked, (int)distance.Value);
+    internal DialogResult ShowFor(Control anchor)
+    {
+        var host = anchor.FindForm(); TopMost = host?.TopMost == true;
+        return ShowDialog(host ?? (IWin32Window)anchor);
+    }
     internal NavigationSettingsDialog(NavigationInputOptions options, bool showWithoutActivation = false, NavigationHotkey? hotkey = null)
     {
         this.showWithoutActivation = showWithoutActivation;

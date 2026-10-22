@@ -25,9 +25,10 @@ internal sealed partial class MainForm : Form
     private WindowEventListener? listener;
     private readonly bool showWithoutActivation;
     private readonly bool reviewPanel;
-    internal bool AllowsOverviewPreparation => !showWithoutActivation && !IsDisposed && !Disposing;
+    internal bool AllowsOverviewPreparation => !showWithoutActivation && !IsDisposed && !Disposing && pendingManagerTarget is null;
     internal bool OverviewShowsInTaskbar => reviewPanel;
     protected override bool ShowWithoutActivation => showWithoutActivation;
+    internal bool IsTransparentFixture => showWithoutActivation;
     private readonly CanvasPreviewControl preview;
     private readonly ToolStripStatusLabel cameraStatus = new();
     private readonly Label catalogSummary = new() { AutoSize = true, Margin = new Padding(12, 9, 0, 0) };
@@ -136,10 +137,12 @@ internal sealed partial class MainForm : Form
         tabs.TabPages.Add(liveTab);
         var recoveryTab = new TabPage("恢复日志");
         recovery = new(journalPath) { Dock = DockStyle.Fill };
+        recovery.StateChanged += RecoveryStateChanged;
+        recovery.RecoveryCompleted += management.ExternalRecoveryCompleted;
         recoveryTab.Controls.Add(recovery);
         tabs.TabPages.Add(recoveryTab);
         var bookmarkTab = new TabPage("位置标签"); bookmarkTab.Controls.Add(bookmarkControl); tabs.TabPages.Add(bookmarkTab);
-        management.RecoveryRequested += () => tabs.SelectedTab = recoveryTab;
+        management.RecoveryRequested += () => RequestManager(ManagerTarget.Recovery);
         canvasTab.Controls.Add(preview);
 
         var navigation = new FlowLayoutPanel
@@ -231,8 +234,13 @@ internal sealed partial class MainForm : Form
 
     private void UpdateCameraStatus()
     {
-        var managed = management.Diagnostics();
-        cameraStatus.Text = managed.Running ? $"● 画布运行中 · {managed.Count} 个窗口" : "○ 已就绪";
+        if (IsDisposed || Disposing) return;
+        if (tray is not null && management.CanUsePanelCommands && lastRecoveryStatus != management.SessionStatus)
+        {
+            lastRecoveryStatus = management.SessionStatus;
+            if (management.SessionStatus != BorderlessFlatWindow.Application.Management.CanvasSessionStatus.Running) recovery.RefreshJournal();
+        }
+        UpdateTrayState(); TryScheduleManagerAction();
     }
 
     private void RefreshCatalog()
@@ -315,6 +323,8 @@ internal sealed partial class MainForm : Form
             StopPopupServices();
             listener?.Dispose();
             listener = null;
+            if (recovery is not null) { recovery.StateChanged -= RecoveryStateChanged; recovery.RecoveryCompleted -= management.ExternalRecoveryCompleted; }
+            pendingManagerTarget = null;
             if (tray is not null) { tray.Visible = false; tray.Dispose(); tray = null; }
             trayMenu?.Dispose(); trayMenu = null;
             trayIcon.Dispose(); brandIcon.Dispose();
@@ -364,10 +374,15 @@ internal sealed partial class MainForm : Form
         }
         Hide();
         if (Visible) throw new InvalidOperationException("Manager did not hide.");
-        ((ToolStripMenuItem)trayMenu!.Items[0]).PerformClick();
+        trayOpen!.PerformClick(); System.Windows.Forms.Application.DoEvents();
         if (!Visible || WindowState != FormWindowState.Normal) throw new InvalidOperationException("Tray open action did not restore the manager.");
-        ((ToolStripMenuItem)trayMenu.Items[2]).PerformClick();
-        tray!.Visible = false; tray.Dispose(); tray = null; trayMenu.Dispose(); trayMenu = null;
+        if (trayPause!.Enabled || trayOverview!.Enabled || !traySettings!.Enabled || tray!.Text.Length > 63)
+            throw new InvalidOperationException("Idle tray command state is invalid.");
+        trayRecovery!.PerformClick(); System.Windows.Forms.Application.DoEvents();
+        if (!ReferenceEquals(tabs.SelectedTab, recovery.Parent)) throw new InvalidOperationException("Tray recovery action did not select the recovery page.");
+        CheckTrayCommands();
+        tray!.Visible = false; tray.Dispose(); tray = null; trayMenu!.Dispose(); trayMenu = null;
+        lastTrayPresentation = null;
     }
 
     internal void PrepareCatalogSmoke()
@@ -509,6 +524,8 @@ internal sealed partial class MainForm : Form
     }
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (e.CloseReason == CloseReason.UserClosing && (recovery.IsRunning || OwnedForms.Any(form => form.Visible && form.Modal)))
+        { e.Cancel = true; return; }
         if (e.CloseReason == CloseReason.UserClosing && management.HasOverview)
         { e.Cancel = true; management.CancelOverview(); return; }
         if (!showWithoutActivation && !exitRequested && e.CloseReason == CloseReason.UserClosing && tray is not null)
@@ -519,20 +536,5 @@ internal sealed partial class MainForm : Form
     {
         base.OnResize(e);
         if (!showWithoutActivation && WindowState == FormWindowState.Minimized && tray is not null && management?.HasOverview != true) Hide();
-    }
-    private void ShowManager()
-    { management.CancelOverview(); if (!showWithoutActivation) DockPopup(Screen.FromPoint(Cursor.Position)); Show(); WindowState = FormWindowState.Normal; if (!showWithoutActivation) Activate(); }
-    private void InitializeTray()
-    {
-        if (tray is not null) return;
-        trayMenu = new();
-        trayMenu.Items.Add("打开窗口画布", null, (_, _) => ShowManager());
-        trayMenu.Items.Add("空间总览", null, (_, _) => management.ShowOverview());
-        trayMenu.Items.Add("暂停并恢复窗口", null, (_, _) => management.Pause());
-        trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add("退出并恢复窗口", null, (_, _) => { exitRequested = true; management.Pause(); Close(); });
-        ChromeTheme.StyleMenu(trayMenu);
-        tray = new() { Icon = trayIcon, Text = "Borderless · 无限桌面", ContextMenuStrip = trayMenu, Visible = true };
-        tray.DoubleClick += (_, _) => ShowManager();
     }
 }

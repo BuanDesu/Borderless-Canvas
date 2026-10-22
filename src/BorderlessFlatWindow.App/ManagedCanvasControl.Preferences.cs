@@ -9,6 +9,7 @@ internal sealed partial class ManagedCanvasControl
     private readonly PreferencesSession preferences;
     private ManualNavigationShortcut preferredShortcut;
     private bool applyingPreferences;
+    private bool editingSettings;
     private NavigationHotkey PreferredHotkey => preferredShortcut switch
     {
         ManualNavigationShortcut.ControlAltN => new(3, 0x4E, "Ctrl+Alt+N"),
@@ -23,10 +24,10 @@ internal sealed partial class ManagedCanvasControl
         automaticAdmission.CheckedChanged += (_, _) => SavePreferences();
         wallpaperColors.CheckedChanged += (_, _) => SavePreferences();
         overviewAnimation.CheckedChanged += (_, _) => SavePreferences();
-        var menu = new ToolStripMenuItem("本地设置");
+        var menu = localSettingsMenu;
         menu.DropDownItems.Add("重新读取保存的设置", null, (_, _) =>
         {
-            if (reading || session?.IsBusy == true || overview is not null || openingOverview || editingArrangement) return;
+            if (!CanUsePanelCommands || HasOverviewWork || externalRecoveryRunning) return;
             EndNavigationForEditing();
             if (preferences.Reload()) ApplyPreferences();
             notice = preferences.Warning; RefreshState();
@@ -35,6 +36,62 @@ internal sealed partial class ManagedCanvasControl
         { EndNavigationForEditing(); preferences.SaveCurrent(); notice = preferences.Warning; RefreshState(); });
         menu.DropDownItems.Add("存储状态…", null, (_, _) => MessageBox.Show(this, preferences.Message, "本地设置", MessageBoxButtons.OK, MessageBoxIcon.Information));
         ChromeTheme.StyleMenu(menu.DropDown); moreMenu.Items.Add(menu);
+    }
+    internal void ShowNavigationSettings()
+    {
+        if (!CanUsePanelCommands || HasOverviewWork || externalRecoveryRunning) return;
+        var owner = session;
+        try
+        {
+            EndNavigationForEditing(); InvalidateOverviewPreparation(); editingSettings = true;
+            owner?.SuspendNavigation(true); RefreshState();
+            var fixture = FindForm() is MainForm { IsTransparentFixture: true };
+            using var dialog = new NavigationSettingsDialog(inputOptions, showWithoutActivation: fixture, hotkey: PreferredHotkey);
+            if (fixture) dialog.Opacity = 0;
+            if (dialog.ShowFor(this) == DialogResult.OK) ApplyNavigationSettings(dialog.Options, dialog.Hotkey);
+        }
+        finally
+        {
+            owner?.SuspendNavigation(false); editingSettings = false;
+            if (!IsDisposed && !Disposing)
+            {
+                if (globalInput?.Drain().Any(e => e.Input.Kind == NavigationInputKind.Fault) == true) owner?.Pause("设置期间导航异常，已暂停恢复。");
+                RefreshState();
+            }
+        }
+    }
+    internal void ShowSettingsMenu(bool appearance)
+    {
+        if (!CanUsePanelCommands || HasOverviewWork || externalRecoveryRunning) return;
+        EndNavigationForEditing();
+        var item = appearance ? appearanceMenu : localSettingsMenu;
+        moreMenu.Show(this, new Point(Width, Height), ToolStripDropDownDirection.AboveLeft);
+        item.Select(); item.ShowDropDown();
+    }
+    internal void CheckTraySettingsMenu(bool appearance)
+    {
+        if (FindForm() is not MainForm { IsTransparentFixture: true }) throw new InvalidOperationException("Fixture entry only.");
+        var item = appearance ? appearanceMenu : localSettingsMenu;
+        if (!moreMenu.Visible || !item.DropDown.Visible) throw new InvalidOperationException("Tray settings did not open the shared menu.");
+        item.HideDropDown(); moreMenu.Close();
+    }
+    internal void SetTransparentMenusForCheck()
+    {
+        moreMenu.Opacity = appearanceMenu.DropDown.Opacity = localSettingsMenu.DropDown.Opacity = 0;
+    }
+    internal void CheckPreparingOverviewTrayDeferral(Action request, Action beforeCompletion, Action afterCompletion)
+    {
+        if (FindForm() is not MainForm { IsTransparentFixture: true } || HasOverviewWork) throw new InvalidOperationException("Fixture entry only.");
+        openingOverview = true; overviewRequested = true;
+        try
+        {
+            request(); System.Windows.Forms.Application.DoEvents(); beforeCompletion();
+            if (overviewRequested || !openingCloseRequested) throw new InvalidOperationException("Panel request did not cancel overview preparation.");
+            openingOverview = false; openingCloseRequested = false; StatusChanged?.Invoke();
+            // The status callback must queue rather than activate the panel within the completion stack.
+            beforeCompletion(); System.Windows.Forms.Application.DoEvents(); afterCompletion();
+        }
+        finally { overviewRequested = openingOverview = openingCloseRequested = false; }
     }
     private void ApplyPreferences()
     {

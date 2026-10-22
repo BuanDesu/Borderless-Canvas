@@ -35,6 +35,9 @@ internal static partial class ManagementChecks
         yield return ("Closing reentrantly during late registration cannot move new windows or leak recovery ownership", RuntimeDispose);
         yield return ("Pause/resume preserves the logical layout, camera and bookmarks", Resume);
         yield return ("Beginning management cannot silently recover an inherited journal", Inherited);
+        yield return ("Repeated pause preserves failed recovery state and all retained evidence", FailedRecoveryPause);
+        yield return ("External recovery requires a complete report and a newly verified empty journal", ExternalRecovery);
+        yield return ("Unstarted pause and stale external completion cannot change active management", InactivePause);
         yield return ("Unsupported native state and mixed DPI cannot start management", Unsupported);
         yield return ("Same DPI multiscreen pans, primary-screen focus and recovery preserve world layout", MultipleScreens);
         yield return ("Rapid window cycling advances even before foreground callbacks arrive", Cycle);
@@ -59,6 +62,7 @@ internal static partial class ManagementChecks
         internal Action<nint>? DuringCapture;
         internal Action? DuringBatch;
         internal int InvalidDataSaves;
+        internal bool FailRestore, FailLoad;
         internal IReadOnlyList<WindowTranslation> LastBatch = [];
         internal readonly List<IReadOnlyList<WindowTranslation>> Pending = [];
         private readonly HashSet<Guid> markers = [];
@@ -112,13 +116,14 @@ internal static partial class ManagementChecks
         public RecoveryResult Restore(RecoveryEntry entry, string name)
         {
             Restorations++;
+            if (FailRestore) return new(entry.Id, RecoveryOutcome.Failed, "Controlled restore failure.");
             if (!Matches(entry, name)) return new(entry.Id, RecoveryOutcome.SkippedClosedOrReused, "Missing fixture.");
             Native[entry.Identity.Handle] = Native[entry.Identity.Handle] with { Bounds = entry.Original.PhysicalBounds.ToRectD() };
             markers.Remove(entry.Id); return new(entry.Id, RecoveryOutcome.Restored, "Restored fixture.");
         }
         private sealed class Store(Harness owner) : IRecoveryJournalStore
         {
-            public RecoveryJournal? Load() => owner.Saved;
+            public RecoveryJournal? Load() => owner.FailLoad ? throw new IOException("Controlled read failure.") : owner.Saved;
             public void Save(RecoveryJournal journal)
             {
                 if (owner.InvalidDataSaves > 0) { owner.InvalidDataSaves--; throw new InvalidDataException("Controlled invalid-data save failure."); }
@@ -348,6 +353,39 @@ internal static partial class ManagementChecks
         h.Saved = RecoveryJournal.Empty().WithEntries([new(Guid.NewGuid(), identity, h.Capture(identity), 123, true)]);
         Require(!h.Session.Start(h.Selected(), Now) && h.Session.Status == CanvasSessionStatus.RecoveryRequired
             && h.Restorations == 0 && h.Saved.Entries.Count == 1 && h.Batches == 0, "Start moved an inherited session.");
+        var message = h.Session.Message;
+        h.Session.Pause(); h.Session.Pause();
+        Require(h.Session.Status == CanvasSessionStatus.RecoveryRequired && h.Session.Message == message
+            && h.Restorations == 0 && h.Saved.Entries.Count == 1, "Repeated pause concealed inherited recovery.");
+    }
+    private static void FailedRecoveryPause()
+    {
+        using var h = new Harness(); h.Begin(); h.FailRestore = true; h.Session.Pause();
+        var records = h.Saved; var restores = h.Restorations; var message = h.Session.Message;
+        Require(h.Session.Status == CanvasSessionStatus.RecoveryRequired && records!.Entries.Count == 2, "Controlled restore did not fail.");
+        h.Session.Pause(); h.Session.Pause();
+        Require(h.Session.Status == CanvasSessionStatus.RecoveryRequired && h.Session.Message == message && ReferenceEquals(h.Saved, records)
+            && h.Restorations == restores, "Repeated pause discarded pending recovery evidence or claimed success.");
+    }
+    private static void ExternalRecovery()
+    {
+        using var h = new Harness(); h.Begin(); h.FailRestore = true; h.Session.Pause();
+        var complete = new RecoveryReport([new(Guid.NewGuid(), RecoveryOutcome.Restored, "Synthetic report")], 0);
+        Require(!h.Session.RecheckAfterExternalRecovery(complete) && h.Session.Status == CanvasSessionStatus.RecoveryRequired, "A stale success report cleared a pending journal.");
+        h.Saved = h.Saved!.WithEntries([]); h.FailLoad = true;
+        Require(!h.Session.RecheckAfterExternalRecovery(complete) && h.Session.Status == CanvasSessionStatus.RecoveryRequired, "Unreadable recovery was accepted.");
+        h.FailLoad = false;
+        Require(!h.Session.RecheckAfterExternalRecovery(complete with { Remaining = 1 })
+            && !h.Session.RecheckAfterExternalRecovery(new([new(Guid.NewGuid(), RecoveryOutcome.Failed, "Failed")], 0)), "Incomplete report was accepted.");
+        Require(h.Session.RecheckAfterExternalRecovery(complete) && h.Session.Status == CanvasSessionStatus.Paused && !h.Session.IsRunning, "Verified recovery did not remain paused.");
+    }
+    private static void InactivePause()
+    {
+        using var h = new Harness(); h.Session.Pause();
+        Require(h.Session.Status == CanvasSessionStatus.Idle && h.Saved is null && h.Restorations == 0, "Unstarted pause claimed recovery.");
+        h.Begin(); var journal = h.Saved; var camera = h.Session.Workspace.Camera;
+        Require(!h.Session.RecheckAfterExternalRecovery(new([], 0)) && h.Session.IsRunning && ReferenceEquals(journal, h.Saved)
+            && h.Session.Workspace.Camera == camera, "Stale recovery completion changed active management.");
     }
     private static void Unsupported()
     {

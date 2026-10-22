@@ -27,6 +27,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private readonly ChromeButton pause = new() { Text = "暂停并恢复", AutoSize = true, Enabled = false };
     private readonly Panel selector = new() { Dock = DockStyle.Left, Width = 272, Padding = new(14) };
     private readonly ContextMenuStrip moreMenu = new();
+    private readonly ToolStripMenuItem appearanceMenu = new("外观");
+    private readonly ToolStripMenuItem localSettingsMenu = new("本地设置");
     private readonly ToolTip hints = new();
     private readonly GameCommandDeck commandDeck;
     private readonly ToolStripMenuItem wallpaperColors = new("跟随壁纸取色") { Checked = true, CheckOnClick = true };
@@ -51,7 +53,23 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private long overviewRequestTimestamp, overviewReceivedTimestamp;
     internal bool HasOverview => overview is not null;
     internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
-    internal void CancelOverview() => overview?.CancelOverview();
+    internal bool HasOverviewWork => overview is not null || overviewRequested || openingOverview || preparingOverviewHost;
+    internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings;
+    internal CanvasSessionStatus SessionStatus => session?.Status ?? CanvasSessionStatus.Idle;
+    private bool panelActionPending, externalRecoveryRunning;
+    internal void CancelOverview()
+    {
+        InvalidateOverviewPreparation(); overviewRequested = false;
+        if (openingOverview) openingCloseRequested = true;
+        if (overview is not null) overview.CancelOverview();
+        else if (!openingOverview) globalInput?.EndOverview(overviewInputSession);
+    }
+    internal void SetPanelActionPending(bool pending)
+    { panelActionPending = pending; if (pending) { EndNavigationForEditing(); CancelOverview(); } RefreshState(); }
+    internal void SetExternalRecoveryRunning(bool running)
+    { if (externalRecoveryRunning == running) return; externalRecoveryRunning = running; RefreshState(); }
+    internal void ExternalRecoveryCompleted(RecoveryReport report)
+    { session?.RecheckAfterExternalRecovery(report); RefreshState(); }
     internal bool ProcessOverviewKey(Keys keys) => overview?.HandleCommand(keys) == true;
     private readonly Label overviewShortcutStatus = new() { AutoSize = true, Padding = new(4) };
     private ManagedCanvasSession? session;
@@ -96,15 +114,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         moreMenu.Items.Add("管理窗口", null, (_, _) => { showWindowPicker = !selector.Visible; RefreshState(); });
         moreMenu.Items.Add("刷新窗口", null, (_, _) => RefreshCandidates());
         moreMenu.Items.Add(new ToolStripSeparator());
-        moreMenu.Items.Add("导航设置…", null, (_, _) =>
-        {
-            globalInput?.Exit();
-            using var dialog = new NavigationSettingsDialog(inputOptions, hotkey: PreferredHotkey);
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            ApplyNavigationSettings(dialog.Options, dialog.Hotkey);
-        });
+        moreMenu.Items.Add("导航设置…", null, (_, _) => ShowNavigationSettings());
         moreMenu.Items.Add("恢复中心", null, (_, _) => RecoveryRequested?.Invoke());
-        var appearance = new ToolStripMenuItem("外观");
+        var appearance = appearanceMenu;
         appearance.DropDownItems.Add(wallpaperColors);
         wallpaperColors.CheckedChanged += (_, _) => WallpaperColorsChanged?.Invoke(wallpaperColors.Checked);
         appearance.DropDownItems.Add("重新采样壁纸", null, (_, _) => { if (!wallpaperColors.Checked) wallpaperColors.Checked = true; else WallpaperRefreshRequested?.Invoke(); });
@@ -208,7 +220,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
-        if (editingArrangement) return;
+        if (editingArrangement || editingSettings || panelActionPending || externalRecoveryRunning) return;
         if (preparationDisposed) return;
         preparationTimer.Stop();
         if (overview is not null) { overview.ToggleOverview(capturedTimestamp); return; }
@@ -385,7 +397,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
 
     private void Begin()
     {
-        if (session is null || reading) return;
+        if (session is null || !CanUsePanelCommands || externalRecoveryRunning) return;
         notice = null;
         var selected = candidates.CheckedItems.OfType<Candidate>().Where(item => item.Supported).Select(item => item.Id).ToHashSet();
         try
@@ -443,13 +455,13 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var running = session?.IsRunning == true;
         if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
         UpdateAdmissionState();
-        var available = running && !editingArrangement;
+        var available = running && !editingArrangement && !editingSettings && !panelActionPending && !externalRecoveryRunning;
         if (globalInput is not null && inputAvailable != available)
         { inputAvailable = available; globalInput.SetAvailable(available); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());
-        candidates.Enabled = !reading && overview is null; start.Enabled = !running;
+        candidates.Enabled = !reading && overview is null && !externalRecoveryRunning; start.Enabled = !running && !externalRecoveryRunning;
         start.Visible = !running; pause.Visible = running; pause.Enabled = running;
         commandDeck.SetRunning(running && !reading);
         selector.Visible = !running || showWindowPicker;
