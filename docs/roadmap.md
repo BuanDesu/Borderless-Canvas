@@ -12,6 +12,8 @@
 
 最新反馈改进见[自动导航、多屏与工作区](interaction-refresh.md)，历史功能合并见[集成记录](integration-history.md)。
 
+M4 已补充[区域平铺预览与撤销](region-arrangement.md)，保留连续画布与原生尺寸；导航、自动接入和外观选择现可[本地保存并重开读取](local-preferences.md)。原生总览已通过远控观感反馈，较新系统默认启用并保留旧入口。完整自然操作、广泛应用/多屏、实际呈现/GPU/长期资源与发布条件仍继续，见 TODO。
+
 ## 下一步任务
 
 1. M3 证据见[总览说明](spatial-overview.md)、[预览说明](overview-previews.md)和[标签说明](location-bookmarks.md)；进入可试用原型集成验收。

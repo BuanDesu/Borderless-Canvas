@@ -7,6 +7,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--smoke-check", StringComparer.Ordinal))
+            System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
         var backdropCheck = Array.IndexOf(args, "--native-backdrop-check");
@@ -35,14 +37,26 @@ internal static class Program
         }
         var smoke = args.Contains("--smoke-check", StringComparer.Ordinal);
         var journalIndex = Array.IndexOf(args, "--journal");
-        if (journalIndex >= 0 && journalIndex + 1 >= args.Length) return 1;
+        if (journalIndex >= 0 && (journalIndex + 1 >= args.Length || args[journalIndex + 1].StartsWith("--", StringComparison.Ordinal))) return 1;
         var journalPath = journalIndex < 0 ? null : args[journalIndex + 1];
         var bookmarkIndex = Array.IndexOf(args, "--bookmarks");
-        if (bookmarkIndex >= 0 && bookmarkIndex + 1 >= args.Length) return 1;
+        if (bookmarkIndex >= 0 && (bookmarkIndex + 1 >= args.Length || args[bookmarkIndex + 1].StartsWith("--", StringComparison.Ordinal))) return 1;
         var bookmarkPath = bookmarkIndex < 0 ? null : args[bookmarkIndex + 1];
+        var settingsIndex = Array.IndexOf(args, "--settings");
+        if (settingsIndex >= 0 && (settingsIndex + 1 >= args.Length || args[settingsIndex + 1].StartsWith("--", StringComparison.Ordinal))) return 1;
+        var settingsPath = settingsIndex < 0 ? null : args[settingsIndex + 1];
+        if (!smoke)
+        {
+            try { BorderlessFlatWindow.Windows.Preferences.JsonPreferencesStore.EnsureSeparateDataFiles(
+                settingsPath ?? BorderlessFlatWindow.Windows.Preferences.JsonPreferencesStore.DefaultPath,
+                journalPath ?? BorderlessFlatWindow.Windows.Recovery.JsonRecoveryJournalStore.DefaultPath,
+                bookmarkPath ?? BorderlessFlatWindow.Windows.Bookmarks.JsonBookmarkStore.DefaultPath); }
+            catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException) { Console.Error.WriteLine("本地数据路径无效或重复。"); return 1; }
+        }
         if (smoke)
         {
             PixelFont.VerifyGlyphs();
+            CanvasPreviewControl.CheckCompactSurfaces();
             ArrangementDialogCheck.Run();
             var sampleWindows = new BorderlessFlatWindow.Core.Canvas.CanvasWindow[] {
                 new(Guid.NewGuid(), "Synthetic A", new(new(50, 60), new(430, 310))),
@@ -63,9 +77,11 @@ internal static class Program
             Directory.CreateDirectory(fixture);
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");
             journalPath = Path.Combine(fixture, "recovery.json");
+            settingsPath = Path.Combine(fixture, "settings.json");
+            MainForm.CheckPreferenceRestart(Path.Combine(fixture, "preferences-restart"));
         }
         using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath,
-            reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal));
+            reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal), settingsPath: settingsPath);
         if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.

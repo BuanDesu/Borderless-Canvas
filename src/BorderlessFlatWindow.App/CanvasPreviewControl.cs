@@ -46,7 +46,7 @@ internal sealed class CanvasPreviewControl : Control
         var windows = DrawWindows();
         if (AutoFit || projection is null) projection = OverviewProjection.Fit(windows.Select(window => window.Bounds)
             .Append(workspace.Camera.Bounds).Append(new RectD(PointD.Zero, new SizeD(1, 1))),
-            new SizeD(Width, Height), padding: 48);
+            new SizeD(Width, Height), padding: Math.Min(48, Math.Min(Width, Height) / 4d));
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         for (var index = 0; index < windows.Count; index++)
         {
@@ -71,8 +71,8 @@ internal sealed class CanvasPreviewControl : Control
         if (windows.Count == 0)
         {
             var center = new Point(Width / 2, Height / 2);
-            ChromeTheme.Mark(e.Graphics, new(center.X - 28, center.Y - 56, 56, 56));
-            TextRenderer.DrawText(e.Graphics, "为窗口留一点自由", Font, new Rectangle(0, center.Y + 16, Width, 36), ChromeTheme.Muted,
+            if (Height >= 140) ChromeTheme.Mark(e.Graphics, new(center.X - 28, center.Y - 56, 56, 56));
+            TextRenderer.DrawText(e.Graphics, "为窗口留一点自由", Font, new Rectangle(0, Height >= 140 ? center.Y + 16 : center.Y - 18, Width, 36), ChromeTheme.Muted,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
     }
@@ -101,4 +101,23 @@ internal sealed class CanvasPreviewControl : Control
 
     private IReadOnlyList<CanvasWindow> DrawWindows() =>
         workspace.Windows.OrderBy(window => window.Id == ActiveWindowId).ToArray();
+
+    internal static void CheckCompactSurfaces()
+    {
+        var workspace = new CanvasWorkspace(new(1280, 720));
+        foreach (var populated in new[] { false, true })
+        {
+            if (populated) workspace.UpsertWindow(new(Guid.NewGuid(), "Synthetic compact map", new(new(-500, 30), new(640, 480))));
+            foreach (var size in new[] { new Size(65, 65), new(96, 72), new(72, 96), new(432, 80), new(80, 432), new(432, 64), new(432, 300) })
+            {
+                using var control = new CanvasPreviewControl(workspace) { Size = size };
+                using var bitmap = new Bitmap(size.Width, size.Height); using var graphics = Graphics.FromImage(bitmap);
+                // Direct paint keeps a regression exception on the test call stack instead of opening a framework error dialog.
+                control.OnPaint(new PaintEventArgs(graphics, control.ClientRectangle));
+                if (size.Width > 64 && size.Height > 64 && (control.projection is null || !double.IsFinite(control.projection.Scale)))
+                    throw new InvalidOperationException("Compact map projection is unavailable.");
+            }
+        }
+        Console.WriteLine("PASS Compact empty/populated maps preserve a valid uniform projection with adaptive padding");
+    }
 }

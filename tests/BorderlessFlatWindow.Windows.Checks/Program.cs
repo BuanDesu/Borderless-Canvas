@@ -23,6 +23,8 @@ internal static class Program
         }
         var storage = StorageChecks.Run();
         var bookmarkStorage = BookmarkStorageChecks.Run();
+        var preferenceStorage = PreferencesStorageChecks.Run();
+        if (preferenceStorage != 0) return preferenceStorage;
         if (bookmarkStorage != 0) return bookmarkStorage;
         if (args.Contains("--storage-only", StringComparer.Ordinal) || storage != 0) return storage;
         ApplicationConfiguration.Initialize();

@@ -11,6 +11,7 @@ using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows;
 using BorderlessFlatWindow.Windows.Recovery;
 using BorderlessFlatWindow.Application.Bookmarks;
+using BorderlessFlatWindow.Application.Preferences;
 
 namespace BorderlessFlatWindow.App;
 
@@ -65,8 +66,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal PointD BookmarkPosition => session?.Workspace.Camera.Position ?? PointD.Zero;
     internal bool CanJumpToBookmark => session?.IsRunning == true && !reading && !session.IsBusy && overview is null;
 
-    internal ManagedCanvasControl(ITrackedDesktopWindowCatalog catalog, string? journalPath, BookmarkLibrary bookmarks)
+    internal ManagedCanvasControl(ITrackedDesktopWindowCatalog catalog, string? journalPath, BookmarkLibrary bookmarks, PreferencesSession preferences)
     {
+        this.preferences = preferences;
         this.bookmarks = bookmarks;
         this.catalog = catalog; this.journalPath = journalPath ?? JsonRecoveryJournalStore.DefaultPath;
         selector.Controls.Add(candidates);
@@ -97,12 +99,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         moreMenu.Items.Add("导航设置…", null, (_, _) =>
         {
             globalInput?.Exit();
-            using var dialog = new NavigationSettingsDialog(inputOptions, hotkey: globalInput?.State.Hotkey);
+            using var dialog = new NavigationSettingsDialog(inputOptions, hotkey: PreferredHotkey);
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            gestures?.End(DateTimeOffset.UtcNow); inputOptions = dialog.Options;
-            if (gestures is not null) gestures.Options = inputOptions;
-            globalInput?.Configure(inputOptions);
-            if (globalInput is not null && dialog.Hotkey != globalInput.State.Hotkey) globalInput.ChangeHotkey(dialog.Hotkey);
+            ApplyNavigationSettings(dialog.Options, dialog.Hotkey);
         });
         moreMenu.Items.Add("恢复中心", null, (_, _) => RecoveryRequested?.Invoke());
         var appearance = new ToolStripMenuItem("外观");
@@ -110,6 +109,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         wallpaperColors.CheckedChanged += (_, _) => WallpaperColorsChanged?.Invoke(wallpaperColors.Checked);
         appearance.DropDownItems.Add("重新采样壁纸", null, (_, _) => { if (!wallpaperColors.Checked) wallpaperColors.Checked = true; else WallpaperRefreshRequested?.Invoke(); });
         appearance.DropDownItems.Add(overviewAnimation); ChromeTheme.StyleMenu(appearance.DropDown); moreMenu.Items.Add(appearance);
+        InitializePreferences();
         moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
             "桌面空白处：滚轮移动，Shift 横移，左右双键拖动。\nTab 进入/退出总览，Ctrl+滚轮轮选窗口。\n总览内方向键选择，Ctrl+Tab 轮选，Enter 定位。\n应用窗口内直接操作；Esc 可暂停自动导航。\n关闭管理器收入托盘，托盘菜单可退出并恢复。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
         moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
@@ -135,7 +135,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             globalInput = new(() =>
             {
                 if (IsHandleCreated && !IsDisposed) BeginInvoke(() => navigationTimer.Start());
-            });
+            }, inputOptions, PreferredHotkey);
             NavigationFrame();
         }
         catch (Exception exception) when (Expected(exception)) { navigationStatus.Text = $"导航不可用：{exception.Message}"; }
@@ -457,7 +457,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
         var camera = session?.Workspace.Camera;
         var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
-        var attention = notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null);
+        var attention = notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? preferences.Warning;
         status.Text = attention ?? (running ? "桌面空白处移动视角 · 应用窗口内直接操作" : "勾选需要的窗口，开始画布");
         status.FitText(attention is null ? 42 : 0);
         hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");

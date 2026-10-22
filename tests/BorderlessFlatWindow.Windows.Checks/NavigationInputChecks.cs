@@ -11,6 +11,18 @@ internal static class NavigationInputChecks
         check("Closing overview clears its navigation suspension message and wakes the UI", OverviewState);
         check("A delayed overview close on the input thread cannot clear a newer session", OverviewOwnership);
         check("Pausing availability clears pending overview input without enabling desktop capture", OverviewUnavailable);
+        check("Initial navigation preferences register the selected shortcut directly and report conflicts without capture", InitialPreferences);
+    }
+    private static void InitialPreferences()
+    {
+        var foreground = WindowEventListener.ForegroundWindow;
+        using var occupied = IsolatedInput(() => { }); var selected = occupied.State.Hotkey;
+        using (var conflict = new GlobalNavigationInput(() => { }, new(false, false, false, 600), selected))
+            Require(conflict.State.Hotkey == selected && !conflict.State.Registered && !conflict.State.Active && conflict.Drain().Count == 0, "Startup conflict silently fell back or enabled navigation.");
+        occupied.Dispose();
+        using var loaded = new GlobalNavigationInput(() => { }, new(false, true, false, 330), selected);
+        Require(loaded.State.Hotkey == selected && loaded.State.Registered && !loaded.State.Active && loaded.Drain().Count == 0
+            && WindowEventListener.ForegroundWindow == foreground, "Initial saved shortcut was not registered directly or changed foreground.");
     }
     private static void OverviewUnavailable()
     {
