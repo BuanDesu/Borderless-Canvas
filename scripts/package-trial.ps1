@@ -59,6 +59,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/capture-readback.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/native-overview-presenter.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/native-backdrop-validation.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/region-arrangement.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start-NativeOverview.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start-FormOverview.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start.cmd') -Destination $destination

@@ -10,7 +10,7 @@ namespace BorderlessFlatWindow.Application.Management;
 public enum CanvasSessionStatus { Idle, Running, Paused, RecoveryRequired }
 
 /// <summary>Owns the logical layout. Native parked rectangles never replace world coordinates.</summary>
-public sealed class ManagedCanvasSession : IDisposable
+public sealed partial class ManagedCanvasSession : IDisposable
 {
     private readonly Func<RecoverySession> createRecovery;
     private readonly IWindowMotionPort motion;
@@ -330,6 +330,7 @@ public sealed class ManagedCanvasSession : IDisposable
                 }
                 else if (actual != state.Observed)
                 {
+                    InvalidateArrangementFor(state.Id);
                     if (state.Parked) { PauseInternal("离屏窗口被外部移动，已暂停恢复。"); return; }
                     state.Observed = actual; state.Desired = actual;
                     state.Parked = !layout.Monitors.Any(m => WindowPlacementPlanner.Intersects(actual, m.WorkArea));
@@ -350,6 +351,7 @@ public sealed class ManagedCanvasSession : IDisposable
             if (entries.TryGetValue(candidate.Identity.Handle, out var current) && current.Observation.IsAlive
                 && (current.Observation.Identity is null || current.Observation.Identity == candidate.Identity)) continue;
             Workspace.RemoveWindow(candidate.Id); managed.Remove(candidate.Id);
+            InvalidateArrangementFor(candidate.Id);
             if (ActiveWindowId == candidate.Id) ActiveWindowId = null;
         }
     }
@@ -379,6 +381,7 @@ public sealed class ManagedCanvasSession : IDisposable
     }
     private void PauseInternal(string reason)
     {
+        lastArrangement = null; arrangementOwner = new();
         activation = null;
         foreach (var state in managed.Values) { state.Deadline = null; state.Expected.Clear(); }
         try

@@ -43,6 +43,22 @@ internal static class Program
         if (smoke)
         {
             PixelFont.VerifyGlyphs();
+            ArrangementDialogCheck.Run();
+            var sampleWindows = new BorderlessFlatWindow.Core.Canvas.CanvasWindow[] {
+                new(Guid.NewGuid(), "Synthetic A", new(new(50, 60), new(430, 310))),
+                new(Guid.NewGuid(), "Synthetic B", new(new(100, 90), new(560, 360))),
+                new(Guid.NewGuid(), "Synthetic distant", new(new(3800, 2400), new(430, 310))) };
+            var sampleRegion = new BorderlessFlatWindow.Core.Geometry.RectD(new(0, 0), new(1200, 800));
+            using (var arrangement = new CanvasArrangementDialog(sampleWindows, sampleRegion, [sampleRegion], showWithoutActivation: true))
+            {
+                arrangement.Show(); System.Windows.Forms.Application.DoEvents();
+                if (!arrangement.CanApply || arrangement.SelectedIds.Length != 2) throw new InvalidOperationException("Arrangement preview did not select its visible synthetic sources.");
+                using var image = new Bitmap(arrangement.Width, arrangement.Height);
+                arrangement.DrawToBitmap(image, new Rectangle(Point.Empty, arrangement.Size));
+                var previewDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
+                Directory.CreateDirectory(previewDirectory); image.Save(Path.Combine(previewDirectory, "arrangement-smoke.png"));
+                arrangement.DialogResult = DialogResult.Cancel; arrangement.Close();
+            }
             var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-smoke", Guid.NewGuid().ToString("N")));
             Directory.CreateDirectory(fixture);
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");

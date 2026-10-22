@@ -23,6 +23,8 @@ internal static class ManagedCanvasChecks
         check("Persisted label jumps use native camera movement while rename and deletion leave windows unchanged", BookmarkNavigation);
         check("A real late window joins an active camera without moving existing windows and restores on pause", LateWindow);
         check("A late native window refusing its planned position pauses and recovers the full group", LateRefused);
+        check("Native region arrangement and undo preserve other windows, camera history, foreground and recovery", Arrangement);
+        check("Native refused arrangement restores the entire group and clears undo", ArrangementRefused);
     }
     private sealed class Fixture : Form
     {
@@ -78,6 +80,38 @@ internal static class ManagedCanvasChecks
     private static Dictionary<nint, RectD?> Shell(DesktopWindowCatalog catalog) => catalog.Inspect().Entries
         .Where(entry => entry.Observation.ClassName is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd" or "Progman" or "WorkerW")
         .ToDictionary(entry => entry.Observation.Handle, entry => entry.Observation.Bounds);
+    private static void Arrangement()
+    {
+        using var h = new Harness(); h.Session.Pan(new(120, 80), DateTimeOffset.UtcNow); h.Settle();
+        var before = h.Session.Workspace.Windows.ToArray(); var nativeB = h.B.Bounds;
+        var aId = h.Catalog.Current.Entries.Single(e => e.Observation.Handle == h.A.Handle).Id!.Value;
+        var foreground = WindowEventListener.ForegroundWindow; var shell = Shell(h.Catalog);
+        var plan = h.Session.PreviewArrangement([aId], h.Session.Workspace.Camera.Bounds);
+        Require(plan is not null && h.Session.ApplyArrangement(plan, DateTimeOffset.UtcNow), h.Session.Message); h.Settle();
+        Require(h.B.Bounds == nativeB && h.A.Size == h.OriginalA.Size && h.Session.CanUndoArrangement, "Arrangement changed unselected bounds or size.");
+        Require(h.Session.Pan(new(150, -40), DateTimeOffset.UtcNow), h.Session.Message); h.Settle();
+        var camera = h.Session.Workspace.Camera; var history = h.Session.Workspace.PreviousView; var label = h.Session.Workspace.AddBookmark("Synthetic arrangement");
+        Require(h.Session.UndoArrangement(DateTimeOffset.UtcNow), h.Session.Message); h.Settle();
+        Require(h.Session.Workspace.Windows.SequenceEqual(before) && h.Session.Workspace.Camera == camera
+            && h.Session.Workspace.PreviousView == history && h.Session.Workspace.Bookmarks.Single() == label
+            && h.A.Bounds == new Rectangle(h.OriginalA.X - (int)camera.Position.X, h.OriginalA.Y - (int)camera.Position.Y, h.OriginalA.Width, h.OriginalA.Height)
+            && WindowEventListener.ForegroundWindow == foreground && shell.OrderBy(p => p.Key).SequenceEqual(Shell(h.Catalog).OrderBy(p => p.Key)), "Undo changed navigation, foreground or shell.");
+        h.Session.Pause();
+        Require(h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB && !h.Session.CanUndoArrangement, "Pause did not restore arrangement originals.");
+        using var journal = System.Text.Json.JsonDocument.Parse(File.ReadAllText(h.JournalPath));
+        Require(journal.RootElement.GetProperty("Entries").GetArrayLength() == 0, "Arrangement retained recovery records after pause.");
+    }
+    private static void ArrangementRefused()
+    {
+        using var h = new Harness(); var plan = h.Session.PreviewArrangement(h.Session.ManagedIds, h.Session.Workspace.Camera.Bounds);
+        h.B.RejectMoves = true; var now = DateTimeOffset.UtcNow;
+        Require(plan is not null && h.Session.ApplyArrangement(plan, now), h.Session.Message); h.Tick(now.AddMilliseconds(1700));
+        Require(!h.Session.IsRunning && !h.Session.CanUndoArrangement && h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB,
+            "Refused arrangement stranded a partial group.");
+        using var journal = System.Text.Json.JsonDocument.Parse(File.ReadAllText(h.JournalPath));
+        Require(journal.RootElement.GetProperty("Entries").GetArrayLength() == 0, "Refused arrangement retained recovery ownership.");
+        h.B.RejectMoves = false;
+    }
     private static void PanAndShell()
     {
         using var h = new Harness(); var shell = Shell(h.Catalog); var foreground = WindowEventListener.ForegroundWindow;
