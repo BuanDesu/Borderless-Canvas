@@ -10,6 +10,7 @@ internal sealed class DisplayDiagnosticsControl : UserControl
     private readonly Action<DisplayLayout> onRead;
     private readonly ListView list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
     private readonly WrapLabel summary = new() { Dock = DockStyle.Top, Padding = new(10) };
+    internal event Action<string>? ReadFailed;
 
     internal DisplayDiagnosticsControl(IDesktopDisplayCatalog catalog, Action<DisplayLayout> onRead)
     {
@@ -56,6 +57,7 @@ internal sealed class DisplayDiagnosticsControl : UserControl
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or ArgumentException)
         {
             summary.Text = $"读取失败，保留上次结果：{exception.Message}";
+            ReadFailed?.Invoke("显示配置读取失败；请在设备诊断中重新检查后再开始画布。");
         }
     }
 

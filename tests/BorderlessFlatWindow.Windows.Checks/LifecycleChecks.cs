@@ -16,13 +16,13 @@ internal static class LifecycleChecks
         using var fixture = new Fixture { Text = "BFW lifecycle fixture", Bounds = new(180, 180, 420, 320) };
         fixture.Show();
         var handle = fixture.Handle;
+        FixtureDesktop.PlaceOwnWindow(handle);
         Guid? firstId = null;
 
         check("Native create/show events populate the catalog without full enumeration", () =>
         {
             PumpUntil(() => changes.Any(change => change.Handle == handle && change.Kind == WindowChangeKind.Shown));
-            buffer.Drain(catalog);
-            var entry = catalog.Current.AdmittedWindows.Single(window => window.Handle == handle);
+            var entry = AwaitAdmission(buffer, catalog, handle);
             firstId = entry.Id;
             Require(listener.IsRunning && listener.LastCallbackError is null, "Hook callback failed.");
         });
@@ -31,8 +31,7 @@ internal static class LifecycleChecks
             changes.Clear(); fixture.Bounds = new(350, 230, 500, 350); fixture.Text = "BFW lifecycle renamed";
             PumpUntil(() => changes.Any(change => change.Handle == handle && change.Kind == WindowChangeKind.Location)
                 && changes.Any(change => change.Handle == handle && change.Kind == WindowChangeKind.Name));
-            buffer.Drain(catalog);
-            var entry = catalog.Current.AdmittedWindows.Single(window => window.Handle == handle);
+            var entry = AwaitAdmission(buffer, catalog, handle, window => window.Title == fixture.Text && window.Bounds.Position.X == fixture.Left && window.Bounds.Size.Width == fixture.Width);
             Require(entry.Id == firstId && entry.Title == fixture.Text && entry.Bounds.Position.X == fixture.Left
                 && entry.Bounds.Size.Width == fixture.Width, "Event did not update physical bounds/title.");
         });
@@ -52,10 +51,9 @@ internal static class LifecycleChecks
             PumpUntil(() => changes.Any(change => change.Handle == handle && change.Kind == WindowChangeKind.Hidden));
             buffer.Drain(catalog);
             Require(catalog.Current.AdmittedWindows.All(window => window.Handle != handle), "Hidden window stayed admitted.");
-            changes.Clear(); fixture.Show();
+            changes.Clear(); fixture.Show(); FixtureDesktop.PlaceOwnWindow(handle);
             PumpUntil(() => changes.Any(change => change.Handle == handle && change.Kind == WindowChangeKind.Shown));
-            buffer.Drain(catalog);
-            Require(catalog.Current.AdmittedWindows.Single(window => window.Handle == handle).Id == firstId, "Hide/show replaced ID.");
+            Require(AwaitAdmission(buffer, catalog, handle).Id == firstId, "Hide/show replaced ID.");
         });
         check("Native destroy event retires a window even when later metadata is unavailable", () =>
         {
@@ -89,6 +87,23 @@ internal static class LifecycleChecks
         });
     }
 
+    private static BorderlessFlatWindow.Application.Ports.DesktopWindowInfo AwaitAdmission(WindowEventBuffer buffer, DesktopWindowCatalog catalog,
+        nint handle, Func<BorderlessFlatWindow.Application.Ports.DesktopWindowInfo, bool>? matches = null)
+    {
+        // A show hint may precede the native state/metadata hints already queued behind it.
+        // Exercise the production event buffer; do not populate the catalog by a separate refresh/enumeration.
+        BorderlessFlatWindow.Application.Ports.DesktopWindowInfo? result = null;
+        var timeout = Stopwatch.StartNew();
+        do
+        {
+            System.Windows.Forms.Application.DoEvents(); buffer.Drain(catalog);
+            result = catalog.Current.AdmittedWindows.FirstOrDefault(window => window.Handle == handle);
+            if (result is not null && (matches is null || matches(result))) return result;
+            Thread.Sleep(5);
+        } while (timeout.Elapsed < TimeSpan.FromSeconds(3));
+        var observation = catalog.Current.Entries.FirstOrDefault(entry => entry.Observation.Handle == handle);
+        throw new InvalidOperationException($"Native event sequence did not reach the required state: reason={observation?.Admission.Reason}, pendingHints={buffer.Count}, admitted={result is not null}.");
+    }
     private static void PumpUntil(Func<bool> completed)
     {
         var timeout = Stopwatch.StartNew();

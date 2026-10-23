@@ -42,6 +42,7 @@ internal static partial class ManagementChecks
         yield return ("Same DPI multiscreen pans, primary-screen focus and recovery preserve world layout", MultipleScreens);
         yield return ("Rapid window cycling advances even before foreground callbacks arrive", Cycle);
         yield return ("Display geometry and DPI changes invalidate the active baseline", Displays);
+        foreach (var item in DisplayTransitionCases()) yield return item;
         foreach (var item in ArrangementCases()) yield return item;
     }
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 0, 0, 0, TimeSpan.FromHours(8));

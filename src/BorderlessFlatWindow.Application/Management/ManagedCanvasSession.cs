@@ -14,8 +14,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
 {
     private readonly Func<RecoverySession> createRecovery;
     private readonly IWindowMotionPort motion;
-    private readonly DisplayLayout layout;
-    private readonly WindowPlacementPlanner planner;
+    private DisplayLayout layout;
+    private WindowPlacementPlanner planner;
     private readonly Dictionary<Guid, Managed> managed = [];
     private RecoverySession? recovery;
     private Guid? activation;
@@ -398,6 +398,16 @@ public sealed partial class ManagedCanvasSession : IDisposable
         finally { recovery?.Dispose(); recovery = null; }
     }
     public bool MatchesDisplay(DisplayLayout current) => layout.Monitors.SequenceEqual(current.Monitors);
+    public bool ReconfigureDisplay(DisplayLayout current)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (busy || IsRunning) return false;
+        var nextPlanner = new WindowPlacementPlanner(current.CanvasWorkArea, current.Monitors.Select(m => m.Bounds), current.Monitors.Select(m => m.WorkArea));
+        layout = current; planner = nextPlanner;
+        Workspace.SetViewportSize(current.CanvasWorkArea.Size);
+        lastArrangement = null; arrangementOwner = new(); activation = cycleTarget = null;
+        return true;
+    }
     public bool RecheckAfterExternalRecovery(RecoveryReport report)
     {
         if (disposed || busy || recovery is not null || Status != CanvasSessionStatus.RecoveryRequired
