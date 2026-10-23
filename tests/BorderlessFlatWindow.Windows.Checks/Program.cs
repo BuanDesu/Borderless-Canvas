@@ -10,6 +10,7 @@ internal static class Program
     {
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
         if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();
+        if (args.Contains("--serve-pin-menu", StringComparer.Ordinal)) return PointerAndPinChecks.ServeMenu();
         if (args.Contains("--recovery-display-only", StringComparer.Ordinal))
         {
             ApplicationConfiguration.Initialize(); var displayFailures = 0;
@@ -98,6 +99,7 @@ internal static class Program
         OffscreenChecks.Run(Check);
         ManagedCanvasChecks.Run(Check);
         NavigationInputChecks.Run(Check);
+        PointerAndPinChecks.Run(normal, Check);
         OverviewChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>
         {

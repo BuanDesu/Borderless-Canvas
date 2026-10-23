@@ -47,7 +47,7 @@ internal sealed partial class MainForm
                         if (TrayCheckGetWindow(dialog.Handle, 4) != Handle || TrayCheckIsEnabled(Handle) || !TrayCheckIsEnabled(dialog.Handle)
                             || !dialog.TopMost || TrayState.CanOpen || TrayState.CanPause || TrayState.CanConfigure || TrayState.CanExit)
                             throw new InvalidOperationException("Settings modal did not own and gate the root/tray.");
-                        DescendantsForTray(dialog).OfType<NumericUpDown>().Single().Value = 450;
+                        DescendantsForTray(dialog).OfType<NumericUpDown>().Single(control => control.Name == "WheelDistance").Value = 450;
                         dialog.DialogResult = confirm ? DialogResult.OK : DialogResult.Cancel; dialog.Close(); done = true; timer.Stop();
                     }
                     catch (Exception error) { failure = error; timer.Stop(); if (dialog is not null) { dialog.DialogResult = DialogResult.Abort; dialog.Close(); } }

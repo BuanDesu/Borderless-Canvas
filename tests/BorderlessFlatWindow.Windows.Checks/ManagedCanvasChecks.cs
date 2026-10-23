@@ -25,6 +25,39 @@ internal static class ManagedCanvasChecks
         check("A late native window refusing its planned position pauses and recovers the full group", LateRefused);
         check("Native region arrangement and undo preserve other windows, camera history, foreground and recovery", Arrangement);
         check("Native refused arrangement restores the entire group and clears undo", ArrangementRefused);
+        check("Native detachment releases only that journal entry, keeps a fixed screen position and rejoins without a jump", Detachment);
+        check("Native wheel-cycle frames move the camera continuously without early activation and cancel on pause", CycleFrames);
+    }
+    private static void CycleFrames()
+    {
+        using var h = new Harness(); var foreground = WindowEventListener.ForegroundWindow; var before = h.A.Bounds;
+        var now = DateTimeOffset.UtcNow;
+        Require(h.Session.CycleWindow(1, now, animate: true), h.Session.Message);
+        h.Session.AdvanceCameraTransition(now.AddMilliseconds(65)); h.Settle(); var first = h.A.Bounds;
+        h.Session.AdvanceCameraTransition(now.AddMilliseconds(100)); h.Settle();
+        Require(first != before && h.A.Bounds != first && h.A.Size == h.OriginalA.Size && h.Session.HasCameraTransition
+            && WindowEventListener.ForegroundWindow == foreground, "Native cycle skipped intermediate frames or activated early.");
+        h.Session.Pause(); Require(!h.Session.HasCameraTransition && h.A.Bounds == h.OriginalA && h.B.Bounds == h.OriginalB, "Pause did not cancel the native camera transition and restore originals.");
+    }
+    private static void Detachment()
+    {
+        using var h = new Harness(); var foreground = WindowEventListener.ForegroundWindow;
+        h.Session.Pan(new(120, 60), DateTimeOffset.UtcNow); h.Settle(); var pinnedBounds = h.A.Bounds;
+        var entry = h.Catalog.Current.Entries.Single(item => item.Observation.Handle == h.A.Handle); var identity = entry.Observation.Identity!.Value;
+        WindowPinMarker.Set(identity, true);
+        try
+        {
+            Require(h.Session.DetachWindow(entry.Id!.Value), h.Session.Message);
+            using (var journal = System.Text.Json.JsonDocument.Parse(File.ReadAllText(h.JournalPath)))
+                Require(journal.RootElement.GetProperty("Entries").GetArrayLength() == 1, "Detached window retained durable recovery ownership.");
+            h.Session.Pan(new(80, -20), DateTimeOffset.UtcNow); h.Settle();
+            Require(h.A.Bounds == pinnedBounds && WindowPinMarker.IsPinned(identity), "Fixed window followed a later native pan.");
+            WindowPinMarker.Set(identity, false); entry = h.Catalog.Inspect().Entries.Single(item => item.Observation.Handle == h.A.Handle);
+            Require(h.Session.AddWindows([entry], DateTimeOffset.UtcNow, preservePhysicalPosition: true), h.Session.Message); h.Settle();
+            Require(h.A.Bounds == pinnedBounds && WindowEventListener.ForegroundWindow == foreground, "Rejoin moved or activated the window.");
+            h.Session.Pause(); Require(h.A.Bounds == pinnedBounds && h.B.Bounds == h.OriginalB, "Rejoined recovery did not use the new admission's original position.");
+        }
+        finally { WindowPinMarker.Set(identity, false); }
     }
     private sealed class Fixture : Form
     {

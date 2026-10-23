@@ -23,6 +23,7 @@ internal static class RuntimeAdmissionChecks
         yield return ("Identity-table resets cannot make an old native window appear newly opened", IdentityReset);
         yield return ("A destroyed handle or changed process identity can represent a genuinely new auto candidate", Reuse);
         yield return ("An unknown pre-existing identity remains excluded until a real destroy hint", Unknown);
+        yield return ("All-window automatic scope includes old eligible windows while excluding fixed and held launch identities", AllWindowScope);
     }
     private static RectD Rect(double x, double y, double w, double h) => new(new(x, y), new(w, h));
     private static readonly RectD View = Rect(0, 0, 1920, 1040);
@@ -135,6 +136,21 @@ internal static class RuntimeAdmissionChecks
         var d = new Desktop(); d.Native[42] = d.Native[42] with { ProcessCreationFileTime = null }; d.Tracker.Reset(d.Catalog.Inspect());
         d.Native[42] = Desktop.Window(42); d.Tick(); Require(d.Tracker.PendingHandles.Count == 0, "Unverified baseline became new without evidence.");
         d.Tracker.ForgetDestroyed(42); d.Tick(300); Require(d.Tracker.PendingHandles.Count == 1, "Destroyed unknown baseline never became eligible.");
+    }
+    private static void AllWindowScope()
+    {
+        var d = new Desktop(); d.Native[43] = Desktop.Window(43) with { IsMaximized = true };
+        var snapshot = d.Catalog.Inspect(); d.Tracker.Reset(snapshot, includeExisting: true);
+        var fixedIdentity = snapshot.Entries.Single(entry => entry.Observation.Handle == 42).Observation.Identity!.Value;
+        var excluded = new HashSet<NativeWindowIdentity> { fixedIdentity };
+        d.Tracker.Observe(snapshot, new HashSet<Guid>(), d.Layout, Now, excluded);
+        Require(d.Tracker.PendingHandles.Count == 0, "Fixed or unsupported old windows entered automatic admission.");
+        d.Native[43] = d.Native[43] with { IsMaximized = false }; snapshot = d.Catalog.Inspect();
+        d.Tracker.Observe(snapshot, new HashSet<Guid>(), d.Layout, Now.AddMilliseconds(100), excluded);
+        d.Tracker.Observe(snapshot, new HashSet<Guid>(), d.Layout, Now.AddMilliseconds(350), excluded);
+        Require(d.Tracker.Ready(Now.AddMilliseconds(350)).Single().Observation.Handle == 43, "An old window that became eligible never joined the all-window scope.");
+        d.Tracker.Observe(snapshot, new HashSet<Guid>(), d.Layout, Now.AddMilliseconds(400), new HashSet<NativeWindowIdentity>());
+        Require(d.Tracker.PendingHandles.Contains(42), "Cancelling fixed state could not release the old baseline exclusion.");
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

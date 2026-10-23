@@ -76,6 +76,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/native-backdrop-validation.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/region-arrangement.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/local-preferences.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/pointer-and-sticky.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/tray-control.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/deployment.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/desktop-lifecycle.md') -Destination $destination

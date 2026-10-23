@@ -11,11 +11,11 @@ public sealed record NavigationHotkey(uint Modifiers, uint Key, string Label)
 {
     public static readonly NavigationHotkey Default = new(3, 0x20, "Ctrl+Alt+Space");
 }
-public sealed record GlobalNavigationState(bool Active, bool Registered, NavigationHotkey Hotkey, string Message, bool Manual = false);
+public sealed record GlobalNavigationState(bool Active, bool Registered, NavigationHotkey Hotkey, string Message, bool Manual = false, bool Crosshair = false, PointD? CrosshairCenter = null);
 public readonly record struct TimedNavigationInput(NavigationInput Input, DateTimeOffset At, long CapturedTimestamp = 0);
 
 /// <summary>Dedicated message-loop thread. Subscribers only post a UI wake; never move windows here.</summary>
-public sealed class GlobalNavigationInput : IDisposable
+public sealed partial class GlobalNavigationInput : IDisposable
 {
     private const uint CommandMessage = 0x8001;
     private const int ToggleId = 0x4BF0, EscapeId = 0x4BF1, HomeId = 0x4BF2, BackId = 0x4BF3, OverviewId = 0x4BF4;
@@ -139,6 +139,7 @@ public sealed class GlobalNavigationInput : IDisposable
             if (timer == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法启动输入看门狗。");
             RegisterToggle(State.Hotkey);
             overviewRegistered = RegisterHotKey(0, OverviewId, 3 | 0x4000, 0x4F);
+            InitializePointerInput();
             Volatile.Write(ref overviewMessage, overviewRegistered ? "桌面空白处 Tab / Shift+Tab 进入总览，总览内再次按下返回；Ctrl+Alt+O 也可打开/关闭。"
                 : $"总览快捷键 Ctrl+Alt+O 注册失败（{Marshal.GetLastPInvokeError()}），可用界面按钮。");
             Wake(); ready.Set();
@@ -156,8 +157,14 @@ public sealed class GlobalNavigationInput : IDisposable
                 {
                     if (available || overviewOpen) { Leave("切换空间总览，导航已退出。"); Queue(new(NavigationInputKind.Overview, PointD.Zero)); }
                 }
+                else if (message.MessageId == 0x312 && message.WParam == CrosshairId) ToggleCrosshairCore();
+                else if (message.MessageId == 0x312 && message.WParam == PinId) QueueFocusedPin();
+                else if (message.MessageId == 0xFF && message.Window == rawPointer?.Handle)
+                { ProcessRelativePointer(message.LParam); DispatchMessage(ref message); }
                 else if (message.MessageId == 0x113)
                 {
+                    CheckRelativeSource();
+                    if (!crosshair && clipOwned) ReleasePointerCapture();
                     if (gate.Active && Environment.TickCount64 - Volatile.Read(ref heartbeat) > 1800)
                     {
                         available = false; Leave("界面响应超时，导航已自动退出。");
@@ -175,6 +182,8 @@ public sealed class GlobalNavigationInput : IDisposable
         }
         finally
         {
+            ReleasePointerCapture(); rawPointer?.Dispose(); rawPointer = null;
+            UnregisterHotKey(0, CrosshairId); UnregisterHotKey(0, PinId);
             gate.Exit();
             UnregisterHotKey(0, ToggleId); UnregisterHotKey(0, OverviewId); ReleaseModeKeys();
             if (hook != 0) UnhookWindowsHookEx(hook);
@@ -215,6 +224,7 @@ public sealed class GlobalNavigationInput : IDisposable
     }
     private void Leave(string message)
     {
+        ReleasePointerCapture();
         contextClick.Cancel(); contextTarget = 0; contextGeneration++;
         var active = gate.Active; gate.Exit(); manual = false;
         if (escapeRegistered) ReleaseModeKeys();
@@ -226,7 +236,7 @@ public sealed class GlobalNavigationInput : IDisposable
         UnregisterHotKey(0, EscapeId); UnregisterHotKey(0, HomeId); UnregisterHotKey(0, BackId); escapeRegistered = false;
     }
     private void Publish(bool active, bool registered, NavigationHotkey hotkey, string message)
-    { Volatile.Write(ref state, new(active, registered, hotkey, message, manual)); Wake(); }
+    { Volatile.Write(ref state, new(active, registered, hotkey, message, manual, crosshair, crosshair ? new PointD(pointerCenter.X, pointerCenter.Y) : null)); Wake(); }
     private void Wake()
     {
         if (Interlocked.Exchange(ref wakePending, 1) != 0) return;
@@ -236,6 +246,7 @@ public sealed class GlobalNavigationInput : IDisposable
     {
         if (inputs.Count >= 256)
         {
+            ReleasePointerCapture(); manual = false;
             gate.Exit(); if (escapeRegistered) ReleaseModeKeys();
             Interlocked.Exchange(ref overflow, 1);
             Publish(false, State.Registered, State.Hotkey, "输入积压，导航已退出并请求暂停恢复。"); return;
@@ -247,6 +258,7 @@ public sealed class GlobalNavigationInput : IDisposable
         if (code < 0) return CallNextHookEx(0, code, message, data);
         try
         {
+            if (ConsumePointerAuxClick(message, data)) return 1;
             if (message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); }
             NavigationInputKind? kind = message switch
             {
@@ -262,8 +274,11 @@ public sealed class GlobalNavigationInput : IDisposable
             if (kind is { } inputKind)
             {
                 var input = Marshal.PtrToStructure<MouseInput>(data);
+                if (crosshair && inputKind == NavigationInputKind.Move) lastLegacyMotion = Environment.TickCount64;
                 // Only our balanced replay bypasses routing; unrelated injected input follows normal policy.
                 if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return CallNextHookEx(0, code, message, data);
+                if (ConsumePinMenuClick(inputKind, input.Point)) return 1;
+                if (ConsumePointerExitClick(inputKind)) return 1;
                 if (inputKind != NavigationInputKind.Move) contextGeneration++;
                 UpdateAutomatic(input.Point);
                 var shift = inputKind == NavigationInputKind.Wheel && (GetAsyncKeyState(0x10) & 0x8000) != 0;
@@ -288,6 +303,7 @@ public sealed class GlobalNavigationInput : IDisposable
         }
         catch (Exception)
         {
+            ReleasePointerCapture(); manual = false;
             gate.Exit(); if (escapeRegistered) ReleaseModeKeys();
             Interlocked.Exchange(ref overflow, 1);
             Publish(false, State.Registered, State.Hotkey, "输入回调异常，导航已退出并请求暂停恢复。");
@@ -347,6 +363,9 @@ public sealed class GlobalNavigationInput : IDisposable
         {
             var key = unchecked((uint)Marshal.ReadInt32(data));
             var up = message is 0x101 or 0x105;
+            if (ConsumePinMenuEnter(key, up)) return 1;
+            if (!up && crosshair && key == 0x1B) { capturedKeys.Add(key); automatic.Suspend(); Leave("已退出准星模式，鼠标恢复自由移动。"); return 1; }
+            if (!up && crosshair && (key is 0x5B or 0x5C || key == 9 && Down(0x12))) Leave("已退出准星模式，鼠标恢复自由移动。");
             contextGeneration++;
             if (!up && GetCursorPos(out var cursor)) UpdateAutomatic(cursor);
             if (key == 9)

@@ -40,7 +40,7 @@ internal sealed partial class ManagedCanvasControl
         admissionDestroyedHints.Add(change.Handle);
     }
     private void ResetAutomaticAdmission(WindowCatalogSnapshot snapshot)
-    { admissionTracker.Reset(snapshot); admissionDestroyedHints.Clear(); admissionIdentityGap = false; }
+    { admissionTracker.Reset(snapshot, includeExisting: true); admissionDestroyedHints.Clear(); admissionIdentityGap = false; }
     private void DrainAdmissionHints(WindowCatalogSnapshot snapshot)
     {
         if (admissionIdentityGap) { ResetAutomaticAdmission(snapshot); return; }
@@ -65,8 +65,10 @@ internal sealed partial class ManagedCanvasControl
         {
             var reason = ManagedCanvasSession.Unsupported(entry, layout); var id = entry.Id!.Value;
             var owned = running && managedIds.Contains(id);
-            var prefix = owned ? "● " : reason is not null ? "暂不可用 · " : "";
-            return new Candidate(id, prefix + entry.Observation.Title + (reason is null ? "" : " · " + reason), reason is null, owned);
+            var pinned = entry.Observation.Identity is { } identity && fixedWindows.Contains(identity);
+            var denied = entry.Observation.Identity is { } current && session?.SkippedUnavailable.Contains(current) == true;
+            var prefix = pinned ? "便签 · " : owned ? "画布 · " : denied ? "权限不足 · " : reason is not null ? "暂不可用 · " : "待接入 · ";
+            return new Candidate(id, prefix + entry.Observation.Title + (reason is null ? "" : " · " + reason), reason is null && !pinned && !denied, owned);
         }).ToArray();
         if (candidates.Items.OfType<Candidate>().SequenceEqual(next)) return;
         renderingCandidates = true; candidates.BeginUpdate();
@@ -88,7 +90,7 @@ internal sealed partial class ManagedCanvasControl
         addWindows.Enabled = canAdd && candidates.CheckedItems.OfType<Candidate>().Any(item => !item.Managed && item.Supported);
         if (!automaticAdmission.Checked || session?.IsRunning != true || layout is null || lastSnapshot is null)
         { admissionTimer.Stop(); return; }
-        admissionTracker.Observe(lastSnapshot, session.ManagedIds.ToHashSet(), layout, DateTimeOffset.UtcNow);
+        admissionTracker.Observe(lastSnapshot, session.ManagedIds.ToHashSet(), layout, DateTimeOffset.UtcNow, AutomaticExclusions);
         if (admissionTracker.PendingHandles.Count > 0) admissionTimer.Start(); else admissionTimer.Stop();
     }
     private void AddSelectedWindows()
@@ -124,9 +126,10 @@ internal sealed partial class ManagedCanvasControl
             session.Observe(lastSnapshot, BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
             if (!session.IsRunning || layout is null) return;
             var now = DateTimeOffset.UtcNow;
-            admissionTracker.Observe(lastSnapshot, session.ManagedIds.ToHashSet(), layout, now);
+            UpdateFixedLaunches(lastSnapshot);
+            admissionTracker.Observe(lastSnapshot, session.ManagedIds.ToHashSet(), layout, now, AutomaticExclusions);
             var ready = admissionTracker.Ready(now);
-            if (ready.Count > 0) { session.AddWindows(ready, now); notice = null; }
+            if (ready.Count > 0) { session.AddWindows(ready, now, skipUnavailable: true); notice = null; }
         }
         catch (Exception exception) when (Expected(exception)) { session.Pause($"自动接入异常，已暂停恢复：{exception.Message}"); notice = session.Message; }
         finally { reading = false; if (!IsDisposed && !Disposing) RefreshState(); }

@@ -29,6 +29,7 @@ internal sealed partial class MainForm : Form
     internal bool OverviewShowsInTaskbar => reviewPanel;
     protected override bool ShowWithoutActivation => showWithoutActivation;
     internal bool IsTransparentFixture => showWithoutActivation;
+    internal bool AllowsCanvasCommands => !nativeOwnerDisabled && !OwnedForms.Any(form => form.Visible && form.Modal);
     private readonly CanvasPreviewControl preview;
     private readonly ToolStripStatusLabel cameraStatus = new();
     private readonly Label catalogSummary = new() { AutoSize = true, Margin = new Padding(12, 9, 0, 0) };
@@ -55,8 +56,9 @@ internal sealed partial class MainForm : Form
         FullRowSelect = true
     };
 
-    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null, bool reviewPanel = false, string? settingsPath = null)
+    internal MainForm(ITrackedDesktopWindowCatalog catalog, bool showWithoutActivation = false, string? journalPath = null, string? bookmarksPath = null, bool reviewPanel = false, string? settingsPath = null, string? initialFixedShortcut = null)
     {
+        this.initialFixedShortcut = initialFixedShortcut;
         this.reviewPanel = reviewPanel;
         this.catalog = catalog;
         this.showWithoutActivation = showWithoutActivation;
@@ -96,6 +98,7 @@ internal sealed partial class MainForm : Form
         management.StatusChanged += bookmarkControl.RefreshNavigationState;
         management.WallpaperColorsChanged += enabled => { followWallpaper = enabled; _ = RefreshPaletteAsync(); };
         management.WallpaperRefreshRequested += () => { WallpaperPaletteReader.PreloadPreview(invalidate: true); _ = RefreshPaletteAsync(); };
+        management.ShortcutMenuChanged += ApplyShortcutMenu;
         tabs.SelectedIndexChanged += (_, _) =>
         {
             if (tabs.SelectedIndex == 6) { management.EndNavigationForEditing(); bookmarkControl.RefreshNavigationState(); }
@@ -192,6 +195,8 @@ internal sealed partial class MainForm : Form
             var subpages = new ChromeTabs { Dock = DockStyle.Fill };
             catalogTab.Text = "窗口候选"; displayTab.Text = "显示器与坐标"; liveTab.Text = "真实空间地图";
             subpages.TabPages.AddRange([catalogTab, displayTab, liveTab]); diagnostics.Controls.Add(subpages);
+            management.WindowScopeControls.Dock = DockStyle.Top; management.WindowScopeControls.Height = 240;
+            catalogTab.Controls.Add(management.WindowScopeControls);
             tabs.TabPages.AddRange([managementTab, diagnostics, recoveryTab]); recoveryTab.Text = "恢复中心";
             verificationPages.AddRange([canvasTab, bookmarkTab]);
         }
@@ -243,7 +248,7 @@ internal sealed partial class MainForm : Form
             if (management.SessionStatus != BorderlessFlatWindow.Application.Management.CanvasSessionStatus.Running) recovery.RefreshJournal();
         }
         cameraStatus.ToolTipText = sessionNotificationWarning ?? "";
-        UpdateTrayState(); ScheduleDesktopChange(); TryScheduleManagerAction();
+        UpdateTrayState(); ScheduleDesktopChange(); TryScheduleManagerAction(); ScheduleFixedShortcut();
     }
 
     private void RefreshCatalog()
@@ -289,6 +294,7 @@ internal sealed partial class MainForm : Form
             RefreshCatalog();
         }
         catch (Win32Exception exception) { liveStatus.Text = $"事件监听未启动：{exception.Message}；可手动检查。"; }
+        if (!showWithoutActivation) StartShortcutCommands();
     }
 
     private void FlushEvents()
@@ -323,6 +329,7 @@ internal sealed partial class MainForm : Form
         if (disposing)
         {
             StopDesktopLifecycle();
+            StopShortcutCommands();
             foreach (var transition in pageTransitions) transition.Dispose();
             eventTimer.Dispose();
             StopPopupServices();

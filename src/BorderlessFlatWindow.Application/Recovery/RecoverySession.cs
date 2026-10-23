@@ -92,6 +92,18 @@ public sealed class RecoverySession : IDisposable
         return LastReport;
     }
 
+    /// <summary>Explicit user detachment keeps the current native placement. Marker-first release is recoverable if the journal write fails.</summary>
+    public bool ReleaseOwnership(Guid id)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (inheritedPending) return false;
+        var entry = Journal.Entries.FirstOrDefault(item => item.Id == id);
+        if (entry is not { Armed: true } || !windows.Matches(entry, Journal.MarkerName)) return false;
+        windows.RemoveMarker(entry, Journal.MarkerName);
+        Commit(Journal.WithEntries(Journal.Entries.Where(item => item.Id != id)));
+        return true;
+    }
+
     private void Commit(RecoveryJournal next)
     {
         next.Validate(); store.Save(next); Journal = next;

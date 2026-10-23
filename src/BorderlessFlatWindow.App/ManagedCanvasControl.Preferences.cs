@@ -24,6 +24,7 @@ internal sealed partial class ManagedCanvasControl
         automaticAdmission.CheckedChanged += (_, _) => SavePreferences();
         wallpaperColors.CheckedChanged += (_, _) => SavePreferences();
         overviewAnimation.CheckedChanged += (_, _) => SavePreferences();
+        shortcutContext.CheckedChanged += (_, _) => { if (!applyingPreferences) { ShortcutMenuChanged?.Invoke(shortcutContext.Checked); SavePreferences(); } };
         var menu = localSettingsMenu;
         menu.DropDownItems.Add("重新读取保存的设置", null, (_, _) =>
         {
@@ -102,17 +103,19 @@ internal sealed partial class ManagedCanvasControl
             inputOptions = value.Navigation; preferredShortcut = value.Shortcut;
             automaticAdmission.Checked = value.AutomaticAdmission;
             wallpaperColors.Checked = value.FollowWallpaper; overviewAnimation.Checked = value.AnimateOverview;
+            shortcutContext.Checked = value.ShortcutMenu;
             if (gestures is not null) gestures.Options = inputOptions;
             globalInput?.Configure(inputOptions);
             if (globalInput is not null && globalInput.State.Hotkey != PreferredHotkey) globalInput.ChangeHotkey(PreferredHotkey);
             InvalidateOverviewPreparation();
         }
         finally { applyingPreferences = false; }
+        ShortcutMenuChanged?.Invoke(shortcutContext.Checked);
     }
     private void SavePreferences()
     {
         if (applyingPreferences) return;
-        preferences.Update(new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked));
+        preferences.Update(new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked, shortcutContext.Checked));
         notice = preferences.Warning; InvalidateOverviewPreparation(); RefreshState();
     }
     private void ApplyNavigationSettings(NavigationInputOptions options, NavigationHotkey hotkey)
@@ -131,5 +134,5 @@ internal sealed partial class ManagedCanvasControl
         ApplyNavigationSettings(new(false, true, false, 330), new(3, 0x4E, "Ctrl+Alt+N"));
         if (preferences.Current != CurrentPreferencesForCheck) throw new InvalidOperationException("Preference controls did not publish their actual choices.");
     }
-    internal UserPreferences CurrentPreferencesForCheck => new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked);
+    internal UserPreferences CurrentPreferencesForCheck => new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked, shortcutContext.Checked);
 }

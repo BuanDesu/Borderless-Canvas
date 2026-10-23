@@ -44,6 +44,7 @@ internal static partial class ManagementChecks
         yield return ("Display geometry and DPI changes invalidate the active baseline", Displays);
         foreach (var item in DisplayTransitionCases()) yield return item;
         foreach (var item in ArrangementCases()) yield return item;
+        foreach (var item in PointerAndPinCases()) yield return item;
     }
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 0, 0, 0, TimeSpan.FromHours(8));
     private static RectD Rect(double x, double y, double width = 640, double height = 480) => new(new PointD(x, y), new SizeD(width, height));
@@ -56,6 +57,7 @@ internal static partial class ManagementChecks
         internal bool Delayed;
         internal bool RejectPartial;
         internal bool AllowActivation = true;
+        internal nint DeniedMark;
         internal int Batches;
         internal int Activations;
         internal int Restorations;
@@ -110,7 +112,8 @@ internal static partial class ManagementChecks
             return new(new(0, 1, -1, -1, -1, -1, (int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom),
                 new((int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom));
         }
-        public void Mark(RecoveryEntry entry, string name) => markers.Add(entry.Id);
+        public void Mark(RecoveryEntry entry, string name)
+        { if (entry.Identity.Handle == DeniedMark) throw new System.ComponentModel.Win32Exception(5); markers.Add(entry.Id); }
         public bool Matches(RecoveryEntry entry, string name) => markers.Contains(entry.Id)
             && Native.TryGetValue(entry.Identity.Handle, out var window) && window.Identity == entry.Identity;
         public void RemoveMarker(RecoveryEntry entry, string name) => markers.Remove(entry.Id);

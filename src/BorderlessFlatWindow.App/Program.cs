@@ -11,6 +11,25 @@ internal static class Program
             System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var interactionCheck = Array.IndexOf(args, "--interaction-check");
+        if (interactionCheck >= 0)
+        {
+            if (interactionCheck + 1 >= args.Length) return 1;
+            var output = Path.GetFullPath(args[interactionCheck + 1]); Directory.CreateDirectory(output);
+            try { InteractionSmokeCheck.Run(output); return 0; }
+            catch (Exception error) { Console.Error.WriteLine("Interaction check: " + error.Message); return 1; }
+        }
+        string? fixedShortcut = null;
+        var fixedIndex = Array.IndexOf(args, "--launch-fixed-shortcut");
+        if (fixedIndex >= 0)
+        {
+            if (fixedIndex + 1 >= args.Length || !Path.IsPathFullyQualified(args[fixedIndex + 1]) || !string.Equals(Path.GetExtension(args[fixedIndex + 1]), ".lnk", StringComparison.OrdinalIgnoreCase)) return 1;
+            fixedShortcut = Path.GetFullPath(args[fixedIndex + 1]);
+            var sent = ShortcutCommandChannel.Send(fixedShortcut).GetAwaiter().GetResult();
+            if (sent == ShortcutDelivery.Delivered) return 0;
+            if (sent == ShortcutDelivery.Unavailable)
+            { MessageBox.Show("画布实例暂时无法接收便签请求，未重复打开目标。请稍后重试。", "便签启动", MessageBoxButtons.OK, MessageBoxIcon.Information); return 1; }
+        }
         var recoveryCheck = Array.IndexOf(args, "--trial-recovery-check");
         if (recoveryCheck >= 0)
         {
@@ -83,6 +102,7 @@ internal static class Program
             }
             var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-smoke", Guid.NewGuid().ToString("N")));
             Directory.CreateDirectory(fixture);
+            InteractionSmokeCheck.Run(fixture);
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");
             journalPath = Path.Combine(fixture, "recovery.json");
             settingsPath = Path.Combine(fixture, "settings.json");
@@ -91,7 +111,7 @@ internal static class Program
             MainForm.CheckDesktopLifecycleDispose(Path.Combine(fixture, "desktop-dispose"));
         }
         using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath,
-            reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal), settingsPath: settingsPath);
+            reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal), settingsPath: settingsPath, initialFixedShortcut: fixedShortcut);
         if (smoke)
         {
             // Realize child HWNDs without making an interactive window visible.

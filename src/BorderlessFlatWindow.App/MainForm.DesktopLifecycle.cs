@@ -45,6 +45,9 @@ internal sealed partial class MainForm
     {
         if (desktopLifecycleStopped || IsDisposed || Disposing) return;
         desktopChanges.Request(signal);
+        pendingShortcutLaunches.Clear();
+        if (signal is DesktopLifecycleSignal.SessionLocked or DesktopLifecycleSignal.SessionDisconnected or DesktopLifecycleSignal.PowerSuspending) systemInteractionSuspended = true;
+        else if (signal is DesktopLifecycleSignal.SessionUnlocked or DesktopLifecycleSignal.SessionConnected or DesktopLifecycleSignal.PowerResumed) systemInteractionSuspended = false;
         management?.SetDesktopTransitionPending(true);
         if (pendingManagerTarget is not (null or ManagerTarget.Exit))
         { pendingManagerTarget = null; management?.SetPanelActionPending(false); }
@@ -89,6 +92,7 @@ internal sealed partial class MainForm
         if (message.Msg == 0x000A)
         {
             nativeOwnerDisabled = message.WParam == 0;
+            management.HostInteractionChanged();
             UpdateTrayState();
             if (!nativeOwnerDisabled) { ScheduleDesktopChange(); TryScheduleManagerAction(); }
         }
