@@ -79,6 +79,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/tray-control.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/deployment.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/desktop-lifecycle.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/recovery-display-fallback.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/release-v1-readiness.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD-PARTY-NOTICES.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Launch.ps1') -Destination $destination
