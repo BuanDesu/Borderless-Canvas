@@ -13,7 +13,7 @@ var cases = new (string Name, Action Run)[]
     ("Missing and closed targets do not move the camera", MissingTargets)
 };
 var failed = 0;
-var allCases = cases.Concat(DesktopLifecycleChecks.Cases()).Concat(TrayChecks.Cases()).Concat(PreferencesChecks.Cases()).Concat(ArrangementChecks.Cases()).Concat(DiscoveryChecks.Cases()).Concat(CoordinateChecks.Cases()).Concat(LifecycleChecks.Cases())
+var allCases = cases.Concat(FixedLaunchChecks.Cases()).Concat(PointerNavigationChecks.Cases()).Concat(DesktopLifecycleChecks.Cases()).Concat(TrayChecks.Cases()).Concat(PreferencesChecks.Cases()).Concat(ArrangementChecks.Cases()).Concat(DiscoveryChecks.Cases()).Concat(CoordinateChecks.Cases()).Concat(LifecycleChecks.Cases())
     .Concat(RecoveryChecks.Cases()).Concat(RecoveryPlacementChecks.Cases()).Concat(PlacementChecks.Cases()).Concat(ManagementChecks.Cases()).Concat(NavigationChecks.Cases())
     .Concat(OverviewChecks.Cases()).Concat(OverviewHostChecks.Cases()).Concat(PreviewChecks.Cases()).Concat(BookmarkChecks.Cases()).Concat(RuntimeAdmissionChecks.Cases()).Concat(AppearanceChecks.Cases()).Concat(TransitionChecks.Cases()).Concat(OverviewInputChecks.Cases()).Concat(OverviewPreparationChecks.Cases()).ToArray();
 foreach (var (name, run) in allCases)

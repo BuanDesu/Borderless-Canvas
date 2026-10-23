@@ -1,20 +1,25 @@
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Application.Discovery;
 
 namespace BorderlessFlatWindow.Application.Navigation;
 
-public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault }
-public readonly record struct NavigationInput(NavigationInputKind Kind, PointD Position, int WheelDelta = 0, bool Shift = false);
+public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault, CameraDelta, TogglePin }
+public readonly record struct NavigationInput(NavigationInputKind Kind, PointD Position, int WheelDelta = 0, bool Shift = false, nint TargetWindow = 0, NativeWindowIdentity? TargetIdentity = null, Guid TargetId = default);
 public sealed record NavigationInputOptions
 {
-    public NavigationInputOptions(bool verticalWheel = true, bool horizontalWheel = true, bool twoButtonDrag = true, int wheelDistance = 120)
+    public NavigationInputOptions(bool verticalWheel = true, bool horizontalWheel = true, bool twoButtonDrag = true, int wheelDistance = 120, bool edgePan = true, double pointerSpeed = 1)
     {
         if (wheelDistance is < 30 or > 600) throw new ArgumentOutOfRangeException(nameof(wheelDistance));
+        if (!double.IsFinite(pointerSpeed) || pointerSpeed is < .25 or > 4) throw new ArgumentOutOfRangeException(nameof(pointerSpeed));
         VerticalWheel = verticalWheel; HorizontalWheel = horizontalWheel; TwoButtonDrag = twoButtonDrag; WheelDistance = wheelDistance;
+        EdgePan = edgePan; PointerSpeed = pointerSpeed;
     }
     public bool VerticalWheel { get; }
     public bool HorizontalWheel { get; }
     public bool TwoButtonDrag { get; }
     public int WheelDistance { get; }
+    public bool EdgePan { get; }
+    public double PointerSpeed { get; }
 }
 
 /// <summary>Desktop-only automatic input. An application drag may cross the desktop without being captured.</summary>
@@ -97,6 +102,12 @@ public sealed class NavigationGestureSession
     public void Accept(NavigationInput input, DateTimeOffset now)
     {
         if (input.Kind is NavigationInputKind.Exit or NavigationInputKind.Fault) { End(now); left = right = dragging = false; return; }
+        if (input.Kind == NavigationInputKind.CameraDelta)
+        {
+            if (dragging) return;
+            if (wheelAt is { } previous && now - previous >= TimeSpan.FromMilliseconds(250)) End(now);
+            Begin(); wheelAt = now; pending += input.Position; return;
+        }
         if (input.Kind is NavigationInputKind.Wheel or NavigationInputKind.HorizontalWheel)
         {
             if (dragging) return;

@@ -214,10 +214,21 @@ internal sealed class ChromeTabs : TabControl
 }
 internal sealed class CanvasHeader : Control
 {
-    internal CanvasHeader() { DoubleBuffered = true; ResizeRedraw = true; Height = 78; Dock = DockStyle.Top; }
+    internal ChromeButton CollapseButton { get; } = new() { Text = "", AccessibleName = "收起面板", Anchor = AnchorStyles.Top | AnchorStyles.Right };
+    internal CanvasHeader()
+    {
+        DoubleBuffered = true; ResizeRedraw = true; Height = 78; Dock = DockStyle.Top;
+        CollapseButton.Artwork = graphics =>
+        {
+            PixelAccessory.Draw(graphics, CollapseButton.ClientRectangle, "button", CollapseButton.Focused ? ChromeTheme.Purple : ChromeTheme.Cyan);
+        };
+        Controls.Add(CollapseButton);
+    }
     protected override void OnLayout(LayoutEventArgs e)
     {
         var height = (int)(78 * DeviceDpi / 96f); if (Height != height) Height = height;
+        var scale = DeviceDpi / 96f; CollapseButton.Size = new((int)(48 * scale), (int)(48 * scale));
+        CollapseButton.Location = new(Width - (int)(56 * scale), (int)(12 * scale));
         base.OnLayout(e);
     }
     protected override void OnPaint(PaintEventArgs e)
@@ -230,9 +241,7 @@ internal sealed class CanvasHeader : Control
         using var inset = new Pen(Color.FromArgb(45, ChromeTheme.Purple), s); g.DrawPath(inset, screen);
         using var title = PixelFont.Create(15);
         TextRenderer.DrawText(g, "BORDERLESS", title, Rectangle.Round(lcd), ChromeTheme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-        ChromeTheme.Sticker(g, new((int)(24 * s), (int)(27 * s)), "heart", Math.Max(2, (int)(2 * s)));
-        using var holes = new SolidBrush(Color.FromArgb(115, ChromeTheme.Purple));
-        if (Controls.Count == 0) for (var x = 0; x < 3; x++) for (var y = 0; y < 4; y++) g.FillEllipse(holes, Width - 52 * s + x * 7 * s, (22 + y * 7) * s, 3 * s, 3 * s);
+        PixelAccessory.Draw(g, new(8 * s, 12 * s, 48 * s, 48 * s), "heart", ChromeTheme.Pink);
     }
 }
 internal sealed class PlayerScreenPanel : Panel

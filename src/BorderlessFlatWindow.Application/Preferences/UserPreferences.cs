@@ -5,7 +5,7 @@ namespace BorderlessFlatWindow.Application.Preferences;
 public enum ManualNavigationShortcut { Default, ControlAltN, ControlAltM }
 
 public sealed record UserPreferences(NavigationInputOptions Navigation, ManualNavigationShortcut Shortcut = ManualNavigationShortcut.Default,
-    bool AutomaticAdmission = true, bool FollowWallpaper = true, bool AnimateOverview = true)
+    bool AutomaticAdmission = true, bool FollowWallpaper = true, bool AnimateOverview = true, bool ShortcutMenu = true)
 {
     public static UserPreferences Default { get; } = new(new NavigationInputOptions());
     public void Validate()

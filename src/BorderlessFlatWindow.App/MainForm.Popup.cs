@@ -9,31 +9,13 @@ internal sealed partial class MainForm
     private readonly System.Windows.Forms.Timer dismissPopup = new() { Interval = 160 };
     private bool followWallpaper = true, samplingWallpaper, popupServices, resamplePending;
     private CandyPalette? deferredPalette;
+    private readonly ToolTip headerHints = new();
     private void ConfigurePopup(Control header)
     {
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = reviewPanel; TopMost = true;
         StartPosition = FormStartPosition.Manual; DoubleBuffered = true; Padding = new(6);
-        var collapse = new ChromeButton { Text = "×", AccessibleName = "收起面板", Anchor = AnchorStyles.Top | AnchorStyles.Right };
-        void FitCollapse()
-        {
-            var s = header.DeviceDpi / 96f;
-            var size = (int)(48 * s); collapse.Size = new(size, size);
-            // The center shares the display's vertical axis (16 + 40/2 logical pixels).
-            collapse.Location = new(header.Width - (int)(56 * s), (int)(12 * s));
-        }
-        header.Controls.Add(collapse); FitCollapse();
-        collapse.Artwork = graphics =>
-        {
-            var inset = 4 * collapse.DeviceDpi / 96f;
-            ChromeTheme.Glass(graphics, new RectangleF(inset, inset, collapse.Width - inset * 2, collapse.Height - inset * 2), ChromeTheme.Purple, collapse.Focused);
-            var half = 7 * collapse.DeviceDpi / 96f; var cx = collapse.Width / 2f; var cy = collapse.Height / 2f;
-            using var stroke = new Pen(ChromeTheme.Text, 2 * collapse.DeviceDpi / 96f)
-            { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
-            graphics.DrawLine(stroke, cx - half, cy - half, cx + half, cy + half);
-            graphics.DrawLine(stroke, cx + half, cy - half, cx - half, cy + half);
-        };
-        collapse.UpdateShape();
-        header.SizeChanged += (_, _) => FitCollapse(); collapse.DpiChangedAfterParent += (_, _) => FitCollapse();
+        var collapse = ((CanvasHeader)header).CollapseButton;
+        headerHints.SetToolTip(collapse, "收起面板 · 双击托盘图标返回"); collapse.UpdateShape();
         collapse.Click += (_, _) => Hide(); ChromeTheme.Apply(collapse);
         collapse.BackColor = Color.Transparent;
         Deactivate += (_, _) => { if (!IsDisposed) dismissPopup.Start(); };
@@ -69,6 +51,7 @@ internal sealed partial class MainForm
     private void StopPopupServices()
     {
         dismissPopup.Dispose();
+        headerHints.Dispose();
         if (popupServices) SystemEvents.UserPreferenceChanged -= WallpaperPreferenceChanged;
     }
     private void WallpaperPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)

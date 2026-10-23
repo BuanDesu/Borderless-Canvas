@@ -32,17 +32,20 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private readonly ToolTip hints = new();
     private readonly GameCommandDeck commandDeck;
     private readonly ToolStripMenuItem wallpaperColors = new("跟随壁纸取色") { Checked = true, CheckOnClick = true };
-    private readonly ToolStripMenuItem overviewAnimation = new("总览缩放动画") { Checked = true, CheckOnClick = true };
+    private readonly ToolStripMenuItem overviewAnimation = new("镜头与总览动画") { Checked = true, CheckOnClick = true };
+    private readonly ToolStripMenuItem shortcutContext = new("软件快捷方式右键入口") { Checked = true, CheckOnClick = true };
+    internal event Action<bool>? ShortcutMenuChanged;
     private Guid? lastFocusedWindow;
     internal event Action<bool>? WallpaperColorsChanged;
     internal event Action? WallpaperRefreshRequested;
-    private bool showWindowPicker;
     private readonly System.Windows.Forms.Timer verify = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer navigationTimer = new() { Interval = 16 };
     private readonly Label navigationStatus = new() { AutoSize = true, Padding = new(4) };
     private GlobalNavigationInput? globalInput;
     private NavigationGestureSession? gestures;
     private NavigationHud? hud;
+    private CrosshairOverlay? crosshairOverlay;
+    private PixelRect[] configuredPointerScreens = [];
     private GlobalNavigationState? navigationState;
     private bool? inputAvailable;
     private NavigationInputOptions inputOptions = new();
@@ -54,7 +57,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal bool HasOverview => overview is not null;
     internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
     internal bool HasOverviewWork => overview is not null || overviewRequested || openingOverview || preparingOverviewHost;
-    internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !desktopTransitionPending;
+    internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !desktopTransitionPending
+        && (FindForm() is not MainForm host || host.AllowsCanvasCommands);
     internal bool CanApplyDesktopTransition => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !HasOverviewWork && !externalRecoveryRunning;
     internal bool DesktopTransitionPending => desktopTransitionPending;
     internal bool CanStartForLifecycleCheck => start.Enabled;
@@ -87,6 +91,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     internal void ReportEnvironmentWarning(string warning) { environmentWarning = warning; RefreshState(); }
     internal void ClearEnvironmentWarning(string warning) { if (environmentWarning == warning) environmentWarning = null; RefreshState(); }
+    internal void HostInteractionChanged()
+    {
+        if (IsDisposed || Disposing) return;
+        if (FindForm() is MainForm { AllowsCanvasCommands: false }) { EndNavigationForEditing(); session?.StopCameraTransition(); }
+        RefreshState();
+    }
     internal void SetExternalRecoveryRunning(bool running)
     { if (externalRecoveryRunning == running) return; externalRecoveryRunning = running; RefreshState(); }
     internal void ExternalRecoveryCompleted(RecoveryReport report)
@@ -112,7 +122,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         this.catalog = catalog; this.journalPath = journalPath ?? JsonRecoveryJournalStore.DefaultPath;
         selector.Controls.Add(candidates);
         selector.Dock = DockStyle.Bottom; selector.Height = 186; selector.Padding = new(12, 2, 12, 2);
-        selector.Controls.Add(new Label { Text = "选择窗口", Dock = DockStyle.Top, Height = 30, Padding = new(0, 3, 0, 0) });
+        selector.Controls.Add(new Label { Text = "窗口与便签", Dock = DockStyle.Top, Height = 30, Padding = new(0, 3, 0, 0) });
         var admission = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new(0, 8, 0, 0) };
         InitializeAdmissionControls(admission); selector.Controls.Add(admission);
         var overviewButton = new ChromeButton { Text = "总览", AccessibleName = "空间总览" };
@@ -129,10 +139,11 @@ internal sealed partial class ManagedCanvasControl : UserControl
         navigation.DropDownItems.Add("上一视角    Backspace", null, (_, _) => Act(() => session?.Back(DateTimeOffset.UtcNow)));
         navigation.DropDownItems.Add("适配地图", null, (_, _) => preview?.FitToContent());
         navigation.DropDownItems.Add("手动导航", null, (_, _) => globalInput?.Toggle());
+        navigation.DropDownItems.Add("准星模式    Ctrl+Alt+C", null, (_, _) => globalInput?.ToggleCrosshair());
         ChromeTheme.StyleMenu(navigation.DropDown);
         moreMenu.Items.Add(navigation);
         InitializeArrangementMenu();
-        moreMenu.Items.Add("管理窗口", null, (_, _) => { showWindowPicker = !selector.Visible; RefreshState(); });
+        moreMenu.Items.Add("固定当前窗口    Ctrl+Alt+P", null, (_, _) => ToggleFocusedPin());
         moreMenu.Items.Add("刷新窗口", null, (_, _) => RefreshCandidates());
         moreMenu.Items.Add(new ToolStripSeparator());
         moreMenu.Items.Add("导航设置…", null, (_, _) => ShowNavigationSettings());
@@ -143,12 +154,13 @@ internal sealed partial class ManagedCanvasControl : UserControl
         appearance.DropDownItems.Add("重新采样壁纸", null, (_, _) => { if (!wallpaperColors.Checked) wallpaperColors.Checked = true; else WallpaperRefreshRequested?.Invoke(); });
         appearance.DropDownItems.Add(overviewAnimation); ChromeTheme.StyleMenu(appearance.DropDown); moreMenu.Items.Add(appearance);
         InitializePreferences();
+        moreMenu.Items.Add(shortcutContext);
         moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
-            "桌面空白处：滚轮移动，Shift 横移，左右双键拖动。\nTab 进入/退出总览，Ctrl+滚轮轮选窗口。\n总览内方向键选择，Ctrl+Tab 轮选，Enter 定位。\n应用窗口内直接操作；Esc 可暂停自动导航。\n关闭管理器收入托盘，托盘菜单可退出并恢复。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
+            "开始后接管所有可用窗口，便签保持独立。\n桌面滚轮、Shift 横移、双键拖动；屏幕外沿继续向外推动可平移。\nCtrl+滚轮平滑轮选；Tab 进入/退出总览。\nCtrl+Alt+C 准星模式，Esc 或单击退出。\nCtrl+Alt+P 固定当前窗口；标题栏右键也可切换便签。\n软件 .lnk 快捷方式右键可“以画布便签模式打开”。\n关闭管理器收入托盘，显式退出恢复画布窗口。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
         moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
-            $"{navigationStatus.Text}\n{overviewShortcutStatus.Text}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
+            $"{navigationStatus.Text}\n{overviewShortcutStatus.Text}\n{globalInput?.PointerMessage}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
         ChromeTheme.StyleMenu(moreMenu); ChromeTheme.Accent(start, ChromeTheme.Purple);
-        hints.SetToolTip(start, "接管勾选的普通窗口，记录原位以便恢复");
+        hints.SetToolTip(start, "接管所有可用普通窗口，便签保持独立；接管前记录原位以便恢复");
         hints.SetToolTip(pause, "暂停画布并恢复全部接管窗口的原始位置");
         hints.SetToolTip(more, "窗口、视角、设置与恢复");
         start.Click += (_, _) => Begin();
@@ -158,6 +170,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         navigationTimer.Tick += (_, _) => NavigationFrame();
         preparationTimer.Tick += (_, _) => PrepareOverviewWhileIdle();
         Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(commandDeck);
+        InitializePinControls();
+        InitializeFixedLaunchTimer();
     }
 
     internal void InitializeGlobalInput()
@@ -169,6 +183,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             {
                 if (IsHandleCreated && !IsDisposed) BeginInvoke(() => navigationTimer.Start());
             }, inputOptions, PreferredHotkey);
+            ConfigurePointerScreens();
             NavigationFrame();
         }
         catch (Exception exception) when (Expected(exception)) { navigationStatus.Text = $"导航不可用：{exception.Message}"; }
@@ -193,6 +208,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var events = globalInput?.Drain() ?? [];
         if (events.Count != 0) lastCanvasInput = System.Diagnostics.Stopwatch.GetTimestamp();
         navigationState = globalInput?.State;
+        if (navigationState is { Crosshair: true, CrosshairCenter: { } center }) { crosshairOverlay ??= new(); crosshairOverlay.Present(center); }
+        else crosshairOverlay?.Hide();
         overviewShortcutStatus.Text = globalInput?.OverviewMessage ?? "Ctrl+Alt+O 打开空间总览；快捷键不可用时使用按钮。";
         if (navigationState is not null) navigationStatus.Text = navigationState.Registered ? navigationState.Message
             : $"快捷键 {navigationState.Hotkey.Label} 未注册：{navigationState.Message}";
@@ -213,10 +230,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
             {
                 gestures?.End(item.At);
                 var steps = Math.Clamp(Math.Abs(item.Input.WheelDelta) / 120, 1, 12);
-                for (var step = 0; step < steps; step++) session?.CycleWindow(item.Input.WheelDelta < 0 ? 1 : -1, item.At);
+                for (var step = 0; step < steps; step++) session?.CycleWindow(item.Input.WheelDelta < 0 ? 1 : -1, item.At, animate: overviewAnimation.Checked && System.Windows.SystemParameters.ClientAreaAnimation);
             }
+            else if (item.Input.Kind == NavigationInputKind.TogglePin) RequestPinToggle(item.Input.TargetWindow, item.Input.TargetIdentity, item.Input.TargetId);
             else gestures?.Accept(item.Input, item.At);
         }
+        session?.AdvanceCameraTransition(DateTimeOffset.UtcNow);
         gestures?.Tick(DateTimeOffset.UtcNow);
         if (navigationState?.Active == true && session?.IsRunning == true)
         {
@@ -228,7 +247,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         else
         {
             hud?.Hide();
-            if (gestures?.HasGesture == true) navigationTimer.Start(); else navigationTimer.Stop();
+            if (gestures?.HasGesture == true || session?.HasCameraTransition == true) navigationTimer.Start(); else navigationTimer.Stop();
         }
         RefreshState();
     }
@@ -415,6 +434,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         if (reading || IsDisposed || desktopTransitionPending || layout is null) return;
         lastSnapshot = snapshot;
+        UpdateFixedLaunches(snapshot);
+        PruneFixedWindows(snapshot);
         DrainAdmissionHints(snapshot);
         session?.Observe(snapshot, foreground, DateTimeOffset.UtcNow);
         if (session?.ActiveWindowId is { } focused) lastFocusedWindow = focused;
@@ -425,15 +446,17 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         if (session is null || layout is null || !CanUsePanelCommands || externalRecoveryRunning) return;
         notice = null;
-        var selected = candidates.CheckedItems.OfType<Candidate>().Where(item => item.Supported).Select(item => item.Id).ToHashSet();
         try
         {
             reading = true;
             var snapshot = catalog.Inspect();
             lastSnapshot = snapshot;
-            var entries = snapshot.Entries.Where(entry => entry.Id is { } id && selected.Contains(id)).ToArray();
-            if (entries.Length != selected.Count) { notice = "窗口已经改变，请刷新并重新选择。"; return; }
-            session.Start(entries, DateTimeOffset.UtcNow);
+            UpdateFixedLaunches(snapshot);
+            PruneFixedWindows(snapshot);
+            var exclusions = AutomaticExclusions;
+            var entries = snapshot.Entries.Where(entry => ManagedCanvasSession.Unsupported(entry, layout) is null
+                && entry.Observation.Identity is { } identity && !exclusions.Contains(identity)).ToArray();
+            session.Start(entries, DateTimeOffset.UtcNow, skipUnavailable: true);
             if (session.IsRunning) ResetAutomaticAdmission(snapshot);
             preview?.FitToContent();
         }
@@ -478,10 +501,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
     { InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
     private void RefreshState()
     {
+        ConfigurePointerScreens();
+        RefreshPinMenuTargets();
         var running = session?.IsRunning == true;
         if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
         UpdateAdmissionState();
-        var available = running && !editingArrangement && !editingSettings && !panelActionPending && !externalRecoveryRunning && !desktopTransitionPending && layout is not null;
+        var available = running && CanUsePanelCommands && !panelActionPending && !externalRecoveryRunning && layout is not null;
         if (globalInput is not null && inputAvailable != available)
         { inputAvailable = available; globalInput.SetAvailable(available); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
@@ -490,16 +515,17 @@ internal sealed partial class ManagedCanvasControl : UserControl
         candidates.Enabled = !reading && overview is null && !externalRecoveryRunning && !desktopTransitionPending; start.Enabled = !running && !externalRecoveryRunning && !desktopTransitionPending && layout is not null;
         start.Visible = !running; pause.Visible = running; pause.Enabled = running;
         commandDeck.SetRunning(running && !reading && !desktopTransitionPending && layout is not null);
-        selector.Visible = !running || showWindowPicker;
+        selector.Visible = selector.Parent != this;
         if (running && session!.HasPending && !desktopTransitionPending) verify.Start(); else verify.Stop();
         if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
         var camera = session?.Workspace.Camera;
         var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
         var attention = displayFailure ?? notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? environmentWarning ?? preferences.Warning;
-        status.Text = attention ?? (running ? "桌面空白处移动视角 · 应用窗口内直接操作" : "勾选需要的窗口，开始画布");
+        status.Text = attention ?? (running ? $"画布 {session?.ManagedIds.Count ?? 0} · 便签 {fixedWindows.Count} · 桌面空白处移动视角" : "开始后接管所有可用窗口 · 便签保持独立");
         status.FitText(attention is null ? 42 : 0);
         hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");
         StatusChanged?.Invoke();
+        SchedulePinToggle();
         ScheduleOverview();
         ScheduleOverviewPreparation();
     }
@@ -527,7 +553,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
+    }
+    private void ConfigurePointerScreens()
+    {
+        if (globalInput is null) return;
+        var screens = layout?.Monitors.Select(m => m.Bounds).ToArray() ?? [];
+        if (configuredPointerScreens.SequenceEqual(screens)) return;
+        configuredPointerScreens = screens; globalInput.ConfigureScreens(screens);
     }
 }

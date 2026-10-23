@@ -21,6 +21,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
     private Guid? activation;
     private Guid? cycleTarget;
     private nint lastForeground;
+    private readonly List<NativeWindowIdentity> skippedUnavailable = [];
+    public IReadOnlyList<NativeWindowIdentity> SkippedUnavailable => skippedUnavailable.AsReadOnly();
     private bool busy;
     private bool disposed, disposeRequested;
     private sealed class Managed(Guid id, NativeWindowIdentity identity, Guid recoveryId, PixelRect observed)
@@ -53,7 +55,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
     public IReadOnlyList<Guid> ManagedIds => managed.Keys.ToArray();
     public int ParkedCount => managed.Values.Count(window => window.Parked);
     public bool NavigationSuspended { get; private set; }
-    public void SuspendNavigation(bool suspended) { NavigationSuspended = suspended; if (suspended) activation = null; }
+    public void SuspendNavigation(bool suspended) { NavigationSuspended = suspended; if (suspended) { activation = null; CancelCameraTransition(); } }
 
     public static string? Unsupported(InspectedWindow entry, DisplayLayout layout)
     {
@@ -66,7 +68,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
         return null;
     }
 
-    public bool Start(IReadOnlyList<InspectedWindow> selection, DateTimeOffset now)
+    public bool Start(IReadOnlyList<InspectedWindow> selection, DateTimeOffset now, bool skipUnavailable = false)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (busy || IsRunning) return false;
@@ -80,8 +82,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
         var registering = false;
         try
         {
-            var resume = selection.Count == managed.Count && selection.All(entry => managed.TryGetValue(entry.Id!.Value, out var prior)
-                && prior.Identity == entry.Observation.Identity);
+            var previousIdentities = managed.ToDictionary(pair => pair.Key, pair => pair.Value.Identity);
+            var resume = selection.Any(entry => previousIdentities.TryGetValue(entry.Id!.Value, out var prior) && prior == entry.Observation.Identity);
             var previous = Workspace.Windows.ToDictionary(window => window.Id);
             var camera = resume ? Workspace.Camera.Position : PointD.Zero;
             recovery?.Dispose(); recovery = createRecovery();
@@ -92,22 +94,34 @@ public sealed partial class ManagedCanvasSession : IDisposable
                 return false;
             }
             registering = true;
-            managed.Clear();
+            managed.Clear(); skippedUnavailable.Clear();
             if (!resume) Workspace.ResetWindowsAndNavigation();
+            else
+            {
+                var selectedIds = selection.Select(entry => entry.Id!.Value).ToHashSet();
+                foreach (var window in Workspace.Windows.Where(window => !selectedIds.Contains(window.Id)).ToArray()) Workspace.RemoveWindow(window.Id);
+            }
             foreach (var entry in selection)
             {
                 var identity = entry.Observation.Identity!.Value;
-                var original = recovery.Register(identity);
+                RecoveryEntry original;
+                try { original = recovery.Register(identity); }
+                catch (System.ComponentModel.Win32Exception error) when (skipUnavailable && error.NativeErrorCode == 5
+                    && recovery.Journal.Entries.All(item => item.Identity != identity))
+                { skippedUnavailable.Add(identity); Workspace.RemoveWindow(entry.Id!.Value); continue; }
                 ThrowIfClosing();
                 if (original.Original.Placement.ShowCommand != 1) throw new InvalidOperationException("窗口已改变显示状态，请恢复普通窗口后重试。");
                 var id = entry.Id!.Value;
                 var physical = original.Original.PhysicalBounds;
-                var position = resume ? previous[id].Bounds.Position : physical.Position - layout.CanvasWorkArea.Position;
+                var position = resume && previousIdentities.TryGetValue(id, out var previousIdentity) && previousIdentity == identity
+                    ? previous[id].Bounds.Position : physical.Position - layout.CanvasWorkArea.Position + camera;
                 Workspace.UpsertWindow(new(id, entry.Observation.Title, new(position, physical.Size)));
                 managed.Add(id, new(id, identity, original.Id, physical));
             }
+            if (managed.Count == 0) { Status = CanvasSessionStatus.Paused; Message = "当前没有可接管权限的普通窗口。"; return false; }
             Status = CanvasSessionStatus.Running;
             Message = resume ? "画布已恢复，保留上次世界布局与相机。" : "已接管所选窗口。";
+            if (skippedUnavailable.Count > 0) Message += $" 已跳过 {skippedUnavailable.Count} 个权限不足的窗口。";
             return ApplyCamera(camera, now, recordHistory: false);
         }
         catch (Exception exception) when (IsExpected(exception))
@@ -123,12 +137,13 @@ public sealed partial class ManagedCanvasSession : IDisposable
     {
         if (!IsRunning || busy || NavigationSuspended) return false;
         busy = true;
+        CancelCameraTransition();
         activation = null; cycleTarget = null;
         try { return ApplyCamera(camera, now, recordHistory); }
         catch (Exception exception) when (IsExpected(exception)) { PauseInternal($"平移失败：{exception.Message}"); return false; }
         finally { ExitBusy(); }
     }
-    public bool AddWindows(IReadOnlyList<InspectedWindow> selection, DateTimeOffset now)
+    public bool AddWindows(IReadOnlyList<InspectedWindow> selection, DateTimeOffset now, bool preservePhysicalPosition = false, bool skipUnavailable = false)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (!IsRunning || busy || NavigationSuspended || HasPending)
@@ -148,11 +163,18 @@ public sealed partial class ManagedCanvasSession : IDisposable
             // Register every new identity before the first native move. Existing windows are never re-registered or replanned.
             foreach (var entry in selection)
             {
-                var original = recovery!.Register(entry.Observation.Identity!.Value);
+                var identity = entry.Observation.Identity!.Value;
+                RecoveryEntry original;
+                try { original = recovery!.Register(identity); }
+                catch (System.ComponentModel.Win32Exception error) when (skipUnavailable && error.NativeErrorCode == 5
+                    && recovery!.Journal.Entries.All(item => item.Identity != identity))
+                { skippedUnavailable.Add(identity); continue; }
                 ThrowIfClosing();
                 if (original.Original.Placement.ShowCommand != 1) throw new InvalidOperationException("新窗口已改变显示状态，请恢复普通窗口后重试。");
-                if (!TryPlaceNewWindow(original.Original.PhysicalBounds.Size, occupied, out var bounds)
-                    || !planner.TryPlan(bounds, Workspace.Camera.Position, out var plan))
+                RectD bounds;
+                if (preservePhysicalPosition) bounds = new(original.Original.PhysicalBounds.Position - layout.CanvasWorkArea.Position + Workspace.Camera.Position, original.Original.PhysicalBounds.Size);
+                else if (!TryPlaceNewWindow(original.Original.PhysicalBounds.Size, occupied, out bounds)) throw new InvalidOperationException("无法为新窗口规划可恢复的空闲位置。");
+                if (!planner.TryPlan(bounds, Workspace.Camera.Position, out var plan))
                     throw new InvalidOperationException("无法为新窗口规划可恢复的空闲位置。");
                 var id = entry.Id!.Value;
                 staged.Add((new(id, entry.Observation.Title, bounds), new(id, entry.Observation.Identity.Value, original.Id, original.Original.PhysicalBounds), plan!));
@@ -173,6 +195,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
             if (translations.Count > 0 && motion.RequestBatch(recovery!, translations) is { Accepted: false } failure)
             { PauseInternal($"新窗口拒绝接入，已暂停恢复：{failure.Detail}"); return false; }
             accepted = true;
+            if (staged.Count == 0) { Message = "已跳过权限不足的新窗口，既有画布继续运行。"; return false; }
             var outside = staged.Count(item => !NearbyWindowPlacement.FitsInside(item.Window.Bounds, Workspace.Camera.Bounds));
             Message = $"已接入 {staged.Count} 个窗口；既有布局、相机和标签保持。"
                 + (outside > 0 ? $" {outside} 个空位位于视口附近，可用总览定位。" : "");
@@ -209,12 +232,19 @@ public sealed partial class ManagedCanvasSession : IDisposable
         return true;
     }
 
-    public bool CycleWindow(int direction, DateTimeOffset now)
+    public bool CycleWindow(int direction, DateTimeOffset now, bool animate = false)
     {
         if (!IsRunning || busy || NavigationSuspended || direction == 0 || managed.Count == 0) return false;
         var ids = Workspace.Windows.Select(w => w.Id).Where(managed.ContainsKey).ToArray();
         var index = Array.IndexOf(ids, activation ?? cycleTarget ?? ActiveWindowId ?? Guid.Empty);
         var next = index < 0 ? direction > 0 ? 0 : ids.Length - 1 : (index + Math.Sign(direction) + ids.Length) % ids.Length;
+        if (animate)
+        {
+            var target = Workspace.Windows.Single(window => window.Id == ids[next]);
+            var origin = focusMotion?.Origin ?? Workspace.Camera.Position;
+            focusMotion = new(ids[next], Workspace.Camera.Position, FocusPosition(target.Bounds), origin, now);
+            activation = null; cycleTarget = ids[next]; return true;
+        }
         var accepted = Focus(ids[next], now);
         if (accepted) cycleTarget = ids[next];
         return accepted;
@@ -285,6 +315,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
             }
             // Foreground is handled before geometry: shells/apps may reposition an activated parked window.
             var active = managed.Values.FirstOrDefault(window => window.Identity.Handle == foreground);
+            if (foreground != lastForeground && focusMotion is not null) CancelCameraTransition();
             if (foreground != lastForeground && active?.Id != cycleTarget) cycleTarget = null;
             ActiveWindowId = active?.Id;
             if (!NavigationSuspended && foreground != lastForeground && active is { Parked: true })
@@ -385,6 +416,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
         // not announce success without performing recovery or checking its durable outcome.
         if (recovery is null && Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Idle) return;
         lastArrangement = null; arrangementOwner = new();
+        CancelCameraTransition();
         activation = null;
         foreach (var state in managed.Values) { state.Deadline = null; state.Expected.Clear(); }
         try

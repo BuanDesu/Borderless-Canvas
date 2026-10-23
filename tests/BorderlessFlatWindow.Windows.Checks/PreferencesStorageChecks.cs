@@ -18,14 +18,15 @@ internal static class PreferencesStorageChecks
             ("External preference edits cannot be silently overwritten", ExternalEdit),
             ("Oversized preferences are rejected before parsing or overwriting", Oversized),
             ("Invalid preference writes never replace the saved document", InvalidWrite),
-            ("Preference paths cannot alias recovery or bookmarks through case or relative segments", SeparatePaths) };
+            ("Preference paths cannot alias recovery or bookmarks through case or relative segments", SeparatePaths),
+            ("Version-one preferences migrate in memory and preserve new pointer and shortcut choices after saving", Migration) };
         var failures = 0;
         foreach (var (name, run) in cases)
         { try { run(); Console.WriteLine("PASS " + name); } catch (Exception error) { failures++; Console.WriteLine("FAIL " + name + ": " + error.Message); } }
         Console.WriteLine($"{cases.Length - failures}/{cases.Length} preference storage checks passed."); return failures == 0 ? 0 : 1;
     }
     private static string NewPath() => StorageChecks.NewPath("preferences");
-    private static UserPreferences Custom => new(new(false, false, true, 330), ManualNavigationShortcut.ControlAltN, false, false, false);
+    private static UserPreferences Custom => new(new(false, false, true, 330, edgePan: false, pointerSpeed: 1.75), ManualNavigationShortcut.ControlAltN, false, false, false, false);
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private static void Throws<T>(Action action) where T : Exception
     { try { action(); } catch (T) { return; } throw new InvalidOperationException("Expected " + typeof(T).Name); }
@@ -39,14 +40,14 @@ internal static class PreferencesStorageChecks
         using var reopened = new JsonPreferencesStore(path); Require(reopened.Load() == Custom && reopened.CanWrite, "Preferences did not survive reopening.");
         using var json = JsonDocument.Parse(File.ReadAllText(path));
         var keys = json.RootElement.EnumerateObject().Select(p => p.Name).Order().ToArray();
-        Require(keys.SequenceEqual(new[] { "Version", "VerticalWheel", "HorizontalWheel", "TwoButtonDrag", "WheelDistance", "Shortcut", "AutomaticAdmission", "FollowWallpaper", "AnimateOverview" }.Order()), "Unexpected runtime/identity fields were persisted.");
+        Require(keys.SequenceEqual(new[] { "Version", "VerticalWheel", "HorizontalWheel", "TwoButtonDrag", "WheelDistance", "Shortcut", "AutomaticAdmission", "FollowWallpaper", "AnimateOverview", "EdgePan", "PointerSpeed", "ShortcutMenu" }.Order()), "Unexpected runtime/identity fields were persisted.");
     }
     private static void InvalidFiles()
     {
         var path = NewPath(); string valid;
         using (var seed = new JsonPreferencesStore(path)) { seed.Load(); seed.Save(Custom); valid = File.ReadAllText(path); }
         var samples = new List<string> { "{", "[]", "null", "{\"Version\":1," + valid.TrimStart()[1..] };
-        foreach (var mutation in new Action<JsonNode>[] { n => n["Version"] = 2, n => n.AsObject().Remove("VerticalWheel"), n => n["AnimateOverview"] = null,
+        foreach (var mutation in new Action<JsonNode>[] { n => n["Version"] = 99, n => n.AsObject().Remove("VerticalWheel"), n => n["AnimateOverview"] = null,
             n => n["Shortcut"] = 7, n => n["WheelDistance"] = 20, n => n["WheelDistance"] = 601,
             n => n["Unknown"] = true, n => n["AutomaticAdmission"] = "true" })
         { var node = JsonNode.Parse(valid)!; mutation(node); samples.Add(node.ToJsonString()); }
@@ -100,5 +101,15 @@ internal static class PreferencesStorageChecks
         Throws<ArgumentException>(() => JsonPreferencesStore.EnsureSeparateDataFiles(path, sibling, path + ".bookmarks"));
         Throws<ArgumentException>(() => JsonPreferencesStore.EnsureSeparateDataFiles(path, path + ".recovery", path.ToUpperInvariant()));
         Require(!File.Exists(path), "Path validation created data.");
+    }
+    private static void Migration()
+    {
+        var path = NewPath();
+        const string legacy = "{\"Version\":1,\"VerticalWheel\":false,\"HorizontalWheel\":true,\"TwoButtonDrag\":true,\"WheelDistance\":330,\"Shortcut\":1,\"AutomaticAdmission\":true,\"FollowWallpaper\":false,\"AnimateOverview\":true}";
+        File.WriteAllText(path, legacy);
+        using var store = new JsonPreferencesStore(path); var value = store.Load()!;
+        Require(!value.Navigation.VerticalWheel && value.Navigation.WheelDistance == 330 && value.Navigation.EdgePan && value.Navigation.PointerSpeed == 1
+            && value.ShortcutMenu && File.ReadAllText(path) == legacy, "Legacy choices were lost or reading rewrote the file.");
+        store.Save(Custom); Require(store.Load() == Custom && JsonNode.Parse(File.ReadAllText(path))!["Version"]!.GetValue<int>() == 2, "New choices did not persist in the new schema.");
     }
 }

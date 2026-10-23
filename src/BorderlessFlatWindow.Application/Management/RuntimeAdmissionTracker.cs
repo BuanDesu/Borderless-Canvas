@@ -9,20 +9,23 @@ public sealed class RuntimeAdmissionTracker
     public static readonly TimeSpan StabilityDelay = TimeSpan.FromMilliseconds(200);
     private readonly Dictionary<nint, NativeWindowIdentity?> baseline = [];
     private readonly Dictionary<Guid, Pending> pending = [];
+    private bool includeExisting;
     private sealed record Pending(InspectedWindow Entry, DateTimeOffset Since);
     public IReadOnlyList<nint> PendingHandles => pending.Values.Select(value => value.Entry.Observation.Handle).Distinct().ToArray();
-    public void Reset(WindowCatalogSnapshot snapshot)
+    public void Reset(WindowCatalogSnapshot snapshot, bool includeExisting = false)
     {
+        this.includeExisting = includeExisting;
         pending.Clear(); baseline.Clear();
         foreach (var entry in snapshot.Entries) baseline[entry.Observation.Handle] = entry.Observation.Identity;
     }
     public void ForgetDestroyed(nint handle) => baseline.Remove(handle);
-    public void Observe(WindowCatalogSnapshot snapshot, IReadOnlySet<Guid> managedIds, DisplayLayout layout, DateTimeOffset now)
+    public void Observe(WindowCatalogSnapshot snapshot, IReadOnlySet<Guid> managedIds, DisplayLayout layout, DateTimeOffset now, IReadOnlySet<NativeWindowIdentity>? excluded = null)
     {
         var eligible = snapshot.Entries.Where(entry => entry.Id is { } id && !managedIds.Contains(id)
             && entry.Observation.Identity is { IsValid: true } && entry.Observation.Bounds is not null
+            && ! (excluded?.Contains(entry.Observation.Identity!.Value) == true)
             && ManagedCanvasSession.Unsupported(entry, layout) is null
-            && (!baseline.TryGetValue(entry.Observation.Handle, out var original) || original is not null && original != entry.Observation.Identity)).ToArray();
+            && (includeExisting || !baseline.TryGetValue(entry.Observation.Handle, out var original) || original is not null && original != entry.Observation.Identity)).ToArray();
         var ids = eligible.Select(entry => entry.Id!.Value).ToHashSet();
         foreach (var id in pending.Keys.Where(id => !ids.Contains(id)).ToArray()) pending.Remove(id);
         foreach (var entry in eligible)
