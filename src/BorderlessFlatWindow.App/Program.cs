@@ -120,6 +120,7 @@ internal static class Program
             form.Show();
             System.Windows.Forms.Application.DoEvents();
             form.CheckDesktopLifecycleSmoke();
+            form.CheckInputAvailabilitySmoke();
             using var bitmap = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));

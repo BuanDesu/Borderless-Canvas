@@ -6,6 +6,7 @@ namespace BorderlessFlatWindow.App;
 
 internal sealed partial class MainForm
 {
+    internal void CheckInputAvailabilitySmoke() => management.CheckInputAvailabilityBoundaries();
     internal static void CheckDesktopLifecycleDispose(string directory)
     {
         Directory.CreateDirectory(directory);
