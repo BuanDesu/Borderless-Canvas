@@ -6,6 +6,8 @@ using BorderlessFlatWindow.Windows.Interop;
 
 namespace BorderlessFlatWindow.Windows;
 
+public readonly record struct RawPointerSample(PointD Value, bool Absolute = false, bool VirtualDesktop = false, nint Device = 0, ushort Buttons = 0);
+
 /// <summary>One process-owned mouse sink, no NOLEGACY flag and no suppression of another application's input.</summary>
 public sealed class RawPointerInput : IDisposable
 {
@@ -30,22 +32,39 @@ public sealed class RawPointerInput : IDisposable
     public bool Read(nint packet, out PointD delta, out bool absolute)
     {
         delta = PointD.Zero; absolute = false;
+        if (!ReadSample(packet, out var sample)) return false;
+        absolute = sample.Absolute; if (absolute) return false;
+        delta = sample.Value; return true;
+    }
+    public bool ReadSample(nint packet, out RawPointerSample sample)
+    {
+        sample = default;
         if (disposed || Environment.CurrentManagedThreadId != thread) return false;
         uint length = 0; var header = (uint)(8 + IntPtr.Size * 2);
         if (GetRawInputDataSize(packet, 0x10000003, 0, ref length, header) != 0 || length < header + 24 || length > buffer.Length) return false;
         if (GetRawInputData(packet, 0x10000003, buffer, ref length, header) != length) return false;
-        return Decode(buffer.AsSpan(0, (int)length), IntPtr.Size, out delta, out absolute);
+        return DecodeSample(buffer.AsSpan(0, (int)length), IntPtr.Size, out sample);
     }
     public static bool Decode(ReadOnlySpan<byte> bytes, int pointerSize, out PointD delta, out bool absolute)
     {
         delta = PointD.Zero; absolute = false;
+        if (!DecodeSample(bytes, pointerSize, out var sample)) return false;
+        absolute = sample.Absolute; if (absolute) return false;
+        delta = sample.Value; return true;
+    }
+    public static bool DecodeSample(ReadOnlySpan<byte> bytes, int pointerSize, out RawPointerSample sample)
+    {
+        sample = default;
         if (pointerSize is not (4 or 8)) return false;
         var header = 8 + pointerSize * 2;
         if (bytes.Length < header + 24 || BinaryPrimitives.ReadUInt32LittleEndian(bytes) != 0
             || BinaryPrimitives.ReadUInt32LittleEndian(bytes[4..]) != bytes.Length) return false;
-        absolute = (BinaryPrimitives.ReadUInt16LittleEndian(bytes[header..]) & 1) != 0;
-        if (absolute) return false; // Absolute/tablet/remote packets do not encode movement beyond a clipped edge.
-        delta = new(BinaryPrimitives.ReadInt32LittleEndian(bytes[(header + 12)..]), BinaryPrimitives.ReadInt32LittleEndian(bytes[(header + 16)..]));
+        var flags = BinaryPrimitives.ReadUInt16LittleEndian(bytes[header..]);
+        var absolute = (flags & 1) != 0;
+        var value = new PointD(BinaryPrimitives.ReadInt32LittleEndian(bytes[(header + 12)..]), BinaryPrimitives.ReadInt32LittleEndian(bytes[(header + 16)..]));
+        if (absolute && (value.X is < 0 or > 65535 || value.Y is < 0 or > 65535)) return false;
+        var device = pointerSize == 8 ? unchecked((nint)BinaryPrimitives.ReadInt64LittleEndian(bytes[8..])) : unchecked((nint)BinaryPrimitives.ReadInt32LittleEndian(bytes[8..]));
+        sample = new(value, absolute, (flags & 2) != 0, device, BinaryPrimitives.ReadUInt16LittleEndian(bytes[(header + 4)..]));
         return true;
     }
     public void Dispose()

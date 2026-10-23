@@ -13,9 +13,11 @@ public sealed partial class GlobalNavigationInput
     internal bool KeyRoutingCheck(uint key, bool up = false, Action? before = null)
         => RoutingCheck(() => { before?.Invoke(); return RouteKeyboard(up ? 0x101u : 0x100u, key); });
     internal void RelativeRoutingCheck(PointD delta, Action? before = null)
-        => RoutingCheck(() => { before?.Invoke(); ProcessPointerMovement(delta); return true; });
+        => RoutingCheck(() => { before?.Invoke(); ProcessPointerSample(new(delta)); return true; });
+    internal void SampleRoutingCheck(RawPointerSample sample, Action? before = null)
+        => RoutingCheck(() => { before?.Invoke(); ProcessPointerSample(sample); return true; });
     internal void TimerRoutingCheck(Action? before = null)
-        => RoutingCheck(() => { before?.Invoke(); TryPendingCrosshair(); CheckRelativeSource(); return true; });
+        => RoutingCheck(() => { before?.Invoke(); RetryInputWake(); TryPendingCrosshair(); CheckRelativeSource(); return true; });
     private T RoutingCheck<T>(Func<T> action)
     {
         if (nativeInput) throw new InvalidOperationException("Routing fixtures cannot operate native desktop input.");

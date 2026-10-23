@@ -26,6 +26,10 @@ internal static class NavigationRoutingChecks
         check("Crosshair pause, focus, menu and input-source changes release only its own capture", Boundaries);
         check("Hook liveness requires sustained raw movement without callbacks and defers across unsafe boundaries", HookLiveness);
         check("Crosshair menu entry waits for closure and cannot outlive cancellation, pause or timeout", MenuEntry);
+        check("A temporarily unavailable UI wake does not strand startup input until a settings drain", StartupWake);
+        check("Absolute remote mouse samples keep crosshair active and accumulate normalized motion at the center", RemoteAbsolute);
+        check("Legacy remote movement falls back without exit, skips baseline and duplicate positions, and restores ownership", RemoteLegacy);
+        check("Pointer source handovers rebaseline instead of double-counting or jumping the camera", SourceHandover);
     }
     private sealed class Platform : INavigationInputPlatform
     {
@@ -36,6 +40,7 @@ internal static class NavigationRoutingChecks
         public HashSet<int> Keys = [];
         public PointD Pointer = new(200, 180);
         public PixelRect VirtualScreen => new(0, 0, 1920, 1080);
+        public PixelRect PrimaryScreen => VirtualScreen;
         public PixelRect? Clip;
         public bool Down(int key) => Keys.Contains(key);
         public bool IsDesktop(PointD point) => Desktop;
@@ -130,6 +135,56 @@ internal static class NavigationRoutingChecks
             Require(h.Input.State.Crosshair == (outcome == "close") && (h.Desktop.Clip is not null) == (outcome == "close"), "Deferred menu request survived an invalid boundary: " + outcome);
         }
     }
+    private static void StartupWake()
+    {
+        var platform = new Platform(); var uiReady = false; var delivered = 0;
+        using var input = new GlobalNavigationInput(() =>
+        {
+            if (!Volatile.Read(ref uiReady)) throw new InvalidOperationException("Synthetic owner handle is not ready.");
+            Interlocked.Increment(ref delivered);
+        }, null, null, platform);
+        input.SetAvailable(true); input.SynchronizeRoutingCheck();
+        Volatile.Write(ref uiReady, true);
+        input.TimerRoutingCheck();
+        Require(Volatile.Read(ref delivered) > 0, "Failed startup delivery was not retried while idle.");
+        Require(input.MouseRoutingCheck(0x20A, platform.Pointer, 120, () => platform.Keys.Add(0x11)), "Worker did not accept startup wheel.");
+        Require(Volatile.Read(ref delivered) > 0, "A failed initial wake stayed coalesced until an explicit Drain (as on settings close).");
+        Require(input.Drain().Any(item => item.Input.Kind == NavigationInputKind.CycleWindow), "Initial settings were not usable before opening settings.");
+    }
+    private static void RemoteAbsolute()
+    {
+        using var h = new Harness(); h.Crosshair();
+        h.Input.SampleRoutingCheck(new(new(10000, 20000), Absolute: true, Device: 44));
+        h.Input.SampleRoutingCheck(new(PointD.Zero, Absolute: true, Device: 44, Buttons: 1));
+        h.Input.SampleRoutingCheck(new(new(11000, 20500), Absolute: true, Device: 44), () => h.Desktop.TickCount += 16);
+        var delta = h.Input.Drain().Where(item => item.Input.Kind == NavigationInputKind.CameraDelta).Single().Input.Position;
+        Require(h.Input.State.Crosshair && h.Input.PointerSourceMessage.Contains("绝对") && Math.Abs(delta.X - 1000 * 1920 / 65535d) < .00001
+            && Math.Abs(delta.Y - 500 * 1080 / 65535d) < .00001 && h.Desktop.Pointer == new PointD(960, 540), "Absolute remote input exited or changed scale/center.");
+    }
+    private static void RemoteLegacy()
+    {
+        using var h = new Harness(); var before = h.Desktop.Pointer; h.Crosshair();
+        h.Input.RelativeRoutingCheck(new(1, 0)); h.Input.Drain();
+        h.Input.MouseRoutingCheck(0x200, h.Desktop.Pointer, before: () => h.Desktop.TickCount += 700); h.Input.TimerRoutingCheck();
+        Require(h.Input.State.Crosshair && h.Input.PointerSourceMessage.Contains("普通") && h.Desktop.Clip == h.Desktop.VirtualScreen, "Legacy remote movement exited instead of adapting its capture.");
+        foreach (var position in new[] { new PointD(1100, 600), new(1110, 606), new(1110, 606), new(960, 540), new(1115, 610) })
+            Require(h.Input.MouseRoutingCheck(0x200, position, before: () => h.Desktop.TickCount += 16), "Legacy movement escaped to the application.");
+        var total = h.Input.Drain().Where(item => item.Input.Kind == NavigationInputKind.CameraDelta).Select(item => item.Input.Position).Aggregate(PointD.Zero, (sum, delta) => sum + delta);
+        Require(total == new PointD(15, 10) && h.Input.State.Crosshair && h.Desktop.Pointer == new PointD(960, 540), "Legacy baseline, duplicate or center echo became camera movement.");
+        h.Input.KeyRoutingCheck(0x1B); h.Input.KeyRoutingCheck(0x1B, true);
+        Require(h.Desktop.Clip is null && h.Desktop.Pointer == before && !h.Input.State.Crosshair, "Legacy capture did not restore after Escape.");
+    }
+    private static void SourceHandover()
+    {
+        using var h = new Harness(); h.Crosshair();
+        h.Input.SampleRoutingCheck(new(new(10000, 20000), Absolute: true, Device: 44));
+        h.Input.RelativeRoutingCheck(new(50, 20));
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CameraDelta), "Source handover double-counted a sample.");
+        h.Input.RelativeRoutingCheck(new(7, -2));
+        Require(h.Input.Drain().Single(item => item.Input.Kind == NavigationInputKind.CameraDelta).Input.Position == new PointD(7, -2), "Relative motion did not resume after a handover.");
+        h.Input.SampleRoutingCheck(new(new(60000, 50000), Absolute: true, VirtualDesktop: true, Device: 66));
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CameraDelta) && h.Input.State.Crosshair, "A different absolute source jumped or exited.");
+    }
     private static void Exit()
     {
         using var h = new Harness(); var before = h.Desktop.Pointer; h.Crosshair();
@@ -145,7 +200,7 @@ internal static class NavigationRoutingChecks
     }
     private static void Boundaries()
     {
-        foreach (var reason in new[] { "pause", "focus", "menu", "source", "external" })
+        foreach (var reason in new[] { "pause", "focus", "menu", "external" })
         {
             using var h = new Harness(); var before = h.Desktop.Pointer; h.Crosshair();
             h.Input.RelativeRoutingCheck(new(1, 1)); h.Input.Drain();
@@ -155,11 +210,6 @@ internal static class NavigationRoutingChecks
                 if (reason == "menu") h.Desktop.MenuActive = true;
             });
             if (reason == "pause") { h.Input.SetAvailable(false); h.Input.SynchronizeRoutingCheck(); }
-            if (reason == "source")
-            {
-                h.Input.MouseRoutingCheck(0x200, h.Desktop.Pointer, before: () => h.Desktop.TickCount += 700);
-                h.Input.TimerRoutingCheck();
-            }
             if (reason == "external")
                 h.Input.RelativeRoutingCheck(new(1, 1), () => h.Desktop.Clip = new(50, 50, 100, 100));
             Require(!h.Input.State.Crosshair && (reason == "external" ? h.Desktop.Clip == new PixelRect(50, 50, 100, 100) : h.Desktop.Clip is null && h.Desktop.Pointer == before), "Boundary failed to safely release: " + reason);

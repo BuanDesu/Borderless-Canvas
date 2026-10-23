@@ -54,10 +54,7 @@ public sealed partial class GlobalNavigationInput
     private void ProcessRelativePointer(nint packet)
     {
         if (rawPointer is null || !available || overviewOpen) return;
-        if (!rawPointer.Read(packet, out var delta, out var absolute))
-        { if (absolute && crosshair) Leave("此鼠标源未提供相对移动；准星已退出，可使用滚轮导航。"); return; }
-        if (delta != PointD.Zero && !ObserveRawHookHealth()) return;
-        ProcessPointerMovement(delta);
+        if (rawPointer.ReadSample(packet, out var sample)) ProcessPointerSample(sample);
     }
     private void ProcessPointerMovement(PointD delta)
     {
@@ -73,8 +70,8 @@ public sealed partial class GlobalNavigationInput
     {
         if (pendingCrosshair) { pendingCrosshair = false; Publish(gate.Active, State.Registered, State.Hotkey, "已取消等待进入准星模式。"); return; }
         if (crosshair) { Leave("已退出准星模式，鼠标恢复自由移动。"); return; }
-        if (!available || overviewOpen || (nativeInput && rawPointer is null) || pointerScreens.Length == 0 || MenuActive())
-        { Publish(gate.Active, State.Registered, State.Hotkey, "请先开始画布、关闭总览并确认相对鼠标可用。"); return; }
+        if (!available || overviewOpen || pointerScreens.Length == 0 || MenuActive())
+        { Publish(gate.Active, State.Registered, State.Hotkey, "请先开始画布并关闭总览或菜单。"); return; }
         if (Down(1) || Down(2) || Down(4) || Down(5) || Down(6) || gate.HasHeldButtons || !GetPointer(out var currentPointer))
         { Publish(gate.Active, State.Registered, State.Hotkey, "请先松开鼠标按键，再进入准星模式。"); return; }
         var screen = pointerScreens.FirstOrDefault(bounds => currentPointer.X >= bounds.Left && currentPointer.X < bounds.Right && currentPointer.Y >= bounds.Top && currentPointer.Y < bounds.Bottom);
@@ -94,6 +91,7 @@ public sealed partial class GlobalNavigationInput
         clipOwned = true;
         if (!SetPointer(pointerCenter)) { Leave("无法定位准星，已恢复鼠标。"); return; }
         mode = NavigationMode.Crosshair; crosshairEntered = InputTime; lastRelativeMotion = lastLegacyMotion = 0;
+        ResetPointerFeeds(screen);
         crosshairForeground = ForegroundWindow;
         gate.TryEnter(false); Volatile.Write(ref heartbeat, InputTime);
         Publish(true, State.Registered, State.Hotkey, "准星模式 · 相对鼠标移动镜头 · Esc / Ctrl+Alt+C 退出");
@@ -131,9 +129,10 @@ public sealed partial class GlobalNavigationInput
     {
         if (crosshair && (ForegroundWindow != crosshairForeground || MenuActive()))
         { Leave("焦点或菜单已改变，已退出准星模式。"); return; }
+        if (crosshair && pointerFeed == PointerFeed.Legacy) KeepPointerCentered();
         var lastRelative = Math.Max(lastRelativeMotion, crosshairEntered);
-        if (crosshair && lastLegacyMotion > lastRelative + 100 && InputTime - lastRelative > 600)
-            Leave("此输入源未提供相对鼠标移动；准星已退出，可继续使用滚轮导航。");
+        if (crosshair && pointerFeed != PointerFeed.Legacy && lastLegacyMotion > lastRelative + 100 && InputTime - lastRelative > 600)
+            SetPointerFeed(PointerFeed.Legacy);
     }
     [StructLayout(LayoutKind.Sequential)] private struct CursorRect { internal int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetClipCursor(out CursorRect rect);

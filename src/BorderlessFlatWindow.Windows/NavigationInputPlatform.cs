@@ -13,6 +13,7 @@ internal interface INavigationInputPlatform
     bool IsDesktop(PointD point);
     bool GetPointer(out PointD point);
     PixelRect VirtualScreen { get; }
+    PixelRect PrimaryScreen { get; }
     bool ReadClip(out PixelRect rectangle);
     bool WriteClip(PixelRect? rectangle);
     bool SetPointer(PointD point);
