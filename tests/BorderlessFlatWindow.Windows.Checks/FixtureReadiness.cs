@@ -7,6 +7,7 @@ internal static class FixtureReadiness
 {
     internal static DesktopWindowInfo Wait(nint handle)
     {
+        FixtureDesktop.PlaceOwnWindow(handle);
         var catalog = new DesktopWindowCatalog(0); var watch = Stopwatch.StartNew(); var stable = 0;
         do
         {

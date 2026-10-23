@@ -59,12 +59,17 @@ internal static class ManagedCanvasChecks
         internal readonly string JournalPath;
         internal Harness(BookmarkCollection? bookmarks = null)
         {
-            A.Show(); B.Show();
-            PumpUntil(() => { Catalog.Inspect(); return Catalog.Current.AdmittedWindows.Count(window => window.Handle == A.Handle || window.Handle == B.Handle) == 2; });
-            OriginalA = A.Bounds; OriginalB = B.Bounds;
-            JournalPath = StorageChecks.NewPath("managed");
-            Session = new(() => new(new JsonRecoveryJournalStore(JournalPath), new WindowsRecoveryWindowPort(0)), new NativeWindowMotionPort(), new DesktopDisplayCatalog().ReadDisplays(), bookmarks);
-            Begin();
+            try
+            {
+                A.Show(); B.Show();
+                FixtureDesktop.PlaceOwnWindow(A.Handle); FixtureDesktop.PlaceOwnWindow(B.Handle);
+                PumpUntil(() => { Catalog.Inspect(); return Catalog.Current.AdmittedWindows.Count(window => window.Handle == A.Handle || window.Handle == B.Handle) == 2; });
+                OriginalA = A.Bounds; OriginalB = B.Bounds;
+                JournalPath = StorageChecks.NewPath("managed");
+                Session = new(() => new(new JsonRecoveryJournalStore(JournalPath), new WindowsRecoveryWindowPort(0)), new NativeWindowMotionPort(), new DesktopDisplayCatalog().ReadDisplays(), bookmarks);
+                Begin();
+            }
+            catch { Session?.Dispose(); A.Dispose(); B.Dispose(); throw; }
         }
         internal void Begin()
         {

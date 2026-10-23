@@ -54,7 +54,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal bool HasOverview => overview is not null;
     internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
     internal bool HasOverviewWork => overview is not null || overviewRequested || openingOverview || preparingOverviewHost;
-    internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings;
+    internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !desktopTransitionPending;
+    internal bool CanApplyDesktopTransition => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !HasOverviewWork && !externalRecoveryRunning;
+    internal bool DesktopTransitionPending => desktopTransitionPending;
+    internal bool CanStartForLifecycleCheck => start.Enabled;
+    private bool desktopTransitionPending;
+    internal event Action? DisplayRecheckRequested;
+    private string? displayFailure;
+    private string? environmentWarning;
     internal CanvasSessionStatus SessionStatus => session?.Status ?? CanvasSessionStatus.Idle;
     private bool panelActionPending, externalRecoveryRunning;
     internal void CancelOverview()
@@ -66,6 +73,20 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     internal void SetPanelActionPending(bool pending)
     { panelActionPending = pending; if (pending) { EndNavigationForEditing(); CancelOverview(); } RefreshState(); }
+    internal void SetDesktopTransitionPending(bool pending)
+    {
+        if (desktopTransitionPending == pending) return;
+        desktopTransitionPending = pending;
+        if (pending) { EndNavigationForEditing(); gestures?.Cancel(); verify.Stop(); CancelOverview(); }
+        RefreshState();
+    }
+    internal void InvalidateDisplay(string reason)
+    {
+        layout = null; displayFailure = reason; Pause(reason);
+        if (session?.IsRunning == true) DisplayRecheckRequested?.Invoke();
+    }
+    internal void ReportEnvironmentWarning(string warning) { environmentWarning = warning; RefreshState(); }
+    internal void ClearEnvironmentWarning(string warning) { if (environmentWarning == warning) environmentWarning = null; RefreshState(); }
     internal void SetExternalRecoveryRunning(bool running)
     { if (externalRecoveryRunning == running) return; externalRecoveryRunning = running; RefreshState(); }
     internal void ExternalRecoveryCompleted(RecoveryReport report)
@@ -82,7 +103,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal event Action? StatusChanged;
     internal event Action? RecoveryRequested;
     internal PointD BookmarkPosition => session?.Workspace.Camera.Position ?? PointD.Zero;
-    internal bool CanJumpToBookmark => session?.IsRunning == true && !reading && !session.IsBusy && overview is null;
+    internal bool CanJumpToBookmark => session?.IsRunning == true && !reading && !session.IsBusy && overview is null && !desktopTransitionPending && layout is not null;
 
     internal ManagedCanvasControl(ITrackedDesktopWindowCatalog catalog, string? journalPath, BookmarkLibrary bookmarks, PreferencesSession preferences)
     {
@@ -220,7 +241,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
-        if (editingArrangement || editingSettings || panelActionPending || externalRecoveryRunning) return;
+        if (editingArrangement || editingSettings || panelActionPending || externalRecoveryRunning || desktopTransitionPending || layout is null) return;
         if (preparationDisposed) return;
         preparationTimer.Stop();
         if (overview is not null) { overview.ToggleOverview(capturedTimestamp); return; }
@@ -302,7 +323,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             });
             handedOff = true; focus = null;
         }
-        catch (Exception exception) when (Expected(exception)) { notice = $"总览未完成：{exception.Message}"; focus?.TryRestore(); }
+        catch (Exception exception) when (Expected(exception)) { notice = $"总览未完成：{exception.Message}"; if (!desktopTransitionPending) focus?.TryRestore(); }
         finally
         {
             if (!handedOff)
@@ -326,9 +347,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         try
         {
             if (IsDisposed || Disposing) return;
-            if (dialog.ConfirmedCameraPosition is { } position && ReferenceEquals(session, managed) && managed.IsRunning)
+            if (!desktopTransitionPending && dialog.ConfirmedCameraPosition is { } position && ReferenceEquals(session, managed) && managed.IsRunning)
             { if (!managed.Navigate(position, DateTimeOffset.UtcNow)) notice = managed.Message; }
-            else if (dialog.ConfirmedTarget is { } selected && ReferenceEquals(session, managed) && managed.IsRunning)
+            else if (!desktopTransitionPending && dialog.ConfirmedTarget is { } selected && ReferenceEquals(session, managed) && managed.IsRunning)
             {
                 RefreshManagedSnapshot(managed);
                 if (!OverviewWindows().Any(window => window.Id == selected.Id))
@@ -337,7 +358,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             }
             else
             {
-                var restored = focus?.TryRestore() == true;
+                var restored = !desktopTransitionPending && focus?.TryRestore() == true;
                 notice = managed.IsRunning ? restored ? "已取消总览，视角未改变，已返回原窗口。" : "已取消总览，视角未改变。" : managed.Message;
             }
         }
@@ -361,10 +382,15 @@ internal sealed partial class ManagedCanvasControl : UserControl
 
     internal void SetDisplay(DisplayLayout current)
     {
-        if (session is not null && session.MatchesDisplay(current)) return;
+        if (reading || session?.IsBusy == true || editingArrangement || editingSettings || HasOverviewWork)
+        { DisplayRecheckRequested?.Invoke(); return; }
+        displayFailure = null;
+        if (session is not null && session.MatchesDisplay(current)) { layout = current; RefreshState(); return; }
         InvalidateOverviewPreparation();
         overviewRequested = false; overview?.CancelOverview();
         if (session?.IsRunning == true) Pause("显示配置已变化，已暂停恢复；请重新选择窗口开始。");
+        if (session is not null && session.ReconfigureDisplay(current))
+        { layout = current; preview?.Invalidate(); RefreshState(); return; }
         session?.Dispose(); layout = current;
         admissionTimer.Stop();
         session = new(() => new RecoverySession(new JsonRecoveryJournalStore(journalPath), new WindowsRecoveryWindowPort()),
@@ -387,7 +413,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
 
     internal void Observe(WindowCatalogSnapshot snapshot, nint foreground)
     {
-        if (reading || IsDisposed) return;
+        if (reading || IsDisposed || desktopTransitionPending || layout is null) return;
         lastSnapshot = snapshot;
         DrainAdmissionHints(snapshot);
         session?.Observe(snapshot, foreground, DateTimeOffset.UtcNow);
@@ -397,7 +423,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
 
     private void Begin()
     {
-        if (session is null || !CanUsePanelCommands || externalRecoveryRunning) return;
+        if (session is null || layout is null || !CanUsePanelCommands || externalRecoveryRunning) return;
         notice = null;
         var selected = candidates.CheckedItems.OfType<Candidate>().Where(item => item.Supported).Select(item => item.Id).ToHashSet();
         try
@@ -417,7 +443,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
 
     private void VerifyPending()
     {
-        if (reading || session?.IsBusy == true) return;
+        if (reading || desktopTransitionPending || session?.IsBusy == true) return;
         if (session?.IsRunning != true || !session.HasPending) { verify.Stop(); return; }
         try
         {
@@ -438,7 +464,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private void Act(Action action)
     {
         lastCanvasInput = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (reading || session?.IsBusy == true) return;
+        if (reading || desktopTransitionPending || session?.IsBusy == true || layout is null) return;
         try { notice = null; gestures?.End(DateTimeOffset.UtcNow); action(); }
         catch (Exception exception) when (Expected(exception)) { session?.Pause($"导航失败：{exception.Message}"); }
         RefreshState();
@@ -455,21 +481,21 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var running = session?.IsRunning == true;
         if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
         UpdateAdmissionState();
-        var available = running && !editingArrangement && !editingSettings && !panelActionPending && !externalRecoveryRunning;
+        var available = running && !editingArrangement && !editingSettings && !panelActionPending && !externalRecoveryRunning && !desktopTransitionPending && layout is not null;
         if (globalInput is not null && inputAvailable != available)
         { inputAvailable = available; globalInput.SetAvailable(available); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());
-        candidates.Enabled = !reading && overview is null && !externalRecoveryRunning; start.Enabled = !running && !externalRecoveryRunning;
+        candidates.Enabled = !reading && overview is null && !externalRecoveryRunning && !desktopTransitionPending; start.Enabled = !running && !externalRecoveryRunning && !desktopTransitionPending && layout is not null;
         start.Visible = !running; pause.Visible = running; pause.Enabled = running;
-        commandDeck.SetRunning(running && !reading);
+        commandDeck.SetRunning(running && !reading && !desktopTransitionPending && layout is not null);
         selector.Visible = !running || showWindowPicker;
-        if (running && session!.HasPending) verify.Start(); else verify.Stop();
+        if (running && session!.HasPending && !desktopTransitionPending) verify.Start(); else verify.Stop();
         if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
         var camera = session?.Workspace.Camera;
         var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
-        var attention = notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? preferences.Warning;
+        var attention = displayFailure ?? notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? environmentWarning ?? preferences.Warning;
         status.Text = attention ?? (running ? "桌面空白处移动视角 · 应用窗口内直接操作" : "勾选需要的窗口，开始画布");
         status.FitText(attention is null ? 42 : 0);
         hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");

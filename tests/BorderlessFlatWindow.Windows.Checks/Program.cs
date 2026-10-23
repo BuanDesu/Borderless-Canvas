@@ -37,6 +37,7 @@ internal static class Program
         var catalog = new DesktopWindowCatalog(0);
         var handle = normal.Handle;
         var first = Find(catalog, handle);
+        if (first.Admission.IsAdmitted) FixtureDesktop.SetAnchor(handle);
         var results = new List<object>();
         var failures = 0;
 
@@ -62,6 +63,7 @@ internal static class Program
             Require(changed.Observation.Bounds?.Position.X == normal.Left, "Physical bounds do not match.");
         });
         DisplayChecks.Run(normal, Check);
+        DesktopSessionChecks.Run(Check);
         Check("Read-only Windows wallpaper metadata matches the physical monitor without activating windows", () =>
         {
             var screen = Screen.PrimaryScreen!.Bounds;

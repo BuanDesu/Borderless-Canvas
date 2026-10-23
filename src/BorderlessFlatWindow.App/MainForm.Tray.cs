@@ -11,7 +11,7 @@ internal sealed partial class MainForm
     private TrayPresentation? lastTrayPresentation;
     private ToolStripMenuItem? trayState, trayOpen, trayOverview, trayPause, trayRecovery, traySettings, trayExit;
     private TrayPresentation TrayState => TrayPresentation.Create(management.SessionStatus, management.Diagnostics().Count,
-        management.HasOverviewWork, !management.CanUsePanelCommands || OwnedForms.Any(form => form.Visible && form.Modal),
+        management.HasOverviewWork, !management.CanUsePanelCommands || nativeOwnerDisabled || OwnedForms.Any(form => form.Visible && form.Modal),
         recovery?.RequiresAttention == true, recovery?.IsRunning == true);
 
     private void InitializeTray()
@@ -55,7 +55,7 @@ internal sealed partial class MainForm
         management.SetExternalRecoveryRunning(recovery.IsRunning);
         UpdateTrayState(); TryScheduleManagerAction();
     }
-    private void ShowManager() => RequestManager(ManagerTarget.Canvas);
+    private void ShowManager() { EnsureSessionNotifications(); RequestManager(ManagerTarget.Canvas); }
     private void RequestManager(ManagerTarget target)
     {
         if (IsDisposed || Disposing || !TrayState.CanOpen || target is not (ManagerTarget.Canvas or ManagerTarget.Recovery) && !TrayState.CanConfigure) return;

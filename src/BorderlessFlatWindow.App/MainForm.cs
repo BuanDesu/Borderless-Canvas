@@ -25,7 +25,7 @@ internal sealed partial class MainForm : Form
     private WindowEventListener? listener;
     private readonly bool showWithoutActivation;
     private readonly bool reviewPanel;
-    internal bool AllowsOverviewPreparation => !showWithoutActivation && !IsDisposed && !Disposing && pendingManagerTarget is null;
+    internal bool AllowsOverviewPreparation => !showWithoutActivation && !IsDisposed && !Disposing && pendingManagerTarget is null && !desktopChanges.HasWork;
     internal bool OverviewShowsInTaskbar => reviewPanel;
     protected override bool ShowWithoutActivation => showWithoutActivation;
     internal bool IsTransparentFixture => showWithoutActivation;
@@ -88,6 +88,7 @@ internal sealed partial class MainForm : Form
         preferences.Reload(); followWallpaper = preferences.Current.FollowWallpaper;
         bookmarks = new(() => new JsonBookmarkStore(bookmarksPath ?? JsonBookmarkStore.DefaultPath)); bookmarks.Reload();
         management = new(catalog, journalPath, bookmarks, preferences) { Dock = DockStyle.Fill };
+        management.DisplayRecheckRequested += () => QueueDesktopChange(BorderlessFlatWindow.Application.Management.DesktopLifecycleSignal.DisplayChanged);
         bookmarkControl = new(bookmarks, () => management.BookmarkPosition, () => management.CanJumpToBookmark,
             management.GoToBookmark, management.EndNavigationForEditing)
         { Dock = DockStyle.Fill };
@@ -120,6 +121,7 @@ internal sealed partial class MainForm : Form
             preview.Invalidate();
         })
         { Dock = DockStyle.Fill };
+        displays.ReadFailed += management.InvalidateDisplay;
         displayTab.Controls.Add(displays);
         tabs.TabPages.Add(displayTab);
         var liveTab = new TabPage("真实空间地图（只读）");
@@ -240,7 +242,8 @@ internal sealed partial class MainForm : Form
             lastRecoveryStatus = management.SessionStatus;
             if (management.SessionStatus != BorderlessFlatWindow.Application.Management.CanvasSessionStatus.Running) recovery.RefreshJournal();
         }
-        UpdateTrayState(); TryScheduleManagerAction();
+        cameraStatus.ToolTipText = sessionNotificationWarning ?? "";
+        UpdateTrayState(); ScheduleDesktopChange(); TryScheduleManagerAction();
     }
 
     private void RefreshCatalog()
@@ -278,6 +281,7 @@ internal sealed partial class MainForm : Form
             listener = new();
             listener.EventReceived += change =>
             {
+                if (desktopLifecycleStopped || IsDisposed || Disposing) return;
                 eventBuffer.Add(change);
                 management.RecordWindowChange(change);
                 if (!eventTimer.Enabled) eventTimer.Start();
@@ -291,7 +295,7 @@ internal sealed partial class MainForm : Form
     {
         // WinEvent hints remain queued. COM catalog reads and rebuilding hidden diagnostics
         // must not interrupt moving thumbnails; confirmation still revalidates its target.
-        if (management.IsOverviewTransitioning || pageTransitions.Any(transition => transition.IsActive)) return;
+        if (management.DesktopTransitionPending || management.IsOverviewTransitioning || pageTransitions.Any(transition => transition.IsActive)) return;
         eventTimer.Stop();
         try
         {
@@ -318,6 +322,7 @@ internal sealed partial class MainForm : Form
     {
         if (disposing)
         {
+            StopDesktopLifecycle();
             foreach (var transition in pageTransitions) transition.Dispose();
             eventTimer.Dispose();
             StopPopupServices();
@@ -338,8 +343,7 @@ internal sealed partial class MainForm : Form
     protected override void WndProc(ref Message message)
     {
         base.WndProc(ref message);
-        if (message.Msg is 0x007E or 0x02E0 && management is not null && IsHandleCreated && !IsDisposed)
-            BeginInvoke(() => { management.Pause("显示配置发生变化，已暂停恢复。"); displays.RefreshDisplays(); RefreshCatalog(); });
+        if (management is not null && IsHandleCreated && !IsDisposed) HandleDesktopMessage(ref message);
     }
 
     internal void PrepareSampleSmoke() => tabs.SelectedIndex = 1;

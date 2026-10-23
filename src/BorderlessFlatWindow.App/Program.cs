@@ -88,6 +88,7 @@ internal static class Program
             settingsPath = Path.Combine(fixture, "settings.json");
             MainForm.CheckPreferenceRestart(Path.Combine(fixture, "preferences-restart"));
             MainForm.CheckTrayRecoveryProcess(Path.Combine(fixture, "tray-recovery"));
+            MainForm.CheckDesktopLifecycleDispose(Path.Combine(fixture, "desktop-dispose"));
         }
         using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath,
             reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal), settingsPath: settingsPath);
@@ -98,6 +99,7 @@ internal static class Program
             form.ShowInTaskbar = false;
             form.Show();
             System.Windows.Forms.Application.DoEvents();
+            form.CheckDesktopLifecycleSmoke();
             using var bitmap = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
             var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
