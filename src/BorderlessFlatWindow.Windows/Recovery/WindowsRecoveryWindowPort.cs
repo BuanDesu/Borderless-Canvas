@@ -68,6 +68,19 @@ public sealed class WindowsRecoveryWindowPort : IRecoveryWindowPort
         if (guard is not null) return guard;
         using var pixels = new PhysicalPixelScope();
         var saved = entry.Original.Placement;
+        var originalBounds = ToNative(entry.Original.PhysicalBounds);
+        RecoveryPlacementTarget? fallback = null; nint fallbackMonitor = 0;
+        NativeMethods.NativeMonitorInfo fallbackInfo = default;
+        if (NativeMethods.MonitorFromRect(in originalBounds, 0) == 0)
+        {
+            fallbackMonitor = NativeMethods.MonitorFromRect(in originalBounds, 2);
+            fallbackInfo = new() { Size = (uint)Marshal.SizeOf<NativeMethods.NativeMonitorInfo>(), DeviceName = "" };
+            if (fallbackMonitor == 0 || !NativeMethods.GetMonitorInfo(fallbackMonitor, ref fallbackInfo))
+                return new(entry.Id, RecoveryOutcome.Failed, "Original display is unavailable and current work area could not be verified; journal retained.");
+            fallback = RecoveryPlacementFallback.Plan(entry.Original, ToPixels(fallbackInfo.Bounds), ToPixels(fallbackInfo.WorkArea));
+            if (fallback is null) return new(entry.Id, RecoveryOutcome.Failed, "Original display is unavailable; a safe normal-state placement could not be planned. Journal retained.");
+            saved = fallback.Placement;
+        }
         var placement = new NativeMethods.NativeWindowPlacement
         {
             Length = (uint)Marshal.SizeOf<NativeMethods.NativeWindowPlacement>(), Flags = saved.Flags | 4,
@@ -89,10 +102,11 @@ public sealed class WindowsRecoveryWindowPort : IRecoveryWindowPort
             guard = Verify(entry, markerName);
             if (guard is not null) return guard;
             var current = ReadPlacement(entry.Identity.Handle);
-            if (SamePlacement(current, saved))
+            if (SamePlacement(current, saved) && (fallback is null || VerifyFallback(entry.Identity.Handle, originalBounds, fallback, fallbackMonitor, fallbackInfo)))
             {
                 RemoveMarker(entry, markerName);
-                return new(entry.Id, RecoveryOutcome.Restored, "Original placement and show state verified.");
+                return new(entry.Id, RecoveryOutcome.Restored, fallback is null ? "Original placement and show state verified."
+                    : "Original display unavailable; nearest work-area placement, native dimensions and show state verified.");
             }
             Thread.Sleep(10);
         } while (timeout.Elapsed < TimeSpan.FromMilliseconds(1200));
@@ -102,6 +116,18 @@ public sealed class WindowsRecoveryWindowPort : IRecoveryWindowPort
     private static bool SamePlacement(SavedWindowPlacement current, SavedWindowPlacement saved) =>
         current.ShowCommand == saved.ShowCommand && current.Left == saved.Left && current.Top == saved.Top
         && current.Right == saved.Right && current.Bottom == saved.Bottom;
+
+    private static bool VerifyFallback(nint window, NativeMethods.NativeRect original, RecoveryPlacementTarget target,
+        nint monitor, NativeMethods.NativeMonitorInfo prior)
+    {
+        var current = new NativeMethods.NativeMonitorInfo { Size = (uint)Marshal.SizeOf<NativeMethods.NativeMonitorInfo>(), DeviceName = "" };
+        return NativeMethods.MonitorFromRect(in original, 0) == 0 && NativeMethods.MonitorFromRect(in original, 2) == monitor
+            && NativeMethods.GetMonitorInfo(monitor, ref current) && current.DeviceName == prior.DeviceName
+            && ToPixels(current.Bounds) == ToPixels(prior.Bounds) && ToPixels(current.WorkArea) == ToPixels(prior.WorkArea)
+            && NativeMethods.GetWindowRect(window, out var actual) && ToPixels(actual) == target.PhysicalBounds;
+    }
+    private static PixelRect ToPixels(NativeMethods.NativeRect rect) => new(rect.Left, rect.Top, rect.Right, rect.Bottom);
+    private static NativeMethods.NativeRect ToNative(PixelRect rect) => new() { Left = rect.Left, Top = rect.Top, Right = rect.Right, Bottom = rect.Bottom };
 
     private static RecoveryResult? Verify(RecoveryEntry entry, string markerName)
     {

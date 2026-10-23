@@ -10,6 +10,16 @@ internal static class Program
     {
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
         if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();
+        if (args.Contains("--recovery-display-only", StringComparer.Ordinal))
+        {
+            ApplicationConfiguration.Initialize(); var displayFailures = 0;
+            RecoveryChecks.RunDisplayChanges((name, action) =>
+            {
+                try { action(); Console.WriteLine("PASS " + name); }
+                catch (Exception error) { displayFailures++; Console.WriteLine("FAIL " + name + ": " + error.Message); }
+            });
+            return displayFailures == 0 ? 0 : 1;
+        }
         if (args.Contains("--overview-only", StringComparer.Ordinal))
         {
             ApplicationConfiguration.Initialize();

@@ -120,6 +120,9 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern nint MonitorFromWindow(nint window, uint flags);
 
+    [DllImport("user32.dll")]
+    internal static extern nint MonitorFromRect(in NativeRect rectangle, uint flags);
+
     internal delegate bool EnumWindowsCallback(nint window, nint parameter);
 
     [DllImport("user32.dll", SetLastError = true)]

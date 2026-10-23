@@ -58,6 +58,8 @@ GUI 新增“恢复日志”页，显示待处理数量和实际路径。启动�
 
 ## 官方依据
 
+原位置完全离开当前显示器时的确定性恢复、物理/workspace 坐标与拒绝移动后的重试见[显示器缺失恢复](recovery-display-fallback.md)。部分可见位置仍精确恢复；原始日志不改写。
+
 - [WINDOWPLACEMENT 与工作区坐标](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-windowplacement)
 - [GetWindowPlacement](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowplacement)
 - [SetWindowPlacement](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowplacement)

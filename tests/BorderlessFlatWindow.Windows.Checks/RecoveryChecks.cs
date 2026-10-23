@@ -6,7 +6,7 @@ using BorderlessFlatWindow.Windows.Recovery;
 
 namespace BorderlessFlatWindow.Windows.Checks;
 
-internal static class RecoveryChecks
+internal static partial class RecoveryChecks
 {
     internal static void Run(Action<string, Action> check)
     {
@@ -17,8 +17,9 @@ internal static class RecoveryChecks
         check("Native recovery skips changed PID and creation time without moving the target", WrongIdentity);
         check("An unarmed crash record releases its marker without restoring placement", Unarmed);
         check("A killed manager releases its lease; standalone inspect and recovery handle its surviving fixture", CrashRecovery);
+        RunDisplayChanges(check);
     }
-    private sealed class Fixture : Form
+    private class Fixture : Form
     {
         internal Fixture() { Text = "BFW recovery fixture"; Opacity = 0; Bounds = new(160, 150, 450, 320); }
         protected override bool ShowWithoutActivation => true;
