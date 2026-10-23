@@ -37,7 +37,8 @@ internal static class Program
         var preferenceStorage = PreferencesStorageChecks.Run();
         if (preferenceStorage != 0) return preferenceStorage;
         if (bookmarkStorage != 0) return bookmarkStorage;
-        if (args.Contains("--storage-only", StringComparer.Ordinal) || storage != 0) return storage;
+        if (storage != 0) return storage;
+        if (args.Contains("--storage-only", StringComparer.Ordinal)) return NavigationRoutingChecks.RunStandalone();
         ApplicationConfiguration.Initialize();
         // These fixtures are transparent and never activate. Only their own state is changed.
         using var normal = new Fixture { Text = "BFW native fixture", Bounds = new(100, 100, 400, 300) };
@@ -99,6 +100,7 @@ internal static class Program
         OffscreenChecks.Run(Check);
         ManagedCanvasChecks.Run(Check);
         NavigationInputChecks.Run(Check);
+        NavigationRoutingChecks.Run(Check);
         PointerAndPinChecks.Run(normal, Check);
         OverviewChecks.Run(Check);
         Check("Hidden native fixture is excluded; showing it preserves its ID", () =>

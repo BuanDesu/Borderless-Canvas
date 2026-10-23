@@ -59,6 +59,11 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal bool HasOverviewWork => overview is not null || overviewRequested || openingOverview || preparingOverviewHost;
     internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !desktopTransitionPending
         && (FindForm() is not MainForm host || host.AllowsCanvasCommands);
+    // Reads and native transactions can pump UI messages. Queue input through these
+    // short operations; only an explicit interaction/safety boundary revokes it.
+    private bool GlobalInputBlocked => editingArrangement || editingSettings || desktopTransitionPending || panelActionPending || externalRecoveryRunning
+        || layout is null || FindForm() is MainForm { AllowsCanvasCommands: false };
+    private bool CanCaptureGlobalInput => session?.IsRunning == true && !GlobalInputBlocked;
     internal bool CanApplyDesktopTransition => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !HasOverviewWork && !externalRecoveryRunning;
     internal bool DesktopTransitionPending => desktopTransitionPending;
     internal bool CanStartForLifecycleCheck => start.Enabled;
@@ -139,7 +144,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         navigation.DropDownItems.Add("上一视角    Backspace", null, (_, _) => Act(() => session?.Back(DateTimeOffset.UtcNow)));
         navigation.DropDownItems.Add("适配地图", null, (_, _) => preview?.FitToContent());
         navigation.DropDownItems.Add("手动导航", null, (_, _) => globalInput?.Toggle());
-        navigation.DropDownItems.Add("准星模式    Ctrl+Alt+C", null, (_, _) => globalInput?.ToggleCrosshair());
+        navigation.DropDownItems.Add("准星模式    Ctrl+Alt+C", null, (_, _) => globalInput?.ToggleCrosshair(afterMenu: true));
         ChromeTheme.StyleMenu(navigation.DropDown);
         moreMenu.Items.Add(navigation);
         InitializeArrangementMenu();
@@ -156,9 +161,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         InitializePreferences();
         moreMenu.Items.Add(shortcutContext);
         moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
-            "开始后接管所有可用窗口，便签保持独立。\n桌面滚轮、Shift 横移、双键拖动；屏幕外沿继续向外推动可平移。\nCtrl+滚轮平滑轮选；Tab 进入/退出总览。\nCtrl+Alt+C 准星模式，Esc 或单击退出。\nCtrl+Alt+P 固定当前窗口；标题栏右键也可切换便签。\n软件 .lnk 快捷方式右键可“以画布便签模式打开”。\n关闭管理器收入托盘，显式退出恢复画布窗口。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
+            "开始后接管所有可用窗口，便签保持独立。\n桌面滚轮、Shift 横移、双键拖动；屏幕外沿继续向外推动可平移。\nCtrl+滚轮平滑轮选；Tab 进入/退出总览。\nCtrl+Alt+C 准星模式，移动鼠标直接移动镜头；Esc 或再次按组合键退出。\nCtrl+Alt+P 固定当前窗口；标题栏右键也可切换便签。\n软件 .lnk 快捷方式右键可“以画布便签模式打开”。\n关闭管理器收入托盘，显式退出恢复画布窗口。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
         moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
-            $"{navigationStatus.Text}\n{overviewShortcutStatus.Text}\n{globalInput?.PointerMessage}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
+            $"{navigationStatus.Text}\n输入接管 {(globalInput?.State.Available == true ? "已启用" : "已停用")} · 模式 {globalInput?.State.Mode}\n{globalInput?.HookHealth}\n最近退出：{globalInput?.LastExitReason}\n{overviewShortcutStatus.Text}\n{globalInput?.PointerMessage}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
         ChromeTheme.StyleMenu(moreMenu); ChromeTheme.Accent(start, ChromeTheme.Purple);
         hints.SetToolTip(start, "接管所有可用普通窗口，便签保持独立；接管前记录原位以便恢复");
         hints.SetToolTip(pause, "暂停画布并恢复全部接管窗口的原始位置");
@@ -240,7 +245,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (navigationState?.Active == true && session?.IsRunning == true)
         {
             navigationTimer.Start();
-            if (navigationState.Manual)
+            if (navigationState.Manual && !navigationState.Crosshair)
             { hud ??= new(); hud.Present(navigationState.Hotkey.Label, session.Workspace.Camera.Position, inputOptions); }
             else hud?.Hide();
         }
@@ -506,8 +511,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var running = session?.IsRunning == true;
         if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
         UpdateAdmissionState();
-        var available = running && CanUsePanelCommands && !panelActionPending && !externalRecoveryRunning && layout is not null;
-        if (globalInput is not null && inputAvailable != available)
+        var available = CanCaptureGlobalInput;
+        if (globalInput is not null && (inputAvailable != available || globalInput.State.Available != available))
         { inputAvailable = available; globalInput.SetAvailable(available); }
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");

@@ -12,6 +12,15 @@ internal static class NavigationInputChecks
         check("A delayed overview close on the input thread cannot clear a newer session", OverviewOwnership);
         check("Pausing availability clears pending overview input without enabling desktop capture", OverviewUnavailable);
         check("Initial navigation preferences register the selected shortcut directly and report conflicts without capture", InitialPreferences);
+        check("Inactive native hook pairs can be renewed without capture, queued input or foreground changes", Reestablish);
+    }
+    private static void Reestablish()
+    {
+        var foreground = WindowEventListener.ForegroundWindow;
+        using var input = IsolatedInput(() => { }); var revision = input.HookRevision;
+        input.ReestablishInactiveHooksForCheck();
+        Require(input.HookRevision == revision + 1 && !input.State.Active && !input.State.Available && input.Drain().Count == 0
+            && WindowEventListener.ForegroundWindow == foreground, "Hook renewal changed desktop interaction or lost the replacement pair.");
     }
     private static void InitialPreferences()
     {

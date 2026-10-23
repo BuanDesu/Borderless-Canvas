@@ -28,5 +28,12 @@ internal static class InteractionSmokeCheck
         using var image = new Bitmap(header.Width, header.Height); header.DrawToBitmap(image, header.ClientRectangle);
         image.Save(Path.Combine(directory, "header-accessories.png"));
         Console.WriteLine("PASS Embedded pixel heart and button SVGs share equal accessory slots and a real accessible collapse control");
+        var foreground = BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow;
+        using var crosshair = new CrosshairOverlay();
+        crosshair.Present(new(100, 100)); System.Windows.Forms.Application.DoEvents();
+        if (BorderlessFlatWindow.Windows.WindowEventListener.ForegroundWindow != foreground)
+            throw new InvalidOperationException("Showing the crosshair overlay changed foreground and would end its input mode.");
+        crosshair.Hide();
+        Console.WriteLine("PASS The crosshair overlay presents without taking foreground");
     }
 }
