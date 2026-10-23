@@ -6,6 +6,8 @@ Push-Location $taskRoot
 try {
     dotnet run --project tests/BorderlessFlatWindow.Checks --configuration $Configuration --no-build
     if ($LASTEXITCODE -ne 0) { throw "Model checks failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'check-trial-launchers.ps1') -Configuration $Configuration
+    & (Join-Path $PSScriptRoot 'check-trial-verifier.ps1') -Configuration $Configuration
     if ($SmokeUi) {
         dotnet run --project src/BorderlessFlatWindow.App --configuration $Configuration --no-build -- --smoke-check
         if ($LASTEXITCODE -ne 0) { throw "UI smoke check failed: $LASTEXITCODE" }

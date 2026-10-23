@@ -4,9 +4,9 @@
 
 ## 启动
 
-解压整个目录，保留 EXE、DLL 和 JSON 文件在一起，双击 `Start.cmd` 或 `BorderlessFlatWindow.App.exe`。需要 **.NET 10 Windows Desktop Runtime x64**；无需 SDK、WSL 或管理员启动。当前包为框架依赖包，不含运行时。`manifest.json` 记录源码版本、是否存在未提交修改及文件 SHA-256。
+解压整个目录，保留 EXE、DLL 和 JSON 文件在一起，双击 `Start.cmd` 或 `BorderlessFlatWindow.App.exe`。框架依赖版需要 **.NET 10 Windows Desktop Runtime x64**，自包含便携版已携带运行时；两者均无需 SDK、WSL 或管理员启动。`manifest.json` 的 `frameworkDependent` 区分模式，`bundledFrameworks` 记录随包补丁，另记录源码版本、是否存在未提交修改及文件 SHA-256。启动失败提示、升级/移除和许可清单见 `deployment.md` 及 `THIRD-PARTY-NOTICES.md`。
 
-首次建议运行包内 `BorderlessFlatWindow.Probe.exe`，它生成本项目自己的测试窗口，含可输入文字的 Source。先在这些窗口上体验，再选择自己的普通应用。管理器初始不接管任何窗口。
+首次建议运行包内 `Probe.cmd`，它生成本项目自己的测试窗口，含可输入文字的 Source。框架依赖包的 Probe EXE 在根目录，便携包在 `tools/probe/`。先在这些窗口上体验，再选择自己的普通应用。管理器初始不接管任何窗口。
 
 Windows 11 build 22621 及以上正常启动已默认使用[原生总览](native-overview-presenter.md)：保留地图、搜索与工作区，绕过同步桌面位图读回。较早系统保留原路径；`Start-NativeOverview.cmd` 可显式启用原生路径。若遇到兼容问题，先从托盘“退出并恢复窗口”，再用 `Start-FormOverview.cmd`（或 EXE 加 `--form-overview`）回退。该参数优先于原生参数。系统透明效果关闭或窗口失活时仍可能纯色降级，见[背景合成验证](native-backdrop-validation.md)。
 
@@ -37,9 +37,9 @@ Ctrl+Alt+Space 仍可显式切换手动导航；“更多 → 导航设置…”
 
 设置修改后立即生效并保存；“更多 → 本地设置”可重新读取或保存当前选择。只读或损坏时提示仅本次生效并保留原文件，初次读取失败关闭自动接入；重启始终保持未接管，设置不会自动开始画布。可用 `--settings C:\path\settings.json` 指定独立文件，三个数据路径必须不同。详见 `local-preferences.md`。
 
-主程序异常结束后，重启会进入恢复页；点击“启动独立恢复程序”。也可关闭管理器后直接双击 `Recover.cmd`，它与 GUI 无关。`Inspect-Recovery.cmd` 只显示待处理数量，不移动窗口。恢复核验 HWND、PID、进程创建时间和独立实例标记，跳过已关闭/不匹配的目标，失败项保留。退出码 0 表示处理完成，2 表示仍待恢复，1 表示错误；损坏文件保留并报错。日志正被运行中的管理器使用时，先暂停或退出该管理器再恢复。
+主程序异常结束后，重启会进入恢复页；点击“启动独立恢复程序”，会自动寻找对应布局中的恢复工具。也可关闭管理器后直接双击 `Recover.cmd`，它与 GUI 无关。`Inspect-Recovery.cmd` 只显示待处理数量，不移动窗口。便携版恢复 EXE 在 `tools/recovery/`。恢复核验 HWND、PID、进程创建时间和独立实例标记，跳过已关闭/不匹配的目标，失败项保留。退出码 0 表示处理完成，2 表示仍待恢复，1 表示错误；损坏文件保留并报错。日志正被运行中的管理器使用时，先暂停或退出该管理器再恢复。
 
-自定义数据位置可从终端运行：
+自定义数据位置可从终端运行。以下恢复 EXE 路径适用于框架依赖包；便携版改为 `.\tools\recovery\BorderlessFlatWindow.Recovery.exe`，或使用兼容两种布局的 `Launch.ps1`，见 `deployment.md`：
 
 ```powershell
 .\BorderlessFlatWindow.App.exe --journal C:\path\recovery.json --bookmarks C:\path\bookmarks.json
@@ -65,4 +65,4 @@ Ctrl+Alt+Space 仍可显式切换手动导航；“更多 → 导航设置…”
 - 滚轮/键盘导航、总览/原生输入、标签重启、新窗接入和故障恢复已有实测；本包已验证系统计算器、独立生成文本记事本及 Probe 四窗会话，并实际从 GUI 启动相邻恢复程序找回四窗。用户已确认 Shift＋滚轮、双键持续拖动和整段返回、任务栏找回后输入及悬停预览显示通过；预览持续刷新未作保证。
 - 当前为私有项目内部试用，未确定正式发布许可证、签名、安装器或自动更新；托盘已提供。
 
-源码构建：`scripts/package-trial.ps1 -NativeChecks` 在 Release 检查后生成新目录与 ZIP，不覆盖已有产物。正式交付以 manifest 和对应版本的实际验证记录为准，打包成功不等于未验证条件已经通过。
+源码构建：`scripts/package-trial.ps1 -NativeChecks` 生成框架依赖包；加 `-SelfContained` 生成便携包，可用 `-RuntimeVersion 10.0.13` 明确补丁。Release 检查后生成新目录与 ZIP，不覆盖已有产物，自动核对全部文件哈希、运行模式与许可入口。正式交付以 manifest 和对应版本的实际验证记录为准，打包成功不等于未验证条件已经通过。

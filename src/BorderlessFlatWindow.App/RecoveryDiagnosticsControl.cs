@@ -151,6 +151,8 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
     {
         var adjacent = Path.Combine(AppContext.BaseDirectory, "BorderlessFlatWindow.Recovery.exe");
         if (File.Exists(adjacent)) return adjacent;
+        var isolated = Path.Combine(AppContext.BaseDirectory, "tools", "recovery", "BorderlessFlatWindow.Recovery.exe");
+        if (File.Exists(isolated)) return isolated;
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var development = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/BorderlessFlatWindow.Recovery/bin",
             configuration, "net10.0-windows", "BorderlessFlatWindow.Recovery.exe"));
