@@ -48,7 +48,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool tabHeld, tabCaptured;
     private readonly HashSet<uint> capturedKeys = [];
     private nuint timer;
-    private int wakePending, overflow, stopping;
+    private int wakePending, wakeDirty, overflow, stopping;
     private long heartbeat = Environment.TickCount64;
     private bool available, escapeRegistered, disposed;
     private string lastExitReason = "尚未退出导航。";
@@ -125,7 +125,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     public IReadOnlyList<TimedNavigationInput> Drain()
     {
-        Volatile.Write(ref heartbeat, InputTime); Interlocked.Exchange(ref wakePending, 0);
+        Volatile.Write(ref heartbeat, InputTime); Interlocked.Exchange(ref wakeDirty, 0); Interlocked.Exchange(ref wakePending, 0);
         var result = new List<TimedNavigationInput>();
         if (Interlocked.Exchange(ref overflow, 0) != 0)
         {
@@ -179,6 +179,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
                 { ProcessRelativePointer(message.LParam); DispatchMessage(ref message); }
                 else if (message.MessageId == 0x113)
                 {
+                    RetryInputWake();
                     TryPendingCrosshair();
                     CheckRelativeSource();
                     if (!crosshair && clipOwned) ReleasePointerCapture();
@@ -260,8 +261,14 @@ public sealed partial class GlobalNavigationInput : IDisposable
     { Volatile.Write(ref state, new(active, registered, hotkey, message, mode, crosshair ? new PointD(pointerCenter.X, pointerCenter.Y) : null, available)); Wake(); }
     private void Wake()
     {
+        Volatile.Write(ref wakeDirty, 1); RetryInputWake();
+    }
+    private void RetryInputWake()
+    {
+        if (Volatile.Read(ref wakeDirty) == 0) return;
         if (Interlocked.Exchange(ref wakePending, 1) != 0) return;
-        try { wakeUi(); } catch (InvalidOperationException) { } // UI may already be closing.
+        try { wakeUi(); }
+        catch (InvalidOperationException) { Interlocked.Exchange(ref wakePending, 0); } // A failed delivery cannot acknowledge future input.
     }
     private void Queue(NavigationInput input)
     {
@@ -309,7 +316,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
         };
         if (kind is { } inputKind)
         {
-            if (crosshair && inputKind == NavigationInputKind.Move) lastLegacyMotion = InputTime;
+            if (inputKind == NavigationInputKind.Move && ConsumeCrosshairMove(input.Point)) return true;
             // Only our balanced replay bypasses routing; unrelated injected input follows normal policy.
             if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return false;
             if (ConsumePinMenuClick(inputKind, input.Point)) return true;

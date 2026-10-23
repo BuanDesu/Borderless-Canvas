@@ -44,6 +44,10 @@ public sealed partial class GlobalNavigationInput
                 return new(x, y, x + width, y + height);
             }
         }
+        public PixelRect PrimaryScreen
+        {
+            get { var width = GetSystemMetrics(0); var height = GetSystemMetrics(1); return width > 0 && height > 0 ? new(0, 0, width, height) : default; }
+        }
         public bool ReadClip(out PixelRect rectangle)
         {
             rectangle = default;

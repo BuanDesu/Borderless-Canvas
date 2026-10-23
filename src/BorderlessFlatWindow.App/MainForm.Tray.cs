@@ -53,6 +53,7 @@ internal sealed partial class MainForm
     {
         if (IsDisposed || Disposing) return;
         management.SetExternalRecoveryRunning(recovery.IsRunning);
+        management.SetRecoveryAttention(recovery.RequiresAttention);
         UpdateTrayState(); TryScheduleManagerAction();
     }
     private void ShowManager() { EnsureSessionNotifications(); RequestManager(ManagerTarget.Canvas); }

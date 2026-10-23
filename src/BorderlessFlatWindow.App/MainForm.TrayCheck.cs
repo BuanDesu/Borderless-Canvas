@@ -80,7 +80,7 @@ internal sealed partial class MainForm
         using var form = new MainForm(new PreviewWindowCatalog(), showWithoutActivation: true, journalPath: journalPath,
             bookmarksPath: Path.Combine(directory, "bookmarks.json"), settingsPath: Path.Combine(directory, "settings.json")) { Opacity = 0, ShowInTaskbar = false };
         form.Show(); form.InitializeTray();
-        if (!form.TrayState.Caption.Contains("待恢复")) throw new InvalidOperationException("Inherited recovery was hidden from tray.");
+        if (!form.TrayState.Caption.Contains("待恢复") || !form.management.RecoveryActionForCheck) throw new InvalidOperationException("Inherited recovery was hidden from tray or the primary canvas action.");
         var busyObserved = false; var completed = false;
         form.recovery.StateChanged += () =>
         {
@@ -100,7 +100,7 @@ internal sealed partial class MainForm
         task.GetAwaiter().GetResult();
         using (var store = new JsonRecoveryJournalStore(journalPath))
             if (store.Load()!.Entries.Count != 0) throw new InvalidOperationException("Independent recovery left fixture records behind.");
-        if (!busyObserved || !completed || form.recovery.RequiresAttention || form.recovery.IsRunning
+        if (!busyObserved || !completed || form.recovery.RequiresAttention || form.recovery.IsRunning || form.management.RecoveryActionForCheck
             || form.management.Diagnostics().Running || !form.TrayState.CanConfigure || !form.TrayState.CanExit
             || WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException("Independent recovery/tray fixture failed or changed foreground.");
         foreach (var invalid in new[] { "{}", "null", "{\"Results\":[]}", "{\"Remaining\":0}", "{\"Results\":[],\"Remaining\":1}",

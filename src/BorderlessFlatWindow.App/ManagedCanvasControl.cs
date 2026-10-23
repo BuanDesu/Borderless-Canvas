@@ -61,18 +61,18 @@ internal sealed partial class ManagedCanvasControl : UserControl
         && (FindForm() is not MainForm host || host.AllowsCanvasCommands);
     // Reads and native transactions can pump UI messages. Queue input through these
     // short operations; only an explicit interaction/safety boundary revokes it.
-    private bool GlobalInputBlocked => editingArrangement || editingSettings || desktopTransitionPending || panelActionPending || externalRecoveryRunning
+    private bool GlobalInputBlocked => editingArrangement || editingSettings || desktopTransitionPending || panelActionPending || externalRecoveryRunning || recoveryAttention
         || layout is null || FindForm() is MainForm { AllowsCanvasCommands: false };
     private bool CanCaptureGlobalInput => session?.IsRunning == true && !GlobalInputBlocked;
     internal bool CanApplyDesktopTransition => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !HasOverviewWork && !externalRecoveryRunning;
     internal bool DesktopTransitionPending => desktopTransitionPending;
-    internal bool CanStartForLifecycleCheck => start.Enabled;
+    internal bool CanStartForLifecycleCheck => start.Enabled && !recoveryAttention;
     private bool desktopTransitionPending;
     internal event Action? DisplayRecheckRequested;
     private string? displayFailure;
     private string? environmentWarning;
     internal CanvasSessionStatus SessionStatus => session?.Status ?? CanvasSessionStatus.Idle;
-    private bool panelActionPending, externalRecoveryRunning;
+    private bool panelActionPending, externalRecoveryRunning, recoveryAttention;
     internal void CancelOverview()
     {
         InvalidateOverviewPreparation(); overviewRequested = false;
@@ -104,6 +104,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     internal void SetExternalRecoveryRunning(bool running)
     { if (externalRecoveryRunning == running) return; externalRecoveryRunning = running; RefreshState(); }
+    internal void SetRecoveryAttention(bool attention)
+    {
+        attention &= session?.IsRunning != true;
+        if (recoveryAttention == attention) return;
+        recoveryAttention = attention;
+        hints.SetToolTip(start, attention ? "打开恢复中心，先处理旧会话或日志问题；不会开始接管" : "接管所有可用普通窗口，便签保持独立；接管前记录原位以便恢复");
+        RefreshState();
+    }
     internal void ExternalRecoveryCompleted(RecoveryReport report)
     { session?.RecheckAfterExternalRecovery(report); RefreshState(); }
     internal bool ProcessOverviewKey(Keys keys) => overview?.HandleCommand(keys) == true;
@@ -163,12 +171,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
         moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
             "开始后接管所有可用窗口，便签保持独立。\n桌面滚轮、Shift 横移、双键拖动；屏幕外沿继续向外推动可平移。\nCtrl+滚轮平滑轮选；Tab 进入/退出总览。\nCtrl+Alt+C 准星模式，移动鼠标直接移动镜头；Esc 或再次按组合键退出。\nCtrl+Alt+P 固定当前窗口；标题栏右键也可切换便签。\n软件 .lnk 快捷方式右键可“以画布便签模式打开”。\n关闭管理器收入托盘，显式退出恢复画布窗口。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
         moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
-            $"{navigationStatus.Text}\n输入接管 {(globalInput?.State.Available == true ? "已启用" : "已停用")} · 模式 {globalInput?.State.Mode}\n{globalInput?.HookHealth}\n最近退出：{globalInput?.LastExitReason}\n{overviewShortcutStatus.Text}\n{globalInput?.PointerMessage}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
+            $"{navigationStatus.Text}\n输入接管 {(globalInput?.State.Available == true ? "已启用" : "已停用")} · 模式 {globalInput?.State.Mode}\n{globalInput?.HookHealth}\n准星输入：{globalInput?.PointerSourceMessage}\n最近退出：{globalInput?.LastExitReason}\n{overviewShortcutStatus.Text}\n{globalInput?.PointerMessage}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
         ChromeTheme.StyleMenu(moreMenu); ChromeTheme.Accent(start, ChromeTheme.Purple);
         hints.SetToolTip(start, "接管所有可用普通窗口，便签保持独立；接管前记录原位以便恢复");
         hints.SetToolTip(pause, "暂停画布并恢复全部接管窗口的原始位置");
         hints.SetToolTip(more, "窗口、视角、设置与恢复");
-        start.Click += (_, _) => Begin();
+        start.Click += (_, _) => { if (recoveryAttention) RecoveryRequested?.Invoke(); else Begin(); };
         pause.Click += (_, _) => Pause();
         candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
@@ -184,14 +192,23 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (globalInput is not null) return;
         try
         {
-            globalInput = new(() =>
-            {
-                if (IsHandleCreated && !IsDisposed) BeginInvoke(() => navigationTimer.Start());
-            }, inputOptions, PreferredHotkey);
+            globalInput = new(CreateInputWake(), inputOptions, PreferredHotkey);
             ConfigurePointerScreens();
             NavigationFrame();
         }
         catch (Exception exception) when (Expected(exception)) { navigationStatus.Text = $"导航不可用：{exception.Message}"; }
+    }
+    private long deliveredInputWakes;
+    private Action CreateInputWake()
+    {
+        // The manager can start on the recovery page: this child may have no HWND.
+        // Its top-level owner already exists in OnShown and survives tab changes.
+        var owner = (Control?)FindForm() ?? this;
+        return () => owner.BeginInvoke(() =>
+        {
+            if (IsDisposed || Disposing) return;
+            deliveredInputWakes++; navigationTimer.Start();
+        });
     }
 
     private void NavigationFrame()
@@ -449,7 +466,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
 
     private void Begin()
     {
-        if (session is null || layout is null || !CanUsePanelCommands || externalRecoveryRunning) return;
+        if (session is null || layout is null || !CanUsePanelCommands || externalRecoveryRunning || recoveryAttention) return;
         notice = null;
         try
         {
@@ -517,7 +534,10 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());
-        candidates.Enabled = !reading && overview is null && !externalRecoveryRunning && !desktopTransitionPending; start.Enabled = !running && !externalRecoveryRunning && !desktopTransitionPending && layout is not null;
+        candidates.Enabled = !reading && overview is null && !externalRecoveryRunning && !desktopTransitionPending;
+        start.Enabled = !running && !externalRecoveryRunning && !desktopTransitionPending && (layout is not null || recoveryAttention);
+        start.Text = recoveryAttention ? "恢复" : "开始";
+        start.AccessibleName = recoveryAttention ? "恢复窗口" : "开始画布";
         start.Visible = !running; pause.Visible = running; pause.Enabled = running;
         commandDeck.SetRunning(running && !reading && !desktopTransitionPending && layout is not null);
         selector.Visible = selector.Parent != this;
@@ -525,7 +545,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
         var camera = session?.Workspace.Camera;
         var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
-        var attention = displayFailure ?? notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? environmentWarning ?? preferences.Warning;
+        var attention = recoveryAttention ? "待恢复 · 点击“恢复”处理旧会话记录，完成后再开始画布。"
+            : displayFailure ?? notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? environmentWarning ?? preferences.Warning;
         status.Text = attention ?? (running ? $"画布 {session?.ManagedIds.Count ?? 0} · 便签 {fixedWindows.Count} · 桌面空白处移动视角" : "开始后接管所有可用窗口 · 便签保持独立");
         status.FitText(attention is null ? 42 : 0);
         hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");

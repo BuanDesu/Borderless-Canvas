@@ -14,6 +14,7 @@ internal static class PointerAndPinChecks
     internal static void Run(Form fixture, Action<string, Action> check)
     {
         check("Raw pointer packets decode both native layouts and reject absolute, malformed and non-mouse data", Packets);
+        check("Raw absolute packets preserve normalized coordinates, virtual-desktop flags and device identity", AbsolutePackets);
         check("Raw mouse sink stays invisible, never disables legacy input, rejects a duplicate owner and releases registration", RawLifecycle);
         check("Pin menu entries preserve application commands, update state and remove only their own tagged items", () => Menu(fixture));
         check("Window pin markers survive manager objects, reject changed identity and preserve placement and foreground", () => Marker(fixture));
@@ -30,10 +31,24 @@ internal static class PointerAndPinChecks
             var header = 8 + size * 2; var bytes = new byte[header + 24]; BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)bytes.Length);
             BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(header + 12), 24); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(header + 16), -17);
             Require(RawPointerInput.Decode(bytes, size, out var delta, out var absolute) && delta == new PointD(24, -17) && !absolute, "Relative packet layout decoded incorrectly.");
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(header + 16), 17);
             BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(header), 1);
             Require(!RawPointerInput.Decode(bytes, size, out _, out absolute) && absolute, "Absolute coordinates were treated as relative displacement.");
             bytes[0] = 1; Require(!RawPointerInput.Decode(bytes, size, out _, out _), "Non-mouse packet accepted.");
             Require(!RawPointerInput.Decode(bytes.AsSpan(0, 8), size, out _, out _), "Truncated packet accepted.");
+        }
+    }
+    private static void AbsolutePackets()
+    {
+        foreach (var size in new[] { 4, 8 })
+        {
+            var header = 8 + size * 2; var bytes = new byte[header + 24]; BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)bytes.Length);
+            if (size == 8) BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8), 123); else BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(8), 123);
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(header), 3);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(header + 12), 40000); BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(header + 16), 30000);
+            Require(RawPointerInput.DecodeSample(bytes, size, out var sample) && sample.Absolute && sample.VirtualDesktop && sample.Device == 123 && sample.Value == new PointD(40000, 30000), "Absolute packet lost coordinates, mapping flags or source.");
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(header + 12), 70000);
+            Require(!RawPointerInput.DecodeSample(bytes, size, out _), "Invalid normalized coordinates were accepted.");
         }
     }
     private static void RawLifecycle()
