@@ -104,6 +104,18 @@ public sealed class RecoverySession : IDisposable
         return true;
     }
 
+    /// <summary>Forget a destroyed/replaced target only after native ownership no longer matches. Never touch the replacement HWND.</summary>
+    public bool ReleaseStaleOwnership(Guid id)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (inheritedPending) return false;
+        var entry = Journal.Entries.FirstOrDefault(item => item.Id == id);
+        if (entry is null) return true;
+        if (windows.Matches(entry, Journal.MarkerName)) return false;
+        Commit(Journal.WithEntries(Journal.Entries.Where(item => item.Id != id)));
+        return true;
+    }
+
     private void Commit(RecoveryJournal next)
     {
         next.Validate(); store.Save(next); Journal = next;

@@ -10,7 +10,7 @@ public sealed partial class GlobalNavigationInput
     private nint ForegroundWindow => platform.Foreground;
     private bool Down(int key) => platform.Down(key);
     private bool MenuActive() => platform.MenuActive;
-    private bool IsDesktop(Point point) => platform.IsDesktop(new(point.X, point.Y));
+    private bool IsDesktop(Point point) => nativeInput && touchEnabled ? NativeIsDesktopRoot(WindowUnderTouchReceiver(point)) : platform.IsDesktop(new(point.X, point.Y));
     private bool GetPointer(out Point point)
     {
         var valid = platform.GetPointer(out var position);

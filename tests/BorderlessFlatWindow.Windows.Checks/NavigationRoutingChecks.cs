@@ -37,6 +37,21 @@ internal static class NavigationRoutingChecks
         check("Touch wheel mode routes both axes over applications while taps and complete left drags pass through", TouchWheelMode);
         check("Touch mode preserves menus and application keys, exits on Escape/pause, and switches cleanly to crosshair", TouchBoundaries);
         check("Custom context keys match all modifiers and reconfiguration cannot retain old key capture", CustomContextKeys);
+        check("Touch mode consumes direct target-window wheel messages after desktop mouse navigation and respects exit", DirectTouchWheel);
+    }
+    private static void DirectTouchWheel()
+    {
+        using var h = new Harness();
+        h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120); h.Input.Drain();
+        h.Input.SetTouchNavigation(true); h.Input.Drain();
+        h.Input.TouchWheelMessageRoutingCheck(0x20A, 1); h.Input.TouchWheelMessageRoutingCheck(0x20E, -40);
+        var events = h.Input.Drain();
+        Require(h.Input.State.Touch && events.Count == 2 && events[0].Input.WheelDelta == 1 && events[1].Input.Kind == NavigationInputKind.HorizontalWheel
+            && events[1].Input.WheelDelta == -40, "Direct messages disappeared after mouse navigation.");
+        for (var index = 0; index < 120; index++) h.Input.TouchWheelMessageRoutingCheck(0x20A, 1, control: true);
+        Require(h.Input.Drain().Single().Input.Kind == NavigationInputKind.CycleWindow, "Direct precision Ctrl-wheel expanded or disappeared.");
+        h.Input.SetTouchNavigation(false); h.Input.Drain(); h.Input.TouchWheelMessageRoutingCheck(0x20A, 120);
+        Require(h.Input.Drain().Count == 0, "A queued direct message survived mode exit.");
     }
     private static void TouchWheelMode()
     {

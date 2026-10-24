@@ -48,6 +48,7 @@ internal sealed partial class MainForm : Form
     private readonly ManagedCanvasControl management;
     private readonly BookmarkLibrary bookmarks;
     private readonly PreferencesSession preferences;
+    private readonly bool startupSettingsValid;
     private readonly BookmarkControl bookmarkControl;
     private readonly ListView windowList = new()
     {
@@ -87,7 +88,7 @@ internal sealed partial class MainForm : Form
         eventTimer.Tick += (_, _) => FlushEvents();
 
         preferences = new(() => showWithoutActivation && settingsPath is null ? new EphemeralPreferencesStore() : new JsonPreferencesStore(settingsPath ?? JsonPreferencesStore.DefaultPath));
-        preferences.Reload(); followWallpaper = preferences.Current.FollowWallpaper;
+        startupSettingsValid = preferences.Reload(); followWallpaper = preferences.Current.FollowWallpaper;
         bookmarks = new(() => new JsonBookmarkStore(bookmarksPath ?? JsonBookmarkStore.DefaultPath)); bookmarks.Reload();
         management = new(catalog, journalPath, bookmarks, preferences) { Dock = DockStyle.Fill };
         management.DisplayRecheckRequested += () => QueueDesktopChange(BorderlessFlatWindow.Application.Management.DesktopLifecycleSignal.DisplayChanged);
@@ -296,7 +297,11 @@ internal sealed partial class MainForm : Form
             RefreshCatalog();
         }
         catch (Win32Exception exception) { liveStatus.Text = $"事件监听未启动：{exception.Message}；可手动检查。"; }
-        if (!showWithoutActivation) StartShortcutCommands();
+        if (!showWithoutActivation)
+        {
+            StartShortcutCommands();
+            if (startupSettingsValid && listener is not null) management.StartOnLaunch();
+        }
     }
 
     private void FlushEvents()

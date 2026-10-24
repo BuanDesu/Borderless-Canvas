@@ -17,7 +17,18 @@ public sealed partial class GlobalNavigationInput
     internal void SampleRoutingCheck(RawPointerSample sample, Action? before = null)
         => RoutingCheck(() => { before?.Invoke(); ProcessPointerSample(sample); return true; });
     internal void TimerRoutingCheck(Action? before = null)
-        => RoutingCheck(() => { before?.Invoke(); RetryInputWake(); TryPendingCrosshair(); CheckRelativeSource(); return true; });
+        => RoutingCheck(() => { before?.Invoke(); RetryInputWake(); RefreshTouchReceivers(); TryPendingCrosshair(); CheckRelativeSource(); return true; });
+    internal void TouchWheelMessageRoutingCheck(uint message, int delta, bool shift = false, bool control = false)
+        => RoutingCheck(() => { ReceiveTouchWheel(message, unchecked((nuint)((delta << 16) | (shift ? 4 : 0) | (control ? 8 : 0)))); return true; });
+    internal nint CreateHiddenTouchReceiverForCheck() => RoutingCheck(() =>
+    {
+        if (!touchEnabled) throw new InvalidOperationException("Touch mode fixture is not running.");
+        var receiver = new TouchWheelReceiver(new(-3000, -3000, -2600, -2700), ReceiveTouchWheel, () => { }, show: false);
+        touchReceivers.Add(receiver); return receiver.Handle;
+    });
+    internal bool TouchReceiverTransparentForCheck() => RoutingCheck(() => touchReceivers.Single().NativePassThrough);
+    internal void TouchReceiverMessageForCheck(uint message, int delta)
+        => RoutingCheck(() => { touchReceivers.Single().SendFixtureMessage(message, unchecked((nuint)(delta << 16))); return true; });
     private T RoutingCheck<T>(Func<T> action)
     {
         if (nativeInput) throw new InvalidOperationException("Routing fixtures cannot operate native desktop input.");

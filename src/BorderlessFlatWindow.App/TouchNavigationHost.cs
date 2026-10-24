@@ -40,20 +40,23 @@ internal sealed partial class TouchNavigationHost : IDisposable
     {
         var tools = new InputWindow(this, passive)
         {
-            Text = "触控导航 · 两指滚动 · 单击交给应用", FormBorderStyle = FormBorderStyle.FixedToolWindow,
-            ClientSize = new(Math.Min(440, selected.Width - 24), 66), Padding = new(8)
+            Text = "触控导航", ClientSize = new(Math.Min(440, selected.Width - 24), 60), Padding = new(8), TopMost = false
         };
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
+        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
+        actions.RowStyles.Add(new(SizeType.Percent, 100));
+        actions.ColumnStyles.Add(new(SizeType.Percent, 100)); actions.ColumnStyles.Add(new(SizeType.Absolute, 96)); actions.ColumnStyles.Add(new(SizeType.Absolute, 40));
+        actions.Controls.Add(new Label { Text = "双指平移", AccessibleName = "触控导航 · 双指平移", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
         void Add(string text, NavigationInputKind kind)
         {
-            var button = new ChromeButton { Text = text, AccessibleName = kind == NavigationInputKind.Back ? "上一视角" : text,
-                Size = new(Math.Max(44, (tools.ClientSize.Width - 16) / 4 - 6), 44), Margin = new(3) };
+            var button = new Button { Text = text, AccessibleName = kind == NavigationInputKind.Exit ? "退出触控导航" : text,
+                Dock = DockStyle.Fill, Margin = new(2), FlatStyle = FlatStyle.Flat, ForeColor = tools.ForeColor, BackColor = tools.BackColor, TabStop = false };
+            button.FlatAppearance.BorderSize = 0; button.FlatAppearance.MouseOverBackColor = Color.FromArgb(42, 67, 77);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(53, 85, 90);
             button.Click += (_, _) => { if (kind == NavigationInputKind.Exit) ExitRequested?.Invoke(); else Input?.Invoke(new(kind, PointD.Zero)); };
-            actions.Controls.Add(button);
+            actions.Controls.Add(button, kind == NavigationInputKind.Exit ? 2 : 1, 0);
         }
-        Add("总览", NavigationInputKind.Overview); Add("原点", NavigationInputKind.Home);
-        Add("返回", NavigationInputKind.Back); Add("退出", NavigationInputKind.Exit);
-        tools.Controls.Add(actions); ChromeTheme.Apply(tools);
+        Add("总览", NavigationInputKind.Overview); Add("×", NavigationInputKind.Exit);
+        tools.Controls.Add(actions);
         tools.Location = new(selected.Left + (selected.Width - tools.Width) / 2, selected.Top + 12);
         tools.FormClosing += (_, args) => { if (!closing) { args.Cancel = true; tools.BeginInvoke(() => ExitRequested?.Invoke()); } };
         return tools;
@@ -65,15 +68,12 @@ internal sealed partial class TouchNavigationHost : IDisposable
         foreach (var window in windows) { window.Close(); window.Dispose(); }
         windows.Clear();
     }
-    private class InputWindow : Form
+    private class InputWindow : NavigationOverlay
     {
         protected readonly TouchNavigationHost Host;
         private readonly bool passive;
-        internal InputWindow(TouchNavigationHost host, bool passive = false)
-        { Host = host; this.passive = passive; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; }
-        protected override bool ShowWithoutActivation => passive;
-        protected override CreateParams CreateParams
-        { get { var value = base.CreateParams; value.ExStyle |= passive ? 0x08000080 : 0x80; return value; } }
+        internal InputWindow(TouchNavigationHost host, bool passive = false) : base(mouseTransparent: false)
+        { Host = host; this.passive = passive; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; TopMost = false; }
         protected override void WndProc(ref Message message)
         {
             if (passive && message.Msg == 0x21) { message.Result = 3; return; }

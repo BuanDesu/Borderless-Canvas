@@ -21,9 +21,9 @@ internal static partial class ManagementChecks
         yield return ("Stalled movement times out and restores the full session", Timeout);
         yield return ("Partially rejected native batches restore every registered window", PartialFailure);
         yield return ("Owned dialogs including indirect owner chains pause and restore management", Popup);
-        yield return ("Closed targets are skipped while surviving managed windows recover", Closed);
-        yield return ("Closing a group of managed targets removes every paused-layout ghost", ClosedGroup);
-        yield return ("A hide-before-destroy event sequence removes paused ghosts without moving survivors", HiddenThenClosed);
+        yield return ("Closed targets release their records while survivors keep running at the current camera", Closed);
+        yield return ("Closing all managed targets keeps an empty canvas running without ghosts", ClosedGroup);
+        yield return ("Hide-before-destroy suspends only the closing target without recovering survivors", HiddenThenClosed);
         yield return ("Managed label jumps translate the whole camera and preserve window layout and navigation history", BookmarkJump);
         yield return ("Runtime admission preserves the existing world, native placement, camera, history and labels", RuntimeAdd);
         yield return ("A late batch registers and moves only new windows into separate empty regions", RuntimeBatch);
@@ -45,6 +45,7 @@ internal static partial class ManagementChecks
         foreach (var item in DisplayTransitionCases()) yield return item;
         foreach (var item in ArrangementCases()) yield return item;
         foreach (var item in PointerAndPinCases()) yield return item;
+        foreach (var item in LifetimeCases()) yield return item;
     }
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 0, 0, 0, TimeSpan.FromHours(8));
     private static RectD Rect(double x, double y, double width = 640, double height = 480) => new(new PointD(x, y), new SizeD(width, height));
@@ -246,8 +247,9 @@ internal static partial class ManagementChecks
     private static void Closed()
     {
         using var h = new Harness(); h.Begin(); h.Session.Pan(new(300, 0), Now); h.Tick(); h.Native.Remove(42); h.Tick();
-        Require(!h.Session.IsRunning && h.Native[43].Bounds == Rect(900, 140) && h.Saved!.Entries.Count == 0
-            && h.Session.Workspace.Windows.Count == 1 && h.Session.ManagedHandles.SequenceEqual(new nint[] { 43 }), "Close did not safely remove the target and recover survivors.");
+        Require(h.Session.IsRunning && h.Native[43].Bounds == Rect(600, 140) && h.Saved!.Entries.Count == 1 && h.Restorations == 0
+            && h.Session.Workspace.Camera.Position == new PointD(300, 0) && h.Session.Workspace.Windows.Count == 1
+            && h.Session.ManagedHandles.SequenceEqual(new nint[] { 43 }), "Close moved a survivor or paused the canvas.");
     }
     private static void Resume()
     {
@@ -259,20 +261,20 @@ internal static partial class ManagementChecks
     private static void ClosedGroup()
     {
         using var h = new Harness(); h.Begin(); h.Native.Clear(); h.Tick();
-        Require(!h.Session.IsRunning && h.Session.Workspace.Windows.Count == 0 && h.Session.ManagedHandles.Count == 0
+        Require(h.Session.IsRunning && h.Session.Workspace.Windows.Count == 0 && h.Session.ManagedHandles.Count == 0
             && h.Saved!.Entries.Count == 0, "Closed group left stale windows or recovery records.");
     }
     private static void HiddenThenClosed()
     {
         using var h = new Harness(); h.Begin(); h.Session.Navigate(new(500, 600), Now); h.Tick();
         h.Native[42] = h.Native[42] with { IsVisible = false }; h.Tick();
-        Require(h.Session.Status == CanvasSessionStatus.Paused && h.Session.Workspace.Windows.Count == 2,
-            "Hidden live window should pause management but retain its world position.");
+        Require(h.Session.IsRunning && h.Session.Workspace.Windows.Count == 2 && h.Restorations == 0,
+            "Hide-before-destroy paused surviving windows.");
         var survivor = h.Session.Workspace.Windows.Single(window => window.Title == "Fixture 43");
         var camera = h.Session.Workspace.Camera; var batches = h.Batches; var restores = h.Restorations;
         h.Native.Remove(42); h.Tick();
         Require(h.Session.Workspace.Windows.SequenceEqual(new[] { survivor }) && h.Session.Workspace.Camera == camera
-            && h.Batches == batches && h.Restorations == restores, "Paused destroy left a ghost or moved another window.");
+            && h.Batches == batches && h.Restorations == restores && h.Session.IsRunning && h.Saved!.Entries.Count == 1, "Destroy left a ghost or moved another window.");
     }
     private static void BookmarkJump()
     {

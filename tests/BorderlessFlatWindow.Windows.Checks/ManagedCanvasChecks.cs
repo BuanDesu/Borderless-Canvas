@@ -27,6 +27,27 @@ internal static class ManagedCanvasChecks
         check("Native refused arrangement restores the entire group and clears undo", ArrangementRefused);
         check("Native detachment releases only that journal entry, keeps a fixed screen position and rejoins without a jump", Detachment);
         check("Native wheel-cycle frames move the camera continuously without early activation and cancel on pause", CycleFrames);
+        check("Native hide/destroy and last-window closure keep the camera running and admit a subsequent window", CloseWithoutPause);
+    }
+    private static void CloseWithoutPause()
+    {
+        using var h = new Harness(); var foreground = WindowEventListener.ForegroundWindow;
+        h.Session.Pan(new(220, 90), DateTimeOffset.UtcNow); h.Settle(); var camera = h.Session.Workspace.Camera;
+        var survivor = h.B.Bounds;
+        h.A.Hide(); h.Tick();
+        if (!h.Session.IsRunning || h.B.Bounds != survivor) throw new InvalidOperationException("Native hide paused or restored a survivor.");
+        h.A.Close(); h.Tick();
+        if (!h.Session.IsRunning || h.Session.ManagedIds.Count != 1 || h.B.Bounds != survivor) throw new InvalidOperationException("Native destroy changed the active canvas.");
+        h.B.Close(); h.Tick();
+        if (!h.Session.IsRunning || h.Session.ManagedIds.Count != 0 || h.Session.Workspace.Camera != camera) throw new InvalidOperationException("Last native close ended the canvas.");
+        using var next = new Fixture("BFW subsequent fixture", 260); next.Show(); FixtureDesktop.PlaceOwnWindow(next.Handle);
+        var original = next.Bounds;
+        var selection = h.Catalog.Inspect().Entries.Where(entry => entry.Observation.Handle == next.Handle).ToArray();
+        if (!h.Session.AddWindows(selection, DateTimeOffset.UtcNow)) throw new InvalidOperationException(h.Session.Message);
+        h.Settle();
+        if (h.Session.Workspace.Camera != camera || WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException("Subsequent admission reset the view or activated a window.");
+        h.Session.Pause();
+        if (next.Bounds != original) throw new InvalidOperationException("Subsequent window lost its independent recovery position.");
     }
     private static void CycleFrames()
     {

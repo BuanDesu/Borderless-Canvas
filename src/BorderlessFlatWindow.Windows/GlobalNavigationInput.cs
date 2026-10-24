@@ -177,6 +177,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
                 else if (message.MessageId == 0x113)
                 {
                     RetryInputWake();
+                    RefreshTouchReceivers();
                     TryPendingCrosshair();
                     CheckRelativeSource();
                     if (!crosshair && clipOwned) ReleasePointerCapture();
@@ -198,6 +199,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
         }
         finally
         {
+            DisposeTouchReceivers();
             ReleasePointerCapture(); rawPointer?.Dispose(); rawPointer = null;
             ReleaseCommands();
             gate.Exit();
@@ -210,6 +212,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     private void Leave(string message)
     {
+        DisposeTouchReceivers();
         edgeMotion.Reset();
         cycleWheel.Reset();
         pendingCrosshair = false;
@@ -276,6 +279,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool RouteMouse(nuint message, MouseInput input)
     {
         if (ConsumePointerAuxClick(message, input)) return true;
+        if (touchEnabled && message is 0x207 or 0x208 or 0x20B or 0x20C) { TouchPointerPassThrough(); return false; }
         if (message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); }
         NavigationInputKind? kind = message switch
         {
@@ -297,6 +301,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
             if (ConsumeCrosshairButton(inputKind)) return true;
             if (touchEnabled)
             {
+                TouchButtonPassThrough(inputKind);
                 if (inputKind is NavigationInputKind.LeftUp or NavigationInputKind.RightUp && gate.Route(inputKind).Suppress) return true;
                 return RouteTouchWheel(inputKind, input);
             }
@@ -379,8 +384,12 @@ public sealed partial class GlobalNavigationInput : IDisposable
         var window = WindowFromPoint(point);
         if (window == 0) return false;
         var root = GetAncestor(window, 2);
+        return NativeIsDesktopRoot(root == 0 ? window : root);
+    }
+    private static bool NativeIsDesktopRoot(nint root)
+    {
         var name = new StringBuilder(128);
-        if (GetClassName(root == 0 ? window : root, name, name.Capacity) == 0) return false;
+        if (root == 0 || GetClassName(root, name, name.Capacity) == 0) return false;
         return name.ToString() is "Progman" or "WorkerW";
     }
     private nint KeyboardCallback(int code, nuint message, nint data)

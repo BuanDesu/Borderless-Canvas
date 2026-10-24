@@ -15,7 +15,7 @@ public sealed partial class ManagedCanvasSession
     {
         if (!IsRunning || busy || HasPending) { Message = "请先开始画布，并等待当前移动完成。"; return null; }
         var source = Workspace.Windows;
-        if (selection.Any(id => !managed.ContainsKey(id)) || !RegionTiling.TryPlan(source, selection, region, out var targets))
+        if (selection.Any(id => !managed.TryGetValue(id, out var state) || state.Suspended) || !RegionTiling.TryPlan(source, selection, region, out var targets))
         { Message = "请选择有效窗口，或调整整理起点后重试。"; return null; }
         if (targets.Any(w => !planner.TryPlan(w.Bounds, Workspace.Camera.Position, out _)))
         { Message = "整理位置无法安全投影；窗口未移动。"; return null; }

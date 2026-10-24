@@ -81,6 +81,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/touch-and-precision-input.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/edge-speed-and-input-notifications.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/workspace-input-refresh.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/touch-receiver-and-window-lifetime.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/tray-control.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/deployment.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/desktop-lifecycle.md') -Destination $destination

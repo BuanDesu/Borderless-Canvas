@@ -2,14 +2,12 @@ using BorderlessFlatWindow.Application.Navigation;
 
 namespace BorderlessFlatWindow.App;
 
-internal sealed class NavigationHud : Form
+internal sealed class NavigationHud : NavigationOverlay
 {
     private readonly Label text = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
-    internal NavigationHud()
+    internal NavigationHud() : base(mouseTransparent: true)
     {
-        Text = "BFW 导航状态"; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
-        StartPosition = FormStartPosition.Manual; BackColor = Color.FromArgb(25, 42, 52); ForeColor = Color.FromArgb(140, 250, 212);
-        Font = PixelFont.Create(12); Size = new(720, 60); Opacity = .88; Controls.Add(text);
+        Text = "BFW 导航状态"; Size = new(720, 60); Controls.Add(text);
     }
     internal void Present(NavigationInputOptions? options = null, NavigationKeyBindings? bindings = null)
     {
@@ -23,13 +21,4 @@ internal sealed class NavigationHud : Form
         text.Text = $"视角移动 · {enabled}\n{BorderlessFlatWindow.Windows.GlobalNavigationInput.Describe(bindings.Home)} 原点 · {BorderlessFlatWindow.Windows.GlobalNavigationInput.Describe(bindings.Back)} 返回 · Tab 总览";
         if (!Visible) Show();
     }
-    protected override void OnSizeChanged(EventArgs e)
-    {
-        base.OnSizeChanged(e); if (Width <= 0 || Height <= 0) return;
-        using var round = ChromeTheme.Round(new Rectangle(0, 0, Width, Height), 18); var previous = Region; Region = new(round); previous?.Dispose();
-    }
-    protected override bool ShowWithoutActivation => true;
-    protected override CreateParams CreateParams { get { var value = base.CreateParams; value.ExStyle |= 0x080800A0; return value; } }
-    protected override void WndProc(ref Message message)
-    { if (message.Msg == 0x84) { message.Result = -1; return; } base.WndProc(ref message); }
 }
