@@ -4,6 +4,9 @@ internal static partial class ManagementChecks
 {
     private static IEnumerable<(string Name, Action Run)> PointerAndPinCases()
     {
+        yield return ("Workspace handoff does not mistake the old foreground return for a parked-window activation", WorkspaceHandoff);
+        yield return ("Workspace camera motion shares intermediate frames, keeps exact saved coordinates and never activates an old window", WorkspaceMotion);
+        yield return ("Workspace motion retargets from its current frame and preserves the whole return origin", WorkspaceRetarget);
         yield return ("Window cycling traverses intermediate camera frames before activation and keeps world geometry", AnimatedCycle);
         yield return ("Rapid wheel retargeting continues from the current frame and records one return origin", RetargetCycle);
         yield return ("Explicit navigation and overview suspension cancel older window-cycle activation", CancelCycle);
@@ -12,6 +15,38 @@ internal static partial class ManagementChecks
         yield return ("Detachment refuses pending movement and cannot claim success after a journal write failure", DetachFailure);
         yield return ("All-window start and admission skip only access-denied identities after complete registration rollback", DefaultScope);
         yield return ("Resuming an expanded default scope keeps old world positions and camera while adding new physical positions", ExpandedResume);
+    }
+    private static void WorkspaceHandoff()
+    {
+        using var h = new Harness(); h.Begin(); h.Tick(foreground: 99);
+        var position = new PointD(8000, 0);
+        h.Session.Navigate(position, Now); h.Tick(foreground: 42);
+        Require(h.Session.Workspace.Camera.Position != position, "Fixture failed to reproduce the old foreground-return override.");
+        h.Session.SuspendNavigation(true); h.Tick(foreground: 99); h.Session.SuspendNavigation(false);
+        Require(h.Session.NavigateWorkspace(position, Now, 42, animate: false), h.Session.Message); h.Tick(foreground: 42);
+        Require(h.Session.Workspace.Camera.Position == position && h.Activations == 0, "Old app return overrode the saved workspace camera.");
+        // A later, real foreground change must still find another parked app.
+        h.Tick(foreground: 43);
+        Require(h.Session.Workspace.Camera.Position != position, "Workspace handoff disabled normal taskbar focus following.");
+    }
+    private static void WorkspaceMotion()
+    {
+        using var h = new Harness(); h.Begin(); var windows = h.Session.Workspace.Windows.ToArray(); var position = new PointD(8000, -3200);
+        Require(h.Session.NavigateWorkspace(position, Now, 42) && h.Session.Workspace.Camera.Position == PointD.Zero, "Workspace jumped directly.");
+        h.Session.AdvanceCameraTransition(Now.AddMilliseconds(75)); h.Tick(75, 42);
+        var middle = h.Session.Workspace.Camera.Position;
+        Require(middle != PointD.Zero && middle != position && h.Session.HasCameraTransition && h.Activations == 0, "Workspace lost its intermediate frame to foreground return.");
+        h.Session.AdvanceCameraTransition(Now.AddMilliseconds(150)); h.Tick(150, 42); h.Tick(400, 42);
+        Require(h.Session.Workspace.Camera.Position == position && !h.Session.HasCameraTransition && h.Activations == 0 && h.Session.Workspace.Windows.SequenceEqual(windows), "Workspace end moved its saved camera or window geometry.");
+    }
+    private static void WorkspaceRetarget()
+    {
+        using var h = new Harness(); h.Begin(); h.Session.NavigateWorkspace(new(8000, 0), Now, 42);
+        h.Session.AdvanceCameraTransition(Now.AddMilliseconds(50)); h.Tick(50, 42); var middle = h.Session.Workspace.Camera.Position;
+        h.Session.NavigateWorkspace(new(-8000, 700), Now.AddMilliseconds(50), 42);
+        Require(h.Session.Workspace.Camera.Position == middle, "Workspace retarget reset the visible frame.");
+        h.Session.AdvanceCameraTransition(Now.AddMilliseconds(200)); h.Tick(200, 42);
+        Require(h.Session.Workspace.Camera.Position == new PointD(-8000, 700) && h.Session.Workspace.PreviousView == PointD.Zero && h.Activations == 0, "Workspace retarget published an intermediate origin or stale activation.");
     }
     private static void AnimatedCycle()
     {

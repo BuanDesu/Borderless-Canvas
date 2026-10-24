@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using BorderlessFlatWindow.Application.Navigation;
 
 namespace BorderlessFlatWindow.Windows.Checks;
 
@@ -13,7 +15,30 @@ internal static class NavigationInputChecks
         check("Pausing availability clears pending overview input without enabling desktop capture", OverviewUnavailable);
         check("Initial navigation preferences register the selected shortcut directly and report conflicts without capture", InitialPreferences);
         check("Inactive native hook pairs can be renewed without capture, queued input or foreground changes", Reestablish);
+        check("Native multi-command rebinding rolls back on conflict, supports swaps and releases old chords without capture", BindingTransaction);
     }
+    private static void BindingTransaction()
+    {
+        var foreground = WindowEventListener.ForegroundWindow;
+        var keys = NavigationKeyBindings.Default with { Overview = new(7, 0x75), Crosshair = new(7, 0x76), Touch = new(7, 0x77), Pin = new(7, 0x78) };
+        using var input = new GlobalNavigationInput(() => { }, keyBindings: keys);
+        Require(input.BindingsMessage == "快捷键已就绪。", "Fixture key profile is occupied: " + input.BindingsMessage);
+        var owned = RegisterFixtureKey(0, 0x6B40, 7 | 0x4000, 0x79);
+        Require(owned, "Fixture conflict chord is already occupied.");
+        var next = keys with { Overview = keys.Crosshair, Crosshair = keys.Overview, Touch = new(7, 0x79) };
+        try
+        {
+            Require(!input.TryChangeBindings(next, out var failure) && failure.Contains("注册失败") && input.KeyBindings == keys && input.State.Registered,
+                "Partial rebind lost original bindings or hid the conflict.");
+        }
+        finally { if (owned) UnregisterFixtureKey(0, 0x6B40); }
+        Require(input.TryChangeBindings(next, out _) && input.KeyBindings == next, "A supported chord swap could not be registered.");
+        owned = RegisterFixtureKey(0, 0x6B40, 7 | 0x4000, keys.Touch.Key);
+        try { Require(owned && !input.State.Active && input.Drain().Count == 0 && WindowEventListener.ForegroundWindow == foreground, "Old chord leaked or binding change captured desktop input."); }
+        finally { if (owned) UnregisterFixtureKey(0, 0x6B40); }
+    }
+    [DllImport("user32.dll", EntryPoint = "RegisterHotKey")] private static extern bool RegisterFixtureKey(nint window, int id, uint modifiers, uint key);
+    [DllImport("user32.dll", EntryPoint = "UnregisterHotKey")] private static extern bool UnregisterFixtureKey(nint window, int id);
     private static void Reestablish()
     {
         var foreground = WindowEventListener.ForegroundWindow;
@@ -38,7 +63,7 @@ internal static class NavigationInputChecks
         using var input = IsolatedInput(() => { });
         input.BeginOverview(); input.SetAvailable(false);
         Wait(() => input.State.Message.Contains("画布未运行"));
-        input.Toggle(); Wait(() => input.State.Message.Contains("先勾选"));
+        input.ToggleCrosshair(); Wait(() => input.State.Message.Contains("先开始画布"));
         Require(!input.State.Active && input.Drain().Count == 0, "Unavailable overview retained input or entered navigation.");
     }
     private static void OverviewOwnership()
@@ -50,7 +75,7 @@ internal static class NavigationInputChecks
         input.EndOverview(previous); input.SetOverviewHost(previous, 0);
         // Toggle is an ordered worker-thread barrier. Overview must still block navigation;
         // availability remains false, so this test never enables desktop input capture.
-        input.Toggle(); Wait(() => input.State.Message.Contains("先关闭总览"));
+        input.ToggleCrosshair(); Wait(() => input.State.Message.Contains("关闭总览"));
         input.EndOverview(current); Wait(() => input.State.Message.Contains("总览已关闭"));
         Require(!input.State.Active && input.Drain().Count == 0 && WindowEventListener.ForegroundWindow == foreground,
             "Session callbacks changed foreground, enabled navigation, or queued an input.");
@@ -72,8 +97,8 @@ internal static class NavigationInputChecks
         var wakes = 0;
         using var input = IsolatedInput(() => Interlocked.Increment(ref wakes));
         Require(!input.State.Active && wakes > 0, "Input started in a capturing mode or did not notify UI.");
-        input.SetAvailable(false); input.Toggle();
-        Wait(() => input.State.Message.Contains("先勾选"));
+        input.SetAvailable(false); input.ToggleCrosshair();
+        Wait(() => input.State.Message.Contains("先开始画布"));
         Require(!input.State.Active && input.Drain().Count == 0 && WindowEventListener.ForegroundWindow == foreground,
             "Unavailable input captured a gesture or changed foreground.");
     }

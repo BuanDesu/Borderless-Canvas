@@ -8,16 +8,18 @@ internal sealed partial class ManagedCanvasControl
 {
     private readonly PreferencesSession preferences;
     private ManualNavigationShortcut preferredShortcut;
+    private NavigationKeyBindings preferredBindings = NavigationKeyBindings.Default;
+    private readonly List<(ToolStripMenuItem Item, Func<KeyChord> Chord)> keyHints = [];
+    private ToolStripMenuItem KeyMenu(string text, Func<KeyChord> chord, EventHandler action)
+    { var item = new ToolStripMenuItem(text, null, action); keyHints.Add((item, chord)); return item; }
+    private void RefreshKeyHints()
+    {
+        foreach (var (item, chord) in keyHints) item.ShortcutKeyDisplayString = GlobalNavigationInput.Describe(chord());
+        if (overviewKeyButton is { } button) hints.SetToolTip(button, "空间总览 · Tab / " + GlobalNavigationInput.Describe(preferredBindings.Overview));
+    }
+    private Control? overviewKeyButton;
     private bool applyingPreferences;
     private bool editingSettings;
-    private NavigationHotkey PreferredHotkey => preferredShortcut switch
-    {
-        ManualNavigationShortcut.ControlAltN => new(3, 0x4E, "Ctrl+Alt+N"),
-        ManualNavigationShortcut.ControlAltM => new(3, 0x4D, "Ctrl+Alt+M"),
-        _ => NavigationHotkey.Default
-    };
-    private static ManualNavigationShortcut ChoiceFor(NavigationHotkey hotkey) => hotkey.Key switch
-    { 0x4E => ManualNavigationShortcut.ControlAltN, 0x4D => ManualNavigationShortcut.ControlAltM, _ => ManualNavigationShortcut.Default };
     private void InitializePreferences()
     {
         ApplyPreferences();
@@ -47,9 +49,10 @@ internal sealed partial class ManagedCanvasControl
             EndNavigationForEditing(); InvalidateOverviewPreparation(); editingSettings = true;
             owner?.SuspendNavigation(true); RefreshState();
             var fixture = FindForm() is MainForm { IsTransparentFixture: true };
-            using var dialog = new NavigationSettingsDialog(inputOptions, showWithoutActivation: fixture, hotkey: PreferredHotkey);
+            using var dialog = new NavigationSettingsDialog(inputOptions, preferredBindings, showWithoutActivation: fixture,
+                tryBindings: value => globalInput is null || globalInput.TryChangeBindings(value, out var failure) ? null : failure);
             if (fixture) dialog.Opacity = 0;
-            if (dialog.ShowFor(this) == DialogResult.OK) ApplyNavigationSettings(dialog.Options, dialog.Hotkey);
+            if (dialog.ShowFor(this) == DialogResult.OK) ApplyNavigationSettings(dialog.Options, dialog.Bindings);
         }
         finally
         {
@@ -100,30 +103,32 @@ internal sealed partial class ManagedCanvasControl
         try
         {
             var value = preferences.Current;
-            inputOptions = value.Navigation; preferredShortcut = value.Shortcut;
+            inputOptions = value.Navigation; preferredShortcut = value.Shortcut; preferredBindings = value.Bindings;
             automaticAdmission.Checked = value.AutomaticAdmission;
             wallpaperColors.Checked = value.FollowWallpaper; overviewAnimation.Checked = value.AnimateOverview;
             shortcutContext.Checked = value.ShortcutMenu;
             if (gestures is not null) gestures.Options = inputOptions;
             globalInput?.Configure(inputOptions);
-            if (globalInput is not null && globalInput.State.Hotkey != PreferredHotkey) globalInput.ChangeHotkey(PreferredHotkey);
+            if (globalInput is not null && globalInput.KeyBindings != preferredBindings && !globalInput.TryChangeBindings(preferredBindings, out var failure))
+            { preferredBindings = globalInput.KeyBindings; notice = failure; }
             InvalidateOverviewPreparation();
         }
         finally { applyingPreferences = false; }
         ShortcutMenuChanged?.Invoke(shortcutContext.Checked);
+        RefreshKeyHints();
     }
     private void SavePreferences()
     {
         if (applyingPreferences) return;
-        preferences.Update(new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked, shortcutContext.Checked));
+        preferences.Update(new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked, shortcutContext.Checked) { Bindings = preferredBindings });
         notice = preferences.Warning; InvalidateOverviewPreparation(); RefreshState();
     }
-    private void ApplyNavigationSettings(NavigationInputOptions options, NavigationHotkey hotkey)
+    private void ApplyNavigationSettings(NavigationInputOptions options, NavigationKeyBindings bindings)
     {
-        gestures?.End(DateTimeOffset.UtcNow); inputOptions = options; preferredShortcut = ChoiceFor(hotkey);
+        gestures?.End(DateTimeOffset.UtcNow); inputOptions = options; preferredBindings = bindings;
         if (gestures is not null) gestures.Options = inputOptions;
         globalInput?.Configure(inputOptions);
-        if (globalInput is not null && hotkey != globalInput.State.Hotkey) globalInput.ChangeHotkey(hotkey);
+        RefreshKeyHints();
         SavePreferences();
     }
     internal void CheckPreferenceBindings()
@@ -131,8 +136,8 @@ internal sealed partial class ManagedCanvasControl
         automaticAdmission.Checked = false;
         if (wallpaperColors.Checked) wallpaperColors.PerformClick();
         if (overviewAnimation.Checked) overviewAnimation.PerformClick();
-        ApplyNavigationSettings(new(false, true, false, 330), new(3, 0x4E, "Ctrl+Alt+N"));
+        ApplyNavigationSettings(new(false, true, false, 330), NavigationKeyBindings.Default with { Overview = new(3, 0x4E) });
         if (preferences.Current != CurrentPreferencesForCheck) throw new InvalidOperationException("Preference controls did not publish their actual choices.");
     }
-    internal UserPreferences CurrentPreferencesForCheck => new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked, shortcutContext.Checked);
+    internal UserPreferences CurrentPreferencesForCheck => new(inputOptions, preferredShortcut, automaticAdmission.Checked, wallpaperColors.Checked, overviewAnimation.Checked, shortcutContext.Checked) { Bindings = preferredBindings };
 }

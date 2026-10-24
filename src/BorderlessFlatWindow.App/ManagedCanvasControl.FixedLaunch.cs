@@ -58,7 +58,7 @@ internal sealed partial class ManagedCanvasControl
             { if (NativeWindowIdentityGuard.IsCurrent(target)) fixedWindows.Add(target); notice = "新窗口保持独立，但便签标记未保存：" + error.Message; }
         }
         if (pinned > 0) notice = "新窗口已作为独立便签打开。";
-        else if (fixedLaunches.ExpiredLastObservation > 0) notice = "未识别到新窗口；若程序复用了已有窗口，请用 Ctrl+Alt+P 固定。";
+        else if (fixedLaunches.ExpiredLastObservation > 0) notice = "未识别到新窗口；若程序复用了已有窗口，请用便签快捷键固定。";
         if (fixedLaunches.Count == 0) { fixedLaunchTimer.Stop(); launchExecutables.Clear(); }
     }
     private IReadOnlySet<NativeWindowIdentity> AutomaticExclusions => fixedWindows.Concat(fixedLaunches.HeldIdentities).Concat(session?.SkippedUnavailable ?? []).ToHashSet();

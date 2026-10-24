@@ -13,7 +13,7 @@ internal sealed partial class TouchNavigationHost
         using var host = new TouchNavigationHost();
         var inputs = new List<NavigationInput>(); var exits = 0;
         host.Input += inputs.Add; host.ExitRequested += () => exits++;
-        using (var surface = new Surface(host) { Bounds = new(100, 100, 320, 240) })
+        using (var surface = new InputWindow(host, passive: true) { Bounds = new(100, 100, 320, 240), Opacity = 0 })
         {
             SendOwnMessage(surface.Handle, 0x20A, 1 << 16, 0);
             SendOwnMessage(surface.Handle, 0x20E, unchecked(-40 << 16), 0);
@@ -27,14 +27,6 @@ internal sealed partial class TouchNavigationHost
             if (surface.Visible || surface.TopMost || surface.ShowInTaskbar || surface.Opacity > .04)
                 throw new InvalidOperationException("Touch fixture unexpectedly became a visible or topmost surface.");
         }
-        inputs.Clear();
-        host.AcceptContact(1, ContactPhase.Down, new(100, 100));
-        host.AcceptContact(2, ContactPhase.Down, new(500, 500));
-        host.AcceptContact(1, ContactPhase.Move, new(120, 130));
-        host.AcceptContact(1, ContactPhase.Cancel, PointD.Zero);
-        if (inputs.Count != 3 || inputs[0].Kind != NavigationInputKind.PanStart || inputs[1].Position != new PointD(120, 130)
-            || inputs[2].Kind != NavigationInputKind.PanEnd || inputs[2].Position != inputs[1].Position)
-            throw new InvalidOperationException("Owned contact route changed fingers or cancellation coordinates.");
         inputs.Clear();
         for (var i = 0; i < 120; i++) host.AcceptWheel(1, false, false, true);
         if (inputs.Count != 1 || inputs[0].Kind != NavigationInputKind.CycleWindow || inputs[0].WheelDelta != 120)
@@ -53,7 +45,7 @@ internal sealed partial class TouchNavigationHost
         }
         if (exits != 6 || inputs.Count != 9 || WindowEventListener.ForegroundWindow != foreground)
             throw new InvalidOperationException("Touch toolbar lost commands or activated during an invisible fixture.");
-        Console.WriteLine("PASS Owned touch receiver handles two-axis precision wheel, one contact, cancellation and compact touch controls without desktop input or activation");
+        Console.WriteLine("PASS Compact nonactivating touch toolbar handles two-axis precision wheel and controls without full-screen surfaces or contact capture");
     }
     [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern nint SendOwnMessage(nint window, uint message, nint wParam, nint lParam);
 }

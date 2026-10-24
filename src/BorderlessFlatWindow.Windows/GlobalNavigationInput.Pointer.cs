@@ -21,7 +21,7 @@ public sealed partial class GlobalNavigationInput
     private long crosshairMenuDeadline;
     private CursorRect previousClip, ownedClip;
     private string pointerMessage = "正在准备边缘推进与准星模式。";
-    public string PointerMessage => Volatile.Read(ref pointerMessage);
+    public string PointerMessage => Volatile.Read(ref pointerMessage) + $" · {Describe(bindings.Crosshair)} 准星 · {Describe(bindings.Touch)} 触控 · {Describe(bindings.Pin)} 便签";
     public void ToggleCrosshair(bool afterMenu = false) => Post(() =>
     {
         if (afterMenu && available && !crosshair && !pendingCrosshair && MenuActive())
@@ -46,11 +46,9 @@ public sealed partial class GlobalNavigationInput
     }
     private void InitializePointerInput()
     {
-        try { if (nativeInput) rawPointer = new(); pointerMessage = "边缘向外推进 · Ctrl+Alt+C 准星 · Ctrl+Alt+P 便签"; }
+        try { if (nativeInput) rawPointer = new(); pointerMessage = "边缘向外推进"; }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         { pointerMessage = "相对鼠标不可用，保留滚轮和双键导航：" + error.Message; }
-        if (!RegisterKey(CrosshairId, 3 | 0x4000, 0x43)) pointerMessage += "；准星快捷键注册失败，可从视角菜单进入。";
-        if (!RegisterKey(PinId, 3 | 0x4000, 0x50)) pointerMessage += "；便签快捷键注册失败，可用窗口菜单。";
     }
     private void ProcessRelativePointer(nint packet)
     {
@@ -60,7 +58,7 @@ public sealed partial class GlobalNavigationInput
     private void ProcessPointerMovement(PointD delta)
     {
         if (crosshair && delta != PointD.Zero) lastRelativeMotion = InputTime;
-        if (!available || overviewOpen || MenuActive() || !GetPointer(out var pointer)) { edgeMotion.Reset(); return; }
+        if (!available || touchEnabled || overviewOpen || MenuActive() || !GetPointer(out var pointer)) { edgeMotion.Reset(); return; }
         if (!crosshair && (Down(1) || Down(2) || Down(4) || Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C) || gate.HasHeldButtons)) { edgeMotion.Reset(); return; }
         if (crosshair && (!ReadPointerClip(out var current) || !SameClip(current, ownedClip)))
         { Leave("鼠标限制已被其他应用更改，准星模式已退出。"); return; }
@@ -81,7 +79,7 @@ public sealed partial class GlobalNavigationInput
         if (!screen.IsValid) return;
         Leave("正在进入准星模式。");
         if (clipOwned) { Publish(false, State.Registered, State.Hotkey, "鼠标限制仍待释放，请稍后再进入准星模式。"); return; }
-        if (!RegisterKey(EscapeId, 0x4000, 0x1B) || !RegisterKey(HomeId, 0x4000, 0x24) || !RegisterKey(BackId, 0x4000, 0x08))
+        if (!RegisterKey(EscapeId, 0x4000, 0x1B))
         { ReleaseModeKeys(); Publish(false, State.Registered, State.Hotkey, "退出快捷键冲突，未进入准星模式。"); return; }
         escapeRegistered = true;
         if (!ReadPointerClip(out previousClip)) { ReleaseModeKeys(); Publish(false, State.Registered, State.Hotkey, "无法读取鼠标限制，未进入准星模式。"); return; }
@@ -97,7 +95,7 @@ public sealed partial class GlobalNavigationInput
         ResetPointerFeeds(screen);
         crosshairForeground = ForegroundWindow;
         gate.TryEnter(false); Volatile.Write(ref heartbeat, InputTime);
-        Publish(true, State.Registered, State.Hotkey, "准星模式 · 相对鼠标移动镜头 · Esc / Ctrl+Alt+C 退出");
+        Publish(true, State.Registered, State.Hotkey, $"准星模式 · 相对鼠标移动镜头 · Esc / {Describe(bindings.Crosshair)} 退出");
     }
     private bool ConsumeCrosshairButton(NavigationInputKind kind)
     {

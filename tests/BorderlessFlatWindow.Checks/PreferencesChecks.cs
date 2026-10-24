@@ -12,6 +12,25 @@ internal static class PreferencesChecks
         yield return ("Explicit preference reload replaces unsaved choices with saved values", ExplicitReload);
         yield return ("Invalid preference updates do not change runtime choices or call storage", Invalid);
         yield return ("First corrupt preference load disables automatic admission without losing later runtime choices", InitialFailure);
+        yield return ("Navigation bindings accept custom commands and preserve context-only Home and Backspace", CustomBindings);
+        yield return ("Navigation bindings reject shell, editing, accessibility and reserved key combinations", ReservedBindings);
+        yield return ("Navigation bindings reject duplicates, missing commands and unsupported modifiers", DuplicateBindings);
+    }
+    private static void CustomBindings()
+    {
+        NavigationKeyBindings.Default.Validate();
+        var value = NavigationKeyBindings.Default with { Touch = new(7, 0x58), Home = new(3, 0x48), Back = new(3, 0x42) };
+        value.Validate(); Require(value.Home.Matches(0x48, 3) && !value.Home.Matches(0x48, 0), "Context modifier match failed.");
+    }
+    private static void ReservedBindings()
+    {
+        foreach (var chord in new[] { new KeyChord(8, 9), new(1, 9), new(2, 0x43), new(3, 0x2E), new(3, 0x1B), new(3, 9), new(3, 0x73), new(3, 0x7B), new(0, 0x56), new(3, 0x24) })
+        { var rejected = false; try { (NavigationKeyBindings.Default with { Touch = chord }).Validate(); } catch (ArgumentException) { rejected = true; } Require(rejected, "Reserved chord accepted."); }
+    }
+    private static void DuplicateBindings()
+    {
+        foreach (var value in new[] { NavigationKeyBindings.Default with { Touch = NavigationKeyBindings.Default.Crosshair }, NavigationKeyBindings.Default with { Pin = null! }, NavigationKeyBindings.Default with { Home = new(15, 0x48) } })
+        { var rejected = false; try { value.Validate(); } catch (ArgumentException) { rejected = true; } Require(rejected, "Invalid binding set accepted."); }
     }
     private static readonly UserPreferences Custom = new(new(false, true, false, 360), ManualNavigationShortcut.ControlAltM, false, false, false);
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }

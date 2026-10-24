@@ -8,6 +8,8 @@ internal sealed partial class ManagedCanvasControl
     private TouchNavigationHost? touchNavigation;
     private readonly Queue<TimedNavigationInput> touchInputs = new();
     private bool touchNavigationRequested, touchInputOverflow;
+    internal void ToggleTouchNavigation()
+    { if (touchNavigation is not null || touchNavigationRequested) CloseTouchNavigation(); else ShowTouchNavigation(); }
     internal void ShowTouchNavigation()
     {
         if (session?.IsRunning != true) { notice = "请先开始画布，再进入触控导航。"; RefreshState(); return; }
@@ -25,6 +27,7 @@ internal sealed partial class ManagedCanvasControl
             RefreshState();
             try
             {
+                if (globalInput?.SetTouchNavigation(true) != true) { CloseTouchNavigation(); notice = "画布输入尚未就绪，未进入触控模式。"; RefreshState(); return; }
                 var areas = Screen.AllScreens.Select(screen => screen.WorkingArea).Where(area => area.Width > 0 && area.Height > 0).ToArray();
                 var pointer = Cursor.Position;
                 FindForm()?.Hide(); host.Show(areas, pointer); navigationTimer.Start();
@@ -46,8 +49,7 @@ internal sealed partial class ManagedCanvasControl
         var host = touchNavigation; touchNavigation = null;
         if (host is not null)
         {
-            var end = host.EndContact(); host.Dispose();
-            if (!discard && end is { } input) QueueTouchInput(input);
+            host.Dispose(); globalInput?.SetTouchNavigation(false);
         }
         if (discard) { touchInputs.Clear(); touchInputOverflow = false; }
         if (host is not null && refresh && !IsDisposed && !Disposing) RefreshState();

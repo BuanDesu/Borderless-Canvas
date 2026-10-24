@@ -55,12 +55,14 @@ public sealed class JsonPreferencesStore : IPreferencesStore
             var names = document.RootElement.EnumerateObject().Select(p => p.Name).ToArray();
             if (names.Distinct(StringComparer.Ordinal).Count() != names.Length) throw new InvalidDataException("设置包含重复字段。");
             var dto = JsonSerializer.Deserialize<Dto>(bytes, Options) ?? throw new InvalidDataException("设置为空。");
-            if (dto.Version is not (1 or 2) || dto.Version == 2 && (dto.EdgePan is null || dto.PointerSpeed is null || dto.ShortcutMenu is null)
+            if (dto.Version is not (1 or 2 or 3) || dto.Version >= 2 && (dto.EdgePan is null || dto.PointerSpeed is null || dto.ShortcutMenu is null)
+                || dto.Version == 3 && dto.KeyBindings is null
                 || dto.VerticalWheel is null || dto.HorizontalWheel is null || dto.TwoButtonDrag is null || dto.WheelDistance is null
                 || dto.Shortcut is null || dto.AutomaticAdmission is null || dto.FollowWallpaper is null || dto.AnimateOverview is null)
                 throw new InvalidDataException("设置版本或字段不完整。");
             var value = new UserPreferences(new NavigationInputOptions(dto.VerticalWheel.Value, dto.HorizontalWheel.Value, dto.TwoButtonDrag.Value, dto.WheelDistance.Value, dto.EdgePan ?? true, dto.PointerSpeed ?? 1),
-                (ManualNavigationShortcut)dto.Shortcut.Value, dto.AutomaticAdmission.Value, dto.FollowWallpaper.Value, dto.AnimateOverview.Value, dto.ShortcutMenu ?? true);
+                (ManualNavigationShortcut)dto.Shortcut.Value, dto.AutomaticAdmission.Value, dto.FollowWallpaper.Value, dto.AnimateOverview.Value, dto.ShortcutMenu ?? true)
+                { Bindings = dto.KeyBindings ?? NavigationKeyBindings.Default };
             value.Validate(); loadedValid = true; return value;
         }
         catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException)
@@ -77,8 +79,8 @@ public sealed class JsonPreferencesStore : IPreferencesStore
     {
         ObjectDisposedException.ThrowIf(disposed, this); preferences.Validate(); EnsureUnchanged();
         var navigation = preferences.Navigation;
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new Dto(2, navigation.VerticalWheel, navigation.HorizontalWheel, navigation.TwoButtonDrag,
-            navigation.WheelDistance, (int)preferences.Shortcut, preferences.AutomaticAdmission, preferences.FollowWallpaper, preferences.AnimateOverview, navigation.EdgePan, navigation.PointerSpeed, preferences.ShortcutMenu), Options);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new Dto(3, navigation.VerticalWheel, navigation.HorizontalWheel, navigation.TwoButtonDrag,
+            navigation.WheelDistance, (int)preferences.Shortcut, preferences.AutomaticAdmission, preferences.FollowWallpaper, preferences.AnimateOverview, navigation.EdgePan, navigation.PointerSpeed, preferences.ShortcutMenu, preferences.Bindings), Options);
         var temporary = FilePath + $".{Guid.NewGuid():N}.tmp";
         try
         {
@@ -90,5 +92,5 @@ public sealed class JsonPreferencesStore : IPreferencesStore
     }
     public void Dispose() { if (disposed) return; disposed = true; lease?.Dispose(); }
     private sealed record Dto(int? Version, bool? VerticalWheel, bool? HorizontalWheel, bool? TwoButtonDrag, int? WheelDistance,
-        int? Shortcut, bool? AutomaticAdmission, bool? FollowWallpaper, bool? AnimateOverview, bool? EdgePan = null, double? PointerSpeed = null, bool? ShortcutMenu = null);
+        int? Shortcut, bool? AutomaticAdmission, bool? FollowWallpaper, bool? AnimateOverview, bool? EdgePan = null, double? PointerSpeed = null, bool? ShortcutMenu = null, NavigationKeyBindings? KeyBindings = null);
 }

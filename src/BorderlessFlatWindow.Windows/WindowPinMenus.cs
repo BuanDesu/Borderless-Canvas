@@ -58,7 +58,7 @@ public sealed class WindowPinMenus : IDisposable
     }
     private static MenuItem Item(uint command, nuint token, bool pinned) => new()
     { Size = (uint)Marshal.SizeOf<MenuItem>(), Mask = 0x40 | 2 | 0x20 | 1, Id = command, Data = token, State = pinned ? 8u : 0,
-        Text = pinned ? "取消便签 · 返回画布\tCtrl+Alt+P" : "固定为画布便签\tCtrl+Alt+P" };
+        Text = pinned ? "取消便签 · 返回画布" : "固定为画布便签" };
     private static void Remove(Binding binding)
     {
         var target = binding.Target;

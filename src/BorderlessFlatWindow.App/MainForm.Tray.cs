@@ -22,12 +22,12 @@ internal sealed partial class MainForm
         trayState = new() { Enabled = false };
         trayOpen = new("打开窗口画布", null, (_, _) => ShowManager());
         trayOverview = new("空间总览", null, (_, _) => { if (TrayState.CanOverview) management.ShowOverview(); UpdateTrayState(); });
-        trayTouch = new("触控导航 · 单指拖动", null, (_, _) => RequestManager(ManagerTarget.TouchNavigation));
+        trayTouch = new("触控导航 · 两指滚动", null, (_, _) => RequestManager(ManagerTarget.TouchNavigation));
         trayPause = new("暂停并恢复窗口", null, (_, _) => { if (TrayState.CanPause) management.Pause(); });
         trayRecovery = new("恢复中心", null, (_, _) => RequestManager(ManagerTarget.Recovery));
         trayInputStatus = new("输入状态…", null, (_, _) => RequestManager(ManagerTarget.InputStatus));
         traySettings = new("设置");
-        traySettings.DropDownItems.Add("导航手势…", null, (_, _) => RequestManager(ManagerTarget.Navigation));
+        traySettings.DropDownItems.Add("导航与键位设置…", null, (_, _) => RequestManager(ManagerTarget.Navigation));
         traySettings.DropDownItems.Add("取色与动画", null, (_, _) => RequestManager(ManagerTarget.Appearance));
         traySettings.DropDownItems.Add("本地设置", null, (_, _) => RequestManager(ManagerTarget.LocalSettings));
         trayExit = new("退出", null, (_, _) => ExitFromTray());

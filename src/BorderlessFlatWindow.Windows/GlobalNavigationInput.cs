@@ -9,13 +9,13 @@ namespace BorderlessFlatWindow.Windows;
 
 public sealed record NavigationHotkey(uint Modifiers, uint Key, string Label)
 {
-    public static readonly NavigationHotkey Default = new(3, 0x20, "Ctrl+Alt+Space");
+    public static readonly NavigationHotkey Default = new(3, 0x4F, "Ctrl+Alt+O");
 }
-public enum NavigationMode { Inactive, Desktop, Manual, Crosshair }
+public enum NavigationMode { Inactive, Desktop, Crosshair, Touch }
 public sealed record GlobalNavigationState(bool Active, bool Registered, NavigationHotkey Hotkey, string Message, NavigationMode Mode = NavigationMode.Inactive, PointD? CrosshairCenter = null, bool Available = false)
 {
-    public bool Manual => Mode == NavigationMode.Manual;
     public bool Crosshair => Mode == NavigationMode.Crosshair;
+    public bool Touch => Mode == NavigationMode.Touch;
 }
 public readonly record struct TimedNavigationInput(NavigationInput Input, DateTimeOffset At, long CapturedTimestamp = 0);
 
@@ -23,7 +23,7 @@ public readonly record struct TimedNavigationInput(NavigationInput Input, DateTi
 public sealed partial class GlobalNavigationInput : IDisposable
 {
     private const uint CommandMessage = 0x8001;
-    private const int ToggleId = 0x4BF0, EscapeId = 0x4BF1, HomeId = 0x4BF2, BackId = 0x4BF3, OverviewId = 0x4BF4;
+    private const int EscapeId = 0x4BF1, OverviewId = 0x4BF4;
     private readonly ConcurrentQueue<Action> commands = new();
     private readonly ConcurrentQueue<TimedNavigationInput> inputs = new();
     private readonly NavigationInputGate gate = new();
@@ -44,7 +44,6 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private nint hook;
     private nint keyboardHook;
     private NavigationMode mode;
-    private bool manual => mode == NavigationMode.Manual;
     private bool crosshair => mode == NavigationMode.Crosshair;
     private bool tabHeld, tabCaptured;
     private readonly HashSet<uint> capturedKeys = [];
@@ -63,16 +62,18 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool overviewRegistered;
     private string overviewMessage = "正在注册总览快捷键。";
 
-    public GlobalNavigationInput(Action wakeUi, NavigationInputOptions? options = null, NavigationHotkey? hotkey = null)
-        : this(wakeUi, options, hotkey, new WindowsNavigationPlatform(), true) { }
+    public GlobalNavigationInput(Action wakeUi, NavigationInputOptions? options = null, NavigationHotkey? hotkey = null, NavigationKeyBindings? keyBindings = null)
+        : this(wakeUi, options, hotkey, new WindowsNavigationPlatform(), true, keyBindings) { }
     internal GlobalNavigationInput(Action wakeUi, NavigationInputOptions? options, NavigationHotkey? hotkey, INavigationInputPlatform platform)
         : this(wakeUi, options, hotkey, platform, false) { }
-    private GlobalNavigationInput(Action wakeUi, NavigationInputOptions? options, NavigationHotkey? hotkey, INavigationInputPlatform platform, bool nativeInput)
+    private GlobalNavigationInput(Action wakeUi, NavigationInputOptions? options, NavigationHotkey? hotkey, INavigationInputPlatform platform, bool nativeInput, NavigationKeyBindings? keyBindings = null)
     {
         this.platform = platform; this.nativeInput = nativeInput; heartbeat = InputTime;
-        if (hotkey is not null) ValidateHotkey(hotkey);
+        bindings = keyBindings ?? NavigationKeyBindings.Default;
+        if (hotkey is not null) bindings = bindings with { Overview = new(hotkey.Modifiers, hotkey.Key) };
+        bindings.Validate();
         gate.Options = options ?? new();
-        state = new(false, false, hotkey ?? NavigationHotkey.Default, "正在注册快捷键。");
+        state = new(false, false, hotkey ?? new(bindings.Overview.Modifiers, bindings.Overview.Key, Describe(bindings.Overview)), "正在注册快捷键。");
         this.wakeUi = wakeUi; callback = MouseCallback; keyboardCallback = KeyboardCallback;
         thread = new(ThreadMain) { IsBackground = true, Name = "BFW navigation input" };
         thread.SetApartmentState(ApartmentState.STA); thread.Start();
@@ -112,26 +113,14 @@ public sealed partial class GlobalNavigationInput : IDisposable
             automatic.Resume();
             if (!ReestablishInputHooks()) return;
         }
-        if (!value && (overviewInput.Close(overviewInput.Generation) || gate.Active)) Leave("画布未运行，导航已退出。");
+        if (!value && (overviewInput.Close(overviewInput.Generation) || gate.Active || touchEnabled)) Leave("画布未运行，导航已退出。");
         else if (changed) Publish(gate.Active, State.Registered, State.Hotkey, value ? "画布输入已就绪；移至桌面空白处自动导航。" : "画布输入已暂停。");
     });
-    public void Toggle() => Post(ToggleCore);
     public void Exit() => Post(() => { automatic.Suspend(); Leave("已退出导航；进入应用窗口后可再次自动导航。"); });
     public void Configure(NavigationInputOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         Post(() => { Leave("手势设置已更新，导航已退出。"); gate.Options = options; });
-    }
-    public void ChangeHotkey(NavigationHotkey hotkey)
-    {
-        ValidateHotkey(hotkey);
-        Post(() => RegisterToggle(hotkey));
-    }
-    private static void ValidateHotkey(NavigationHotkey hotkey)
-    {
-        ArgumentNullException.ThrowIfNull(hotkey);
-        if (hotkey.Key is < 0x20 or > 0xFE || hotkey.Key == 0x7B || hotkey.Modifiers is 0 or > 7)
-            throw new ArgumentException("请选择包含 Ctrl/Alt/Shift 的非保留快捷键。", nameof(hotkey));
     }
     public IReadOnlyList<TimedNavigationInput> Drain()
     {
@@ -164,11 +153,10 @@ public sealed partial class GlobalNavigationInput : IDisposable
             InstallInputHooks();
             timer = SetTimer(0, 0, 100, 0);
             if (timer == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法启动输入看门狗。");
-            RegisterToggle(State.Hotkey);
-            overviewRegistered = RegisterKey(OverviewId, 3 | 0x4000, 0x4F);
+            RegisterCommands(bindings);
+            Publish(false, overviewRegistered, State.Hotkey, bindingsMessage);
             InitializePointerInput();
-            Volatile.Write(ref overviewMessage, overviewRegistered ? "桌面空白处 Tab / Shift+Tab 进入总览，总览内再次按下返回；Ctrl+Alt+O 也可打开/关闭。"
-                : $"总览快捷键 Ctrl+Alt+O 注册失败（{Marshal.GetLastPInvokeError()}），可用界面按钮。");
+            UpdateOverviewMessage();
             Wake(); ready.Set();
             while (Volatile.Read(ref stopping) == 0)
             {
@@ -176,16 +164,14 @@ public sealed partial class GlobalNavigationInput : IDisposable
                 if (result == 0) break;
                 if (result < 0) throw new Win32Exception(Marshal.GetLastPInvokeError());
                 if (message.MessageId == CommandMessage) while (commands.TryDequeue(out var command)) command();
-                else if (message.MessageId == 0x312 && message.WParam == ToggleId) ToggleCore();
                 else if (message.MessageId == 0x312 && message.WParam == EscapeId) { automatic.Suspend(); Leave("Esc 已退出导航；应用恢复正常鼠标交互。"); }
-                else if (message.MessageId == 0x312 && message.WParam == HomeId && gate.Active) Queue(new(NavigationInputKind.Home, PointD.Zero));
-                else if (message.MessageId == 0x312 && message.WParam == BackId && gate.Active) Queue(new(NavigationInputKind.Back, PointD.Zero));
                 else if (message.MessageId == 0x312 && message.WParam == OverviewId)
                 {
                     if (available || overviewOpen) { Leave("切换空间总览，导航已退出。"); Queue(new(NavigationInputKind.Overview, PointD.Zero)); }
                 }
                 else if (message.MessageId == 0x312 && message.WParam == CrosshairId) ToggleCrosshairCore();
                 else if (message.MessageId == 0x312 && message.WParam == PinId) QueueFocusedPin();
+                else if (message.MessageId == 0x312 && message.WParam == TouchId && available && !overviewOpen) Queue(new(NavigationInputKind.ToggleTouch, PointD.Zero));
                 else if (message.MessageId == 0xFF && message.Window == rawPointer?.Handle)
                 { ProcessRelativePointer(message.LParam); DispatchMessage(ref message); }
                 else if (message.MessageId == 0x113)
@@ -194,7 +180,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
                     TryPendingCrosshair();
                     CheckRelativeSource();
                     if (!crosshair && clipOwned) ReleasePointerCapture();
-                    if (gate.Active && InputTime - Volatile.Read(ref heartbeat) > 1800)
+                    if ((gate.Active || touchEnabled) && InputTime - Volatile.Read(ref heartbeat) > 1800)
                     {
                         available = false; Leave("界面响应超时，导航已自动退出。");
                         Queue(new(NavigationInputKind.Fault, PointD.Zero));
@@ -213,45 +199,14 @@ public sealed partial class GlobalNavigationInput : IDisposable
         finally
         {
             ReleasePointerCapture(); rawPointer?.Dispose(); rawPointer = null;
-            ReleaseKey(CrosshairId); ReleaseKey(PinId);
+            ReleaseCommands();
             gate.Exit();
-            ReleaseKey(ToggleId); ReleaseKey(OverviewId); ReleaseModeKeys();
+            ReleaseModeKeys();
             if (hook != 0) UnhookWindowsHookEx(hook);
             if (keyboardHook != 0) UnhookWindowsHookEx(keyboardHook);
             if (timer != 0) KillTimer(0, timer);
             ready.Set(); GC.KeepAlive(callback); GC.KeepAlive(keyboardCallback);
         }
-    }
-    private void RegisterToggle(NavigationHotkey hotkey)
-    {
-        Leave("快捷键已更改，导航已退出。");
-        ReleaseKey(ToggleId);
-        var registered = RegisterKey(ToggleId, hotkey.Modifiers | 0x4000, hotkey.Key);
-        Publish(false, registered, hotkey, registered ? $"{hotkey.Label} 切换导航；Esc 退出。"
-            : $"快捷键 {hotkey.Label} 注册失败（{Marshal.GetLastPInvokeError()}），请换一个组合。");
-    }
-    private void ToggleCore()
-    {
-        pendingCrosshair = false;
-        if (gate.Active) { automatic.Suspend(); Leave("已退出导航；应用恢复正常鼠标交互。"); return; }
-        if (overviewOpen) { Publish(false, State.Registered, State.Hotkey, "请先关闭总览，再进入导航。"); return; }
-        if (!State.Registered) return;
-        if (!available) { Publish(false, State.Registered, State.Hotkey, "请先勾选窗口并开始画布管理。"); return; }
-        var held = Down(1) || Down(2);
-        if (held || gate.HasHeldButtons)
-        { Publish(false, true, State.Hotkey, "请先松开鼠标左右键，再进入导航。"); return; }
-        if (!RegisterKey(EscapeId, 0x4000, 0x1B) || !RegisterKey(HomeId, 0x4000, 0x24)
-            || !RegisterKey(BackId, 0x4000, 0x08))
-        {
-            ReleaseModeKeys();
-            Publish(false, true, State.Hotkey, "Esc/Home/Backspace 注册失败，未进入导航；请解决快捷键冲突。"); return;
-        }
-        escapeRegistered = true;
-        mode = NavigationMode.Manual;
-        gate.TryEnter(false); Volatile.Write(ref heartbeat, InputTime);
-        var enabled = string.Join(" / ", new[] { gate.Options.VerticalWheel ? "滚轮纵移" : null,
-            gate.Options.HorizontalWheel ? "Shift 横移" : null, gate.Options.TwoButtonDrag ? "双键拖动" : null }.Where(item => item is not null));
-        Publish(true, true, State.Hotkey, $"导航中：{enabled}；Home 原点 / Backspace 上一视角 / Esc 退出。");
     }
     private void Leave(string message)
     {
@@ -261,14 +216,14 @@ public sealed partial class GlobalNavigationInput : IDisposable
         if (gate.Active || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
         ReleasePointerCapture();
         contextClick.Cancel(); contextTarget = 0; contextGeneration++;
-        var active = gate.Active; gate.Exit(); mode = NavigationMode.Inactive;
+        var active = gate.Active || touchEnabled; touchEnabled = false; gate.Exit(); mode = NavigationMode.Inactive;
         if (escapeRegistered) ReleaseModeKeys();
         if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
         Publish(false, State.Registered, State.Hotkey, State.Registered ? message : State.Message);
     }
     private void ReleaseModeKeys()
     {
-        ReleaseKey(EscapeId); ReleaseKey(HomeId); ReleaseKey(BackId); escapeRegistered = false;
+        ReleaseKey(EscapeId); escapeRegistered = false;
     }
     private void Publish(bool active, bool registered, NavigationHotkey hotkey, string message)
     { Volatile.Write(ref state, new(active, registered, hotkey, message, mode, crosshair ? new PointD(pointerCenter.X, pointerCenter.Y) : null, available)); Wake(); }
@@ -335,14 +290,20 @@ public sealed partial class GlobalNavigationInput : IDisposable
         };
         if (kind is { } inputKind)
         {
+            // Our context replay and system-menu command keep their ownership
+            // even while ordinary touch clicks pass directly to applications.
+            if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return false;
+            if (ConsumePinMenuClick(inputKind, input.Point)) return true;
+            if (ConsumeCrosshairButton(inputKind)) return true;
+            if (touchEnabled)
+            {
+                if (inputKind is NavigationInputKind.LeftUp or NavigationInputKind.RightUp && gate.Route(inputKind).Suppress) return true;
+                return RouteTouchWheel(inputKind, input);
+            }
             if (!crosshair && inputKind == NavigationInputKind.Move)
                 edgeMotion.ConstrainToPointer(new(input.Point.X, input.Point.Y), pointerScreens, gate.Options);
             if (inputKind is NavigationInputKind.LeftDown or NavigationInputKind.RightDown) edgeMotion.Reset();
             if (inputKind == NavigationInputKind.Move && ConsumeCrosshairMove(input.Point)) return true;
-            // Only our balanced replay bypasses routing; unrelated injected input follows normal policy.
-            if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return false;
-            if (ConsumePinMenuClick(inputKind, input.Point)) return true;
-            if (ConsumeCrosshairButton(inputKind)) return true;
             if (inputKind != NavigationInputKind.Move) contextGeneration++;
             // A low-level callback can precede or follow the async button state.
             // Do not mistake this very down for a drag that began in another app.
@@ -378,7 +339,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     private void UpdateAutomatic(Point pointer, bool? physicalHeld = null)
     {
-        if (manual || crosshair) return;
+        if (touchEnabled || crosshair) return;
         var enter = automatic.ShouldNavigate(IsDesktop(pointer) && !MenuActive(), available, overviewOpen, gate.HasHeldButtons, physicalHeld ?? (Down(1) || Down(2)));
         if (enter && !gate.Active && gate.TryEnter(false))
         {
@@ -439,7 +400,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
         if (!up && key is 0x11 or 0x12 or 0xA2 or 0xA3 or 0xA4 or 0xA5 or 0x5B or 0x5C) edgeMotion.Reset();
         if (up && key is 0x11 or 0xA2 or 0xA3) cycleWheel.Reset();
         if (ConsumePinMenuEnter(key, up)) return true;
-        if (!up && crosshair && key == 0x1B) { capturedKeys.Add(key); automatic.Suspend(); Leave("已退出准星模式，鼠标恢复自由移动。"); return true; }
+        if (!up && (crosshair || touchEnabled) && key == 0x1B) { capturedKeys.Add(key); automatic.Suspend(); Leave(crosshair ? "已退出准星模式，鼠标恢复自由移动。" : "已退出触控导航，鼠标恢复应用交互。"); return true; }
         if (!up && crosshair && (key is 0x5B or 0x5C || key == 9 && Down(0x12))) Leave("已退出准星模式，鼠标恢复自由移动。");
         contextGeneration++;
         if (!up && GetPointer(out var cursor)) UpdateAutomatic(cursor);
@@ -473,9 +434,11 @@ public sealed partial class GlobalNavigationInput : IDisposable
         }
         if (up && capturedKeys.Remove(key)) return true;
         if (!up && capturedKeys.Contains(key)) return true;
-        if (!up && !manual && gate.Active && !overviewOpen && !Down(0x11) && !Down(0x12) && !Down(0x5B) && !Down(0x5C))
+        if (!up && gate.Active && !overviewOpen && !Down(0x5B) && !Down(0x5C))
         {
-            var kind = key switch { 0x1B => NavigationInputKind.Exit, 0x24 => NavigationInputKind.Home, 0x08 => NavigationInputKind.Back, _ => (NavigationInputKind?)null };
+            var modifiers = (Down(0x11) ? 2u : 0) | (Down(0x12) ? 1u : 0) | (Down(0x10) ? 4u : 0);
+            var kind = key == 0x1B && modifiers == 0 ? NavigationInputKind.Exit : bindings.Home.Matches(key, modifiers) ? NavigationInputKind.Home
+                : bindings.Back.Matches(key, modifiers) ? NavigationInputKind.Back : (NavigationInputKind?)null;
             if (kind is { } action)
             {
                 capturedKeys.Add(key);

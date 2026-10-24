@@ -26,7 +26,8 @@ internal static class PreferencesStorageChecks
         Console.WriteLine($"{cases.Length - failures}/{cases.Length} preference storage checks passed."); return failures == 0 ? 0 : 1;
     }
     private static string NewPath() => StorageChecks.NewPath("preferences");
-    private static UserPreferences Custom => new(new(false, false, true, 330, edgePan: false, pointerSpeed: 1.75), ManualNavigationShortcut.ControlAltN, false, false, false, false);
+    private static UserPreferences Custom => new(new(false, false, true, 330, edgePan: false, pointerSpeed: 1.75), ManualNavigationShortcut.ControlAltN, false, false, false, false)
+        { Bindings = NavigationKeyBindings.Default with { Touch = new(7, 0x54), Home = new(3, 0x48), Back = new(3, 0x42) } };
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private static void Throws<T>(Action action) where T : Exception
     { try { action(); } catch (T) { return; } throw new InvalidOperationException("Expected " + typeof(T).Name); }
@@ -40,7 +41,7 @@ internal static class PreferencesStorageChecks
         using var reopened = new JsonPreferencesStore(path); Require(reopened.Load() == Custom && reopened.CanWrite, "Preferences did not survive reopening.");
         using var json = JsonDocument.Parse(File.ReadAllText(path));
         var keys = json.RootElement.EnumerateObject().Select(p => p.Name).Order().ToArray();
-        Require(keys.SequenceEqual(new[] { "Version", "VerticalWheel", "HorizontalWheel", "TwoButtonDrag", "WheelDistance", "Shortcut", "AutomaticAdmission", "FollowWallpaper", "AnimateOverview", "EdgePan", "PointerSpeed", "ShortcutMenu" }.Order()), "Unexpected runtime/identity fields were persisted.");
+        Require(keys.SequenceEqual(new[] { "Version", "VerticalWheel", "HorizontalWheel", "TwoButtonDrag", "WheelDistance", "Shortcut", "AutomaticAdmission", "FollowWallpaper", "AnimateOverview", "EdgePan", "PointerSpeed", "ShortcutMenu", "KeyBindings" }.Order()), "Unexpected runtime/identity fields were persisted.");
     }
     private static void InvalidFiles()
     {
@@ -49,7 +50,10 @@ internal static class PreferencesStorageChecks
         var samples = new List<string> { "{", "[]", "null", "{\"Version\":1," + valid.TrimStart()[1..] };
         foreach (var mutation in new Action<JsonNode>[] { n => n["Version"] = 99, n => n.AsObject().Remove("VerticalWheel"), n => n["AnimateOverview"] = null,
             n => n["Shortcut"] = 7, n => n["WheelDistance"] = 20, n => n["WheelDistance"] = 601,
-            n => n["Unknown"] = true, n => n["AutomaticAdmission"] = "true" })
+            n => n["Unknown"] = true, n => n["AutomaticAdmission"] = "true", n => n["KeyBindings"] = null,
+            n => n["KeyBindings"]!["Touch"]!["Modifiers"] = 8, n => n["KeyBindings"]!["Home"] = null,
+            n => n["KeyBindings"]!["Touch"]!["Key"] = 0x2E, n => n["KeyBindings"]!.AsObject().Remove("Touch"),
+            n => n["KeyBindings"]!["Home"]!.AsObject().Remove("Modifiers") })
         { var node = JsonNode.Parse(valid)!; mutation(node); samples.Add(node.ToJsonString()); }
         foreach (var sample in samples)
         {
@@ -110,6 +114,10 @@ internal static class PreferencesStorageChecks
         using var store = new JsonPreferencesStore(path); var value = store.Load()!;
         Require(!value.Navigation.VerticalWheel && value.Navigation.WheelDistance == 330 && value.Navigation.EdgePan && value.Navigation.PointerSpeed == 1
             && value.ShortcutMenu && File.ReadAllText(path) == legacy, "Legacy choices were lost or reading rewrote the file.");
-        store.Save(Custom); Require(store.Load() == Custom && JsonNode.Parse(File.ReadAllText(path))!["Version"]!.GetValue<int>() == 2, "New choices did not persist in the new schema.");
+        var previous = JsonNode.Parse(legacy)!; previous["Version"] = 2; previous["EdgePan"] = false; previous["PointerSpeed"] = 1.5; previous["ShortcutMenu"] = false;
+        var versionTwo = previous.ToJsonString(); File.WriteAllText(path, versionTwo); value = store.Load()!;
+        Require(value.Bindings == NavigationKeyBindings.Default && !value.Navigation.EdgePan && value.Navigation.PointerSpeed == 1.5 && !value.ShortcutMenu
+            && File.ReadAllText(path) == versionTwo, "Version-two migration lost old choices, enabled manual keys or rewrote the file.");
+        store.Save(Custom); Require(store.Load() == Custom && JsonNode.Parse(File.ReadAllText(path))!["Version"]!.GetValue<int>() == 3, "New choices did not persist in the new schema.");
     }
 }
