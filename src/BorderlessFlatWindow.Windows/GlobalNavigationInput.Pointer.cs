@@ -39,10 +39,11 @@ public sealed partial class GlobalNavigationInput
         if (MenuActive()) return;
         pendingCrosshair = false; ToggleCrosshairCore();
     }
-    public void ConfigureScreens(IEnumerable<PixelRect> screens)
+    public void ConfigureScreens(IEnumerable<PixelRect> screens, IEnumerable<PixelRect>? workAreas = null)
     {
         var copy = screens.ToArray(); if (copy.Any(screen => !screen.IsValid)) throw new ArgumentException("Invalid pointer surface.", nameof(screens));
-        Post(() => { if (!pointerScreens.SequenceEqual(copy)) { Leave("显示区域已更新，导航已退出。"); pointerScreens = copy; } });
+        var areas = workAreas?.ToArray() ?? copy; if (areas.Any(area => !area.IsValid)) throw new ArgumentException("Invalid touch surface.", nameof(workAreas));
+        Post(() => { if (!pointerScreens.SequenceEqual(copy) || !touchAreas.SequenceEqual(areas)) { Leave("显示区域已更新，导航已退出。"); pointerScreens = copy; touchAreas = areas; } });
     }
     private void InitializePointerInput()
     {

@@ -33,6 +33,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
         internal PixelRect Observed = observed;
         internal PixelRect? Desired;
         internal bool Parked;
+        internal bool Suspended;
         internal DateTimeOffset? Deadline;
         internal readonly HashSet<PixelRect> Expected = [];
     }
@@ -74,8 +75,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
         if (busy || IsRunning) return false;
         if (!layout.SupportsCanvas)
         { Message = "请将所有显示器设置为相同缩放比例；混合或未知 DPI 暂不接管。"; return false; }
-        if (selection.Count == 0 || selection.Select(entry => entry.Id).Distinct().Count() != selection.Count)
-        { Message = "请选择至少一个不同的普通窗口。"; return false; }
+        if (selection.Select(entry => entry.Id).Distinct().Count() != selection.Count)
+        { Message = "请选择不同的普通窗口。"; return false; }
         var unsupported = selection.Select(entry => Unsupported(entry, layout)).FirstOrDefault(reason => reason is not null);
         if (unsupported is not null) { Message = unsupported; return false; }
         busy = true;
@@ -83,7 +84,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
         try
         {
             var previousIdentities = managed.ToDictionary(pair => pair.Key, pair => pair.Value.Identity);
-            var resume = selection.Any(entry => previousIdentities.TryGetValue(entry.Id!.Value, out var prior) && prior == entry.Observation.Identity);
+            var resume = Status == CanvasSessionStatus.Paused && managed.Count == 0
+                || selection.Any(entry => previousIdentities.TryGetValue(entry.Id!.Value, out var prior) && prior == entry.Observation.Identity);
             var previous = Workspace.Windows.ToDictionary(window => window.Id);
             var camera = resume ? Workspace.Camera.Position : PointD.Zero;
             recovery?.Dispose(); recovery = createRecovery();
@@ -118,9 +120,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
                 Workspace.UpsertWindow(new(id, entry.Observation.Title, new(position, physical.Size)));
                 managed.Add(id, new(id, identity, original.Id, physical));
             }
-            if (managed.Count == 0) { Status = CanvasSessionStatus.Paused; Message = "当前没有可接管权限的普通窗口。"; return false; }
             Status = CanvasSessionStatus.Running;
-            Message = resume ? "画布已恢复，保留上次世界布局与相机。" : "已接管所选窗口。";
+            Message = managed.Count == 0 ? "画布运行中，等待新窗口。" : resume ? "画布已恢复，保留上次世界布局与相机。" : "已接管可用窗口。";
             if (skippedUnavailable.Count > 0) Message += $" 已跳过 {skippedUnavailable.Count} 个权限不足的窗口。";
             return ApplyCamera(camera, now, recordHistory: false);
         }
@@ -224,7 +225,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
     }
     public bool Focus(Guid id, DateTimeOffset now, bool activate = true)
     {
-        if (!IsRunning || busy || !managed.ContainsKey(id)) return false;
+        if (!IsRunning || busy || !managed.TryGetValue(id, out var focusState) || focusState.Suspended) return false;
         var target = Workspace.Windows.Single(window => window.Id == id);
         if (!Navigate(FocusPosition(target.Bounds), now)) return false;
         activation = activate ? id : null;
@@ -235,7 +236,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
     public bool CycleWindow(int direction, DateTimeOffset now, bool animate = false)
     {
         if (!IsRunning || busy || NavigationSuspended || direction == 0 || managed.Count == 0) return false;
-        var ids = Workspace.Windows.Select(w => w.Id).Where(managed.ContainsKey).ToArray();
+        var ids = Workspace.Windows.Select(w => w.Id).Where(id => managed.TryGetValue(id, out var state) && !state.Suspended).ToArray();
+        if (ids.Length == 0) return false;
         var index = Array.IndexOf(ids, activation ?? cycleTarget ?? ActiveWindowId ?? Guid.Empty);
         var next = index < 0 ? direction > 0 ? 0 : ids.Length - 1 : (index + Math.Sign(direction) + ids.Length) % ids.Length;
         if (animate)
@@ -268,6 +270,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
         var plans = new Dictionary<Guid, WindowPlacementPlan>();
         foreach (var window in Workspace.Windows)
         {
+            if (managed[window.Id].Suspended) continue;
             if (!planner.TryPlan(window.Bounds, camera, out var plan))
             { Message = "目标位置无法安全投影；相机未改变。"; return false; }
             plans.Add(window.Id, plan!);
@@ -304,8 +307,19 @@ public sealed partial class ManagedCanvasSession : IDisposable
         try
         {
             var byHandle = snapshot.Entries.ToDictionary(entry => entry.Observation.Handle);
-            // Closing often emits hide first. That pauses management before the later destroy event.
-            if (!IsRunning) { PruneClosed(byHandle); return; }
+            if (!PruneClosed(byHandle, foreground) || !IsRunning) return;
+            // A close commonly emits hide before destroy. Suspend this target
+            // locally so its disappearance cannot roll back surviving windows.
+            foreach (var state in managed.Values)
+                if (byHandle.TryGetValue(state.Identity.Handle, out var hidden) && hidden.Id == state.Id && hidden.Observation.Identity == state.Identity
+                    && hidden.Observation.IsAlive && !hidden.Observation.IsVisible)
+                {
+                    if (!state.Suspended) InvalidateArrangementFor(state.Id);
+                    state.Suspended = true; state.Deadline = null; state.Expected.Clear();
+                    if (focusMotion?.Target == state.Id) CancelCameraTransition();
+                    if (activation == state.Id) activation = null;
+                    if (state.Identity.Handle == lastForeground) lastForeground = foreground;
+                }
             foreach (var entry in snapshot.Entries)
             {
                 var observation = entry.Observation;
@@ -318,7 +332,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
             if (foreground != lastForeground && focusMotion is not null) CancelCameraTransition();
             if (foreground != lastForeground && active?.Id != cycleTarget) cycleTarget = null;
             ActiveWindowId = active?.Id;
-            if (!NavigationSuspended && foreground != lastForeground && active is { Parked: true })
+            if (!NavigationSuspended && foreground != lastForeground && active is { Parked: true, Suspended: false })
             {
                 var window = Workspace.Windows.Single(window => window.Id == active.Id);
                 if (byHandle.TryGetValue(foreground, out var activated) && activated.Id == active.Id
@@ -338,15 +352,21 @@ public sealed partial class ManagedCanvasSession : IDisposable
             var mapper = new DesktopCoordinateMapper(Workspace.Camera.Position, layout.CanvasWorkArea);
             foreach (var state in managed.Values.ToArray())
             {
+                if (state.Suspended && byHandle.TryGetValue(state.Identity.Handle, out var hidden) && hidden.Id == state.Id
+                    && hidden.Observation.Identity == state.Identity && !hidden.Observation.IsVisible) continue;
                 if (!byHandle.TryGetValue(state.Identity.Handle, out var entry) || entry.Id != state.Id
                     || entry.Observation.Identity != state.Identity || !entry.Admission.IsAdmitted
                     || entry.Observation.IsMaximized || entry.Observation.IsTopMost)
                 {
-                    PruneClosed(byHandle);
-                    PauseInternal("受管理窗口关闭、身份或状态改变，已暂停恢复。"); return;
+                    PauseInternal("受管理窗口的身份或状态无法核验，已暂停恢复。"); return;
                 }
                 var bounds = entry.Observation.Bounds!.Value;
                 var actual = new PixelRect(checked((int)bounds.Position.X), checked((int)bounds.Position.Y), checked((int)bounds.Right), checked((int)bounds.Bottom));
+                if (state.Suspended)
+                {
+                    state.Suspended = false; state.Observed = actual; state.Desired = null;
+                    if (!ApplyCamera(Workspace.Camera.Position, now, recordHistory: false)) return;
+                }
                 var world = Workspace.Windows.Single(window => window.Id == state.Id);
                 if (state.Deadline is not null)
                 {
@@ -375,21 +395,28 @@ public sealed partial class ManagedCanvasSession : IDisposable
         finally { ExitBusy(); }
     }
 
-    private void PruneClosed(IReadOnlyDictionary<nint, InspectedWindow> entries)
+    private bool PruneClosed(IReadOnlyDictionary<nint, InspectedWindow> entries, nint foreground)
     {
         foreach (var candidate in managed.Values.ToArray())
         {
             if (entries.TryGetValue(candidate.Identity.Handle, out var current) && current.Observation.IsAlive
-                && (current.Observation.Identity is null || current.Observation.Identity == candidate.Identity)) continue;
+                && (current.Id is null || current.Id == candidate.Id) && (current.Observation.Identity is null || current.Observation.Identity == candidate.Identity)) continue;
+            if (recovery is not null && !recovery.ReleaseStaleOwnership(candidate.RecoveryId))
+            { PauseInternal("窗口从目录消失但仍有原生所有权，已暂停核验。"); return false; }
+            if (focusMotion?.Target == candidate.Id) CancelCameraTransition();
+            if (activation == candidate.Id) activation = null;
+            if (cycleTarget == candidate.Id) cycleTarget = null;
+            if (candidate.Identity.Handle == lastForeground) lastForeground = foreground;
             Workspace.RemoveWindow(candidate.Id); managed.Remove(candidate.Id);
             InvalidateArrangementFor(candidate.Id);
             if (ActiveWindowId == candidate.Id) ActiveWindowId = null;
         }
+        return true;
     }
 
     private void CompleteActivation()
     {
-        if (activation is not { } id || !managed.TryGetValue(id, out var target) || target.Deadline is not null) return;
+        if (activation is not { } id || !managed.TryGetValue(id, out var target) || target.Suspended || target.Deadline is not null) return;
         activation = null;
         Message = motion.RequestActivation(recovery!, target.RecoveryId)
             ? "已定位并请求激活目标窗口。" : "已定位目标；Windows 未允许激活，请点击窗口。";

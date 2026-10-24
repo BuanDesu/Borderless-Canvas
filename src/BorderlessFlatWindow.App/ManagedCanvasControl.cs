@@ -490,6 +490,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
         catch (Exception exception) when (Expected(exception)) { notice = $"接管未完成：{exception.Message}"; }
         finally { reading = false; RefreshState(); }
     }
+    internal void StartOnLaunch()
+    {
+        if (FindForm() is MainForm { IsTransparentFixture: true } || session?.Status != CanvasSessionStatus.Idle) return;
+        if (globalInput is null) { notice = "输入接管未就绪，未自动开始画布。"; RefreshState(); return; }
+        Begin();
+    }
 
     private void VerifyPending()
     {
@@ -565,7 +571,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal (bool Running, int Count, PointD Camera) Diagnostics() =>
         (session?.IsRunning == true, session?.Workspace.Windows.Count ?? 0, session?.Workspace.Camera.Position ?? PointD.Zero);
     internal void EndNavigationForEditing()
-    { CloseTouchNavigation(discard: true); gestures?.End(DateTimeOffset.UtcNow); globalInput?.Exit(); hud?.Hide(); }
+    { CloseTouchNavigation(discard: true); gestures?.Accept(new(NavigationInputKind.Exit, PointD.Zero), DateTimeOffset.UtcNow); globalInput?.Exit(); hud?.Hide(); }
     internal string GoToBookmark(Guid id)
     {
         if (!CanJumpToBookmark) return "请先在窗口画布页开始管理，再跳转位置标签。";
@@ -595,7 +601,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         if (globalInput is null) return;
         var screens = layout?.Monitors.Select(m => m.Bounds).ToArray() ?? [];
-        if (configuredPointerScreens.SequenceEqual(screens)) return;
-        configuredPointerScreens = screens; globalInput.ConfigureScreens(screens);
+        var areas = layout?.Monitors.Select(m => m.WorkArea).ToArray() ?? [];
+        if (configuredPointerScreens.SequenceEqual(screens) && configuredTouchAreas.SequenceEqual(areas)) return;
+        configuredPointerScreens = screens; configuredTouchAreas = areas; globalInput.ConfigureScreens(screens, areas);
     }
+    private PixelRect[] configuredTouchAreas = [];
 }

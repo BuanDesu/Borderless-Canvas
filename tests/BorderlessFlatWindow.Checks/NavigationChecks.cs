@@ -27,6 +27,7 @@ internal static class NavigationChecks
         yield return ("Single button or a stationary chord creates no navigation history", NoOp);
         yield return ("Wheel then drag ends the first gesture before beginning the next", WheelThenDrag);
         yield return ("Wheel during a chord cannot compete with drag movement", IgnoreWheelDuringDrag);
+        yield return ("A mouse-to-touch boundary flushes the drag and resets held-button state before wheel input", MouseToTouch);
         yield return ("Many pointer moves coalesce into one native request per frame", Coalescing);
         yield return ("Escape flushes a final accepted delta and ends one history entry", Escape);
         yield return ("Fault cancellation discards queued deltas but keeps accepted history", Cancel);
@@ -42,6 +43,15 @@ internal static class NavigationChecks
         yield return ("One contact owns its gesture and cancellation never uses a different contact's position", ContactOwnership);
         yield return ("Touch release includes its final position and repeated release cannot move the camera", ContactRelease);
         yield return ("A refused touch pan cannot resume from later move events without a new contact", ContactRefused);
+    }
+    private static void MouseToTouch()
+    {
+        var h = new Harness(); Chord(h); h.Send(NavigationInputKind.Move, 40, 60); h.Tick();
+        h.Gesture.Accept(new(NavigationInputKind.Exit, PointD.Zero), Now); var before = h.Workspace.Camera.Position;
+        h.Send(NavigationInputKind.Wheel, wheel: 120); h.Tick();
+        Require(h.Workspace.Camera.Position == before + new PointD(0, -120), "A completed mouse drag blocked touch wheel input.");
+        h.Send(NavigationInputKind.HorizontalWheel, wheel: -40); h.Tick();
+        Require(h.Workspace.Camera.Position == before + new PointD(-40, -120), "Horizontal touch input retained mouse chord state.");
     }
     private static void ContactDrag()
     {
