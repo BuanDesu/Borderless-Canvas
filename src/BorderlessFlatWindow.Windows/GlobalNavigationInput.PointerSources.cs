@@ -43,6 +43,7 @@ public sealed partial class GlobalNavigationInput
         if (!available || overviewOpen) return;
         if (!crosshair)
         {
+            if (sample.Absolute) { edgeMotion.Reset(); return; }
             if (!sample.Absolute && (sample.Value == PointD.Zero || ObserveRawHookHealth())) ProcessPointerMovement(sample.Value);
             return;
         }

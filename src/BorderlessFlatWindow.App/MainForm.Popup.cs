@@ -22,11 +22,13 @@ internal sealed partial class MainForm
         dismissPopup.Tick += (_, _) =>
         {
             dismissPopup.Stop();
-            if (!reviewPanel && Visible && !management.HasOverview && !OwnedForms.Any(f => f.Visible) && !ForegroundWindowBookmark.IsApplicationForeground) Hide();
+            TryDismissPopup();
         };
         Resize += (_, _) => UpdatePopupRegion();
         DockPopup(Screen.PrimaryScreen ?? Screen.FromControl(this)); UpdatePopupRegion();
     }
+    private void TryDismissPopup()
+    { if (!reviewPanel && Visible && !management.HasOverview && !OwnedForms.Any(f => f.Visible) && !ForegroundWindowBookmark.IsApplicationForeground) Hide(); }
     private void UpdatePopupRegion()
     {
         if (showWithoutActivation || Width < 1 || Height < 1) return;

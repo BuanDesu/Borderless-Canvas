@@ -207,6 +207,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         return () => owner.BeginInvoke(() =>
         {
             if (IsDisposed || Disposing) return;
+            globalInput?.AcknowledgeUiWake();
             deliveredInputWakes++; navigationTimer.Start();
         });
     }
@@ -585,7 +586,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { CloseTouchNavigation(discard: true, refresh: false); DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { DisposeInputStatus(); CloseTouchNavigation(discard: true, refresh: false); DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }
     private void ConfigurePointerScreens()

@@ -31,6 +31,58 @@ internal static class NavigationRoutingChecks
         check("Legacy remote movement falls back without exit, skips baseline and duplicate positions, and restores ownership", RemoteLegacy);
         check("Pointer source handovers rebaseline instead of double-counting or jumping the camera", SourceHandover);
         check("Precision desktop wheel routes both axes and Ctrl-wheel accumulates without leaking or skipping windows", PrecisionWheel);
+        check("Delivered input wakes retry after a stopped UI timer without a settings drain or additional input", DeliveredWake);
+        check("A new canvas input session clears an earlier suspension without bypassing Escape in the current session", SessionReentry);
+        check("Edge worker accelerates only on fresh outward input and stops on inward movement, location, pause and modifiers", EdgeWorker);
+    }
+    private static void EdgeWorker()
+    {
+        using var h = new Harness(); h.Input.SynchronizeRoutingCheck(() => h.Desktop.Pointer = new(1919, 500)); h.Input.Drain();
+        h.Input.RelativeRoutingCheck(new(100, 0));
+        for (var i = 0; i < 65; i++) h.Input.RelativeRoutingCheck(new(1, 0), () => h.Desktop.TickCount += 20);
+        var deltas = h.Input.Drain().Where(item => item.Input.Kind == NavigationInputKind.CameraDelta).ToArray();
+        Require(deltas.Length == 65 && deltas[^1].Input.Position.X > deltas[0].Input.Position.X * 8, "Worker did not ramp the edge.");
+        h.Input.TimerRoutingCheck(() => h.Desktop.TickCount += 40);
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CameraDelta), "An idle timer continued edge movement.");
+        h.Input.RelativeRoutingCheck(new(-1, 0)); h.Input.RelativeRoutingCheck(new(1, 0));
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CameraDelta), "Reversal retained old movement.");
+        h.Input.RelativeRoutingCheck(new(1, 0), () => h.Desktop.TickCount += 20);
+        Require(h.Input.Drain().Single(item => item.Input.Kind == NavigationInputKind.CameraDelta).Input.Position.X < 5, "Edge did not restart slowly.");
+        h.Input.MouseRoutingCheck(0x200, new(100, 100)); h.Input.Drain();
+        h.Input.RelativeRoutingCheck(new(1, 0), () => h.Desktop.TickCount += 10);
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CameraDelta), "An absolute pointer exit retained edge acceleration.");
+        h.Input.SetAvailable(false); h.Input.SetAvailable(true); h.Input.SynchronizeRoutingCheck(); h.Input.Drain();
+        h.Input.RelativeRoutingCheck(new(1, 0), () => h.Desktop.TickCount += 10);
+        h.Input.KeyRoutingCheck(0x11); h.Input.RelativeRoutingCheck(new(1, 0), () => h.Desktop.TickCount += 10);
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CameraDelta), "Pause/modifier boundary retained acceleration.");
+    }
+    private static void DeliveredWake()
+    {
+        var platform = new Platform(); var delivered = 0;
+        using var input = new GlobalNavigationInput(() => Interlocked.Increment(ref delivered), null, null, platform);
+        input.SetAvailable(true); input.SynchronizeRoutingCheck();
+        var before = Volatile.Read(ref delivered);
+        // The callback ran, but startup/recovery stopped the timer before Drain.
+        input.AcknowledgeUiWake();
+        for (var i = 0; i < 100; i++) input.Configure(new());
+        input.SynchronizeRoutingCheck();
+        Require(Volatile.Read(ref delivered) == before, "Acknowledging delivery expanded a raw-rate notification burst before Drain.");
+        input.TimerRoutingCheck(() => platform.TickCount += 100);
+        Require(Volatile.Read(ref delivered) > before, "A successful UI post stayed coalesced after its consumer timer stopped.");
+        var retried = Volatile.Read(ref delivered);
+        input.TimerRoutingCheck(); input.TimerRoutingCheck();
+        Require(Volatile.Read(ref delivered) == retried, "Unacknowledged UI callbacks accumulated.");
+        input.Drain(); input.TimerRoutingCheck();
+        Require(!input.HasPendingUiNotification && Volatile.Read(ref delivered) == retried, "Drained state kept waking the UI.");
+    }
+    private static void SessionReentry()
+    {
+        using var h = new Harness();
+        h.Input.Exit(); h.Input.SynchronizeRoutingCheck(); h.Input.Drain();
+        Require(!h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120), "Explicit suspension immediately reentered.");
+        h.Input.SetAvailable(false); h.Input.SetAvailable(true); h.Input.SynchronizeRoutingCheck(); h.Input.Drain();
+        Require(h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120), "A fresh session inherited an earlier automatic navigation suspension.");
+        Require(h.Input.Drain().Any(item => item.Input.Kind == NavigationInputKind.Wheel), "Fresh session input failed to reach its consumer.");
     }
     private static void PrecisionWheel()
     {

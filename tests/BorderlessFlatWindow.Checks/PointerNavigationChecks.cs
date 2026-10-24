@@ -12,6 +12,68 @@ internal static class PointerNavigationChecks
         yield return ("Normalized absolute pointer coordinates map primary and negative virtual surfaces", AbsoluteMapping);
         yield return ("Absolute pointer deltas rebaseline on device, surface, gap and warp changes", AbsoluteBaselines);
         yield return ("Legacy absolute deltas never turn a stationary repeat into continued motion", AbsoluteStationary);
+        yield return ("Edge speed ramps from low speed to a bounded plateau under continuous outward input", EdgeRamp);
+        yield return ("Edge movement depends on elapsed outward input rather than device distance or polling rate", EdgeRate);
+        yield return ("Edge stop, reversal and stale input restart slowly without catch-up motion", EdgeStop);
+        yield return ("Edge position changes, seams, disabled settings and reset discard earlier acceleration", EdgeBoundaries);
+        yield return ("Corner axes accelerate independently and pointer gain scales speed", EdgeAxes);
+    }
+    private static void EdgeRamp()
+    {
+        var edge = new EdgePanMotion(); var options = new NavigationInputOptions(); var pointer = new PointD(1919, 500);
+        Require(edge.Observe(new(1, 0), pointer, Screens, options, 0) == PointD.Zero, "First sample jumped.");
+        var first = edge.Observe(new(1, 0), pointer, Screens, options, 20).X; var latest = first;
+        for (var t = 40; t <= 1600; t += 20) latest = edge.Observe(new(1, 0), pointer, Screens, options, t).X;
+        Require(first > 0 && first < 5 && latest > first * 8 && Math.Abs(latest - EdgePanMotion.MaximumSpeed * .02) < 1e-8,
+            "Edge did not ramp smoothly to its bounded time-based speed.");
+    }
+    private static double EdgeDistance(int step, double amount)
+    {
+        var edge = new EdgePanMotion(); var sum = 0d;
+        for (var t = 0; t <= 1600; t += step) sum += edge.Observe(new(amount, 0), new(1919, 500), Screens, new(), t).X;
+        return sum;
+    }
+    private static void EdgeRate()
+    {
+        var baseline = EdgeDistance(1, 1);
+        Require(Math.Abs(baseline - EdgeDistance(8, 80)) < 1e-7 && Math.Abs(baseline - EdgeDistance(16, 2)) < 1e-7,
+            "Device distance or polling frequency changed the velocity profile.");
+        var edge = new EdgePanMotion();
+        for (var i = 0; i < 100; i++) Require(edge.Observe(new(20, 0), new(1919, 500), Screens, new(), 50) == PointD.Zero,
+            "Packets within one clock tick invented elapsed movement.");
+    }
+    private static void EdgeStop()
+    {
+        var edge = new EdgePanMotion(); var pointer = new PointD(1919, 500); var options = new NavigationInputOptions();
+        for (var t = 0; t <= 1200; t += 20) edge.Observe(new(1, 0), pointer, Screens, options, t);
+        Require(edge.Observe(PointD.Zero, pointer, Screens, options, 1220) == PointD.Zero
+            && edge.Observe(new(1, 0), pointer, Screens, options, 1240) == PointD.Zero
+            && edge.Observe(new(1, 0), pointer, Screens, options, 1260).X < 5, "Stopping retained acceleration.");
+        Require(edge.Observe(new(-1, 0), pointer, Screens, options, 1280) == PointD.Zero
+            && edge.Observe(new(1, 0), pointer, Screens, options, 1300) == PointD.Zero, "Reversal did not stop/reset the edge.");
+        Require(edge.Observe(new(1, 0), pointer, Screens, options, 1800) == PointD.Zero
+            && edge.Observe(new(1, 0), pointer, Screens, options, 1790) == PointD.Zero, "Idle or clock reversal caught up old movement.");
+    }
+    private static void EdgeBoundaries()
+    {
+        var edge = new EdgePanMotion(); var options = new NavigationInputOptions();
+        edge.Observe(new(1, 0), new(1919, 500), Screens, options, 0);
+        edge.Observe(new(1, 0), new(1919, 500), Screens, options, 20);
+        edge.ConstrainToPointer(new(1800, 500), Screens, options);
+        Require(edge.Observe(new(1, 0), new(1919, 500), Screens, options, 40) == PointD.Zero, "Leaving the border retained acceleration.");
+        PixelRect[] joined = [Screens[0], new(1920, 0, 3840, 1080)];
+        Require(edge.Observe(new(1, 0), new(1919, 500), joined, options, 60) == PointD.Zero, "A monitor seam accelerated.");
+        Require(edge.Observe(new(1, 0), new(1919, 500), Screens, new(edgePan: false), 80) == PointD.Zero, "Opt-out moved the camera.");
+        edge.Reset(); Require(edge.Observe(new(1, 0), new(1919, 500), Screens, options, 100) == PointD.Zero, "Reset retained time.");
+    }
+    private static void EdgeAxes()
+    {
+        var edge = new EdgePanMotion(); var options = new NavigationInputOptions(pointerSpeed: 2);
+        edge.Observe(new(1, 1), new(1919, 1079), Screens, options, 0);
+        var diagonal = edge.Observe(new(100, 2), new(1919, 1079), Screens, options, 20);
+        Require(diagonal.X > 0 && diagonal.X == diagonal.Y && diagonal.X < 10, "Corner axes used packet distance.");
+        var horizontal = edge.Observe(new(1, -1), new(1919, 1079), Screens, options, 40);
+        Require(horizontal.X > diagonal.X && horizontal.Y == 0, "Stopping one corner axis interrupted the other.");
     }
     private static readonly PixelRect[] Screens = [new(0, 0, 1920, 1080)];
     private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }

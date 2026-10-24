@@ -33,6 +33,7 @@ public sealed class DesktopNavigationPolicy
         return available && !overview && !suspended && (capturedButtons || desktop && applicationButtons == 0 && !physicalButtons);
     }
     public void Suspend() => suspended = true;
+    public void Resume() => suspended = false;
     public void ObserveButton(NavigationInputKind kind, bool captured)
     {
         var bit = kind is NavigationInputKind.LeftDown or NavigationInputKind.LeftUp ? 1
