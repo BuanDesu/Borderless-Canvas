@@ -6,7 +6,7 @@ namespace BorderlessFlatWindow.App;
 
 internal sealed partial class MainForm
 {
-    internal void CheckInputAvailabilitySmoke() => management.CheckInputAvailabilityBoundaries();
+    internal void CheckInputAvailabilitySmoke() { management.CheckInputAvailabilityBoundaries(); management.CheckTouchNavigationBoundaries(); }
     internal void CheckOwnerInputWakeSmoke() => management.CheckOwnerInputWake();
     internal static void CheckDesktopLifecycleDispose(string directory)
     {

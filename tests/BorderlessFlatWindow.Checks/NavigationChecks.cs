@@ -35,6 +35,82 @@ internal static class NavigationChecks
         yield return ("Disabled chord navigation passes ordinary buttons without queueing", DragOptions);
         yield return ("Configured wheel distance scales full and partial notches", WheelDistance);
         yield return ("Invalid wheel distance is rejected before capturing input", InvalidDistance);
+        yield return ("Precision Ctrl-wheel packets accumulate to one selection per full wheel unit", PrecisionCycle);
+        yield return ("Window cycle remainders cannot cross an input boundary or an idle gap", CycleBoundary);
+        yield return ("Precision horizontal and vertical pan preserve small deltas within one frame", PrecisionPan);
+        yield return ("Direct contact drags the canvas without mouse chords and preserves one return origin across pauses", ContactDrag);
+        yield return ("One contact owns its gesture and cancellation never uses a different contact's position", ContactOwnership);
+        yield return ("Touch release includes its final position and repeated release cannot move the camera", ContactRelease);
+        yield return ("A refused touch pan cannot resume from later move events without a new contact", ContactRefused);
+    }
+    private static void ContactDrag()
+    {
+        var h = new Harness(); h.Gesture.Options = new(twoButtonDrag: false);
+        h.Send(NavigationInputKind.PanStart, 100, 100);
+        h.Send(NavigationInputKind.PanMove, 160, 140, at: 50); h.Tick(50); h.Tick(2000);
+        h.Send(NavigationInputKind.PanMove, 200, 160, at: 2200); h.Tick(2200);
+        Require(h.Workspace.Camera.Position == new PointD(-100, -60) && h.Records == 0 && h.Gesture.HasGesture,
+            "Touch required a chord or split on an idle interval.");
+        h.Send(NavigationInputKind.PanEnd, 200, 160, at: 2300);
+        Require(h.Records == 1 && !h.Gesture.HasGesture, "Touch did not finish one history entry.");
+        h.Workspace.ReturnToPreviousView(); Require(h.Workspace.Camera.Position == PointD.Zero, "Back did not return across the whole touch drag.");
+    }
+    private static void ContactOwnership()
+    {
+        var contact = new ContactPan();
+        Require(contact.Accept(1, ContactPhase.Down, new(100, 100))?.Kind == NavigationInputKind.PanStart,
+            "First contact did not start.");
+        Require(contact.Accept(2, ContactPhase.Down, new(500, 500)) is null && contact.Accept(2, ContactPhase.Move, new(800, 900)) is null
+            && contact.Accept(2, ContactPhase.Up, new(800, 900)) is null, "Secondary contact stole the pan.");
+        contact.Accept(1, ContactPhase.Move, new(120, 130));
+        Require(contact.Accept(1, ContactPhase.Cancel, PointD.Zero)?.Position == new PointD(120, 130)
+            && contact.Accept(1, ContactPhase.Move, new(300, 300)) is null && contact.Cancel() is null,
+            "Cancel jumped to an unrelated position or left a contact active.");
+    }
+    private static void ContactRelease()
+    {
+        var h = new Harness(); var contact = new ContactPan();
+        foreach (var (phase, point) in new[] { (ContactPhase.Down, new PointD(100, 100)), (ContactPhase.Move, new PointD(110, 110)), (ContactPhase.Up, new PointD(120, 130)) })
+            if (contact.Accept(7, phase, point) is { } input) h.Gesture.Accept(input, Now);
+        Require(h.Workspace.Camera.Position == new PointD(-20, -30) && h.Records == 1
+            && contact.Accept(7, ContactPhase.Up, new(200, 200)) is null, "Release lost its final delta or repeated it.");
+    }
+    private static void ContactRefused()
+    {
+        var h = new Harness { Reject = true };
+        h.Send(NavigationInputKind.PanStart, 100, 100); h.Send(NavigationInputKind.PanMove, 120, 140); h.Tick();
+        h.Reject = false; h.Send(NavigationInputKind.PanMove, 200, 200); h.Send(NavigationInputKind.PanEnd, 220, 220); h.Tick();
+        Require(h.Workspace.Camera.Position == PointD.Zero && h.Requests == 1, "A refused touch sequence resumed without a new contact.");
+    }
+    private static void PrecisionCycle()
+    {
+        foreach (var delta in new[] { 1, 40, 120, -1, -40, -120 })
+        {
+            var wheel = new WindowCycleWheel(); var steps = 0;
+            for (var i = 0; i < 120 / Math.Abs(delta); i++) steps += wheel.Add(delta, i);
+            Require(steps == Math.Sign(delta), "Precision packets skipped or repeated a window.");
+        }
+        var reversed = new WindowCycleWheel();
+        Require(reversed.Add(100, 0) == 0 && reversed.Add(-100, 1) == 0 && reversed.Add(-120, 2) == -1,
+            "Reversing a partial movement selected an extra window.");
+    }
+    private static void CycleBoundary()
+    {
+        var wheel = new WindowCycleWheel();
+        Require(wheel.Add(100, 0) == 0 && wheel.Add(30, 400) == 0, "Idle carried a partial selection.");
+        wheel.Reset(); Require(wheel.Add(100, 500) == 0 && wheel.Add(30, 499) == 0, "Clock reversal carried a partial selection.");
+        wheel.Reset(); Require(wheel.Add(100, 600) == 0, "Explicit boundary did not reset.");
+        wheel.Reset(); Require(wheel.Add(0, 601) == 0 && wheel.Add(240, 602) == 2 && wheel.Add(int.MaxValue, 603) == 12,
+            "Zero, multiple notches or bounded work failed.");
+    }
+    private static void PrecisionPan()
+    {
+        var h = new Harness();
+        for (var i = 0; i < 40; i++)
+        { h.Send(NavigationInputKind.HorizontalWheel, wheel: 1, at: i); h.Send(NavigationInputKind.Wheel, wheel: -1, at: i); }
+        h.Tick(40);
+        Require(h.Workspace.Camera.Position == new PointD(40, 40) && h.Requests == 1,
+            "Small two-axis packets were rounded or executed outside the frame merge.");
     }
     private static void AutomaticBoundary()
     {

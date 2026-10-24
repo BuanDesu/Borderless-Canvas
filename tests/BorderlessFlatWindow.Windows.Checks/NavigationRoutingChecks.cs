@@ -30,6 +30,25 @@ internal static class NavigationRoutingChecks
         check("Absolute remote mouse samples keep crosshair active and accumulate normalized motion at the center", RemoteAbsolute);
         check("Legacy remote movement falls back without exit, skips baseline and duplicate positions, and restores ownership", RemoteLegacy);
         check("Pointer source handovers rebaseline instead of double-counting or jumping the camera", SourceHandover);
+        check("Precision desktop wheel routes both axes and Ctrl-wheel accumulates without leaking or skipping windows", PrecisionWheel);
+    }
+    private static void PrecisionWheel()
+    {
+        using var h = new Harness(); h.Desktop.Keys.Add(0x11);
+        for (var i = 0; i < 119; i++) Require(h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 1), "Partial Ctrl-wheel leaked to Explorer.");
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CycleWindow), "A sub-notch packet selected a window.");
+        h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 1);
+        Require(h.Input.Drain().Single(item => item.Input.Kind == NavigationInputKind.CycleWindow).Input.WheelDelta == 120,
+            "One accumulated wheel unit did not select once.");
+        h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 100);
+        h.Input.KeyRoutingCheck(0xA2, true, () => h.Desktop.Keys.Clear());
+        h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 30, () => h.Desktop.Keys.Add(0x11));
+        Require(h.Input.Drain().All(item => item.Input.Kind != NavigationInputKind.CycleWindow), "Ctrl release carried a partial unit.");
+        h.Desktop.Keys.Clear();
+        Require(h.Input.MouseRoutingCheck(0x20E, h.Desktop.Pointer, 1) && h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, -1), "Precision pan leaked.");
+        var pans = h.Input.Drain();
+        Require(pans.Count == 2 && pans[0].Input.Kind == NavigationInputKind.HorizontalWheel && pans[0].Input.WheelDelta == 1
+            && pans[1].Input.Kind == NavigationInputKind.Wheel && pans[1].Input.WheelDelta == -1, "Precision pan changed direction or magnitude.");
     }
     private sealed class Platform : INavigationInputPlatform
     {

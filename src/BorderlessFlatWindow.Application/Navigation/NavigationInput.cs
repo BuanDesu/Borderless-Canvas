@@ -3,7 +3,7 @@ using BorderlessFlatWindow.Application.Discovery;
 
 namespace BorderlessFlatWindow.Application.Navigation;
 
-public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault, CameraDelta, TogglePin }
+public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault, CameraDelta, TogglePin, PanStart, PanMove, PanEnd }
 public readonly record struct NavigationInput(NavigationInputKind Kind, PointD Position, int WheelDelta = 0, bool Shift = false, nint TargetWindow = 0, NativeWindowIdentity? TargetIdentity = null, Guid TargetId = default);
 public sealed record NavigationInputOptions
 {
@@ -93,7 +93,7 @@ public sealed class NavigationGestureSession
     private PointD? origin;
     private PointD pending;
     private PointD pointer;
-    private bool left, right, dragging;
+    private bool left, right, dragging, directPan;
     private DateTimeOffset? wheelAt;
     public bool HasGesture => origin is not null;
     public NavigationInputOptions Options { get; set; } = new();
@@ -102,6 +102,20 @@ public sealed class NavigationGestureSession
     public void Accept(NavigationInput input, DateTimeOffset now)
     {
         if (input.Kind is NavigationInputKind.Exit or NavigationInputKind.Fault) { End(now); left = right = dragging = false; return; }
+        if (input.Kind == NavigationInputKind.PanStart)
+        {
+            if (directPan) return;
+            End(now); left = right = dragging = false;
+            Begin(); pointer = input.Position; directPan = true; return;
+        }
+        if (input.Kind is NavigationInputKind.PanMove or NavigationInputKind.PanEnd)
+        {
+            if (!directPan) return;
+            pending += pointer - input.Position; pointer = input.Position;
+            if (input.Kind == NavigationInputKind.PanEnd) End(now);
+            return;
+        }
+        if (directPan) return;
         if (input.Kind == NavigationInputKind.CameraDelta)
         {
             if (dragging) return;
@@ -140,18 +154,18 @@ public sealed class NavigationGestureSession
     {
         Flush(now);
         if (origin is { } start) recordOrigin(start);
-        origin = null; wheelAt = null; pending = PointD.Zero;
+        origin = null; wheelAt = null; pending = PointD.Zero; directPan = false;
     }
     public void Cancel()
     {
         if (origin is { } start) recordOrigin(start);
-        origin = null; wheelAt = null; pending = PointD.Zero; left = right = dragging = false;
+        origin = null; wheelAt = null; pending = PointD.Zero; left = right = dragging = directPan = false;
     }
     private void Begin() => origin ??= camera();
     private void Flush(DateTimeOffset now)
     {
         if (pending == PointD.Zero) return;
         var delta = pending; pending = PointD.Zero;
-        if (!navigate(camera() + delta, now)) { if (origin is { } start) recordOrigin(start); origin = null; wheelAt = null; }
+        if (!navigate(camera() + delta, now)) { if (origin is { } start) recordOrigin(start); origin = null; wheelAt = null; directPan = false; }
     }
 }

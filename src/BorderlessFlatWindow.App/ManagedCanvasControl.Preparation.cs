@@ -16,7 +16,7 @@ internal sealed partial class ManagedCanvasControl
     private long lastCanvasInput;
 
     private bool CanPrepareOverview => !preparationDisposed && !IsDisposed && !Disposing && IsHandleCreated && !reading && !editingArrangement && !editingSettings && !panelActionPending && !desktopTransitionPending
-        && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null
+        && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null && touchNavigation is null
         && session is { IsRunning: true, IsBusy: false, HasPending: false } && layout?.SupportsCanvas == true
         && gestures?.HasGesture != true && !moreMenu.Visible
         && FindForm() is MainForm { AllowsOverviewPreparation: true } host

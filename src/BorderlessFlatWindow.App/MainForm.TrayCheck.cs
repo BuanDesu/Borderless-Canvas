@@ -25,6 +25,7 @@ internal sealed partial class MainForm
             if (!Visible || pendingManagerTarget is not null || !ReferenceEquals(tabs.SelectedTab, recovery.Parent)) throw new InvalidOperationException("Deferred tray action did not complete after overview cleanup.");
         });
         management.SetTransparentMenusForCheck();
+        CheckInputStatusTrayAction();
         foreach (var appearance in new[] { true, false })
         {
             ((ToolStripMenuItem)traySettings!.DropDownItems[appearance ? 1 : 2]).PerformClick();
@@ -66,6 +67,34 @@ internal sealed partial class MainForm
         }
         finally { TopMost = topmost; }
         Console.WriteLine("PASS Tray shared settings menus, deferred panel selection, stable shell presentation and real modal save/cancel ownership");
+    }
+    private void CheckInputStatusTrayAction()
+    {
+        Exception? failure = null; var done = false; var ticks = 0;
+        var expected = management.CaptureRuntimeInformation();
+        using var timer = new System.Windows.Forms.Timer { Interval = 10 };
+        timer.Tick += (_, _) =>
+        {
+            var dialog = OwnedForms.SingleOrDefault(form => form.Name == "InputStatus" && form.Visible);
+            try
+            {
+                if (++ticks > 100) throw new InvalidOperationException("Input status modal timed out.");
+                if (dialog is null) return;
+                var report = DescendantsForTray(dialog).OfType<TextBox>().Single(control => control.Name == "InputStatusReport");
+                if (report.Text != expected || !report.ReadOnly || TrayCheckIsEnabled(Handle) || TrayState.CanConfigure)
+                    throw new InvalidOperationException("Tray input status lost its pre-panel report or modal ownership.");
+                done = true; timer.Stop(); dialog.Close();
+            }
+            catch (Exception error) { failure = error; timer.Stop(); dialog?.Close(); }
+        };
+        timer.Start(); trayInputStatus!.PerformClick();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (!done && failure is null && watch.ElapsedMilliseconds < 5000) { System.Windows.Forms.Application.DoEvents(); Thread.Sleep(1); }
+        timer.Stop();
+        if (failure is not null) throw failure;
+        if (!done || !TrayCheckIsEnabled(Handle) || pendingInputReport is not null || management.Diagnostics().Running)
+            throw new InvalidOperationException("Input status did not close cleanly or changed canvas ownership.");
+        Console.WriteLine("PASS Tray input status preserves its pre-panel snapshot in an owned selectable read-only dialog without starting management");
     }
     internal static void CheckTrayRecoveryProcess(string directory)
     {

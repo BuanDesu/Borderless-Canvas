@@ -197,6 +197,7 @@ internal static class Program
                 form.DrawToBitmap(colored, new Rectangle(Point.Empty, form.Size)); colored.Save(Path.Combine(output, warm ? "console-warm-smoke.png" : "console-cool-smoke.png"));
             }
             ChromeTheme.SetPalette(BorderlessFlatWindow.Core.Appearance.CandyPalette.Default); ChromeTheme.Apply(form);
+            TouchNavigationHost.CheckOwnedInput(output);
             using (var hud = new NavigationHud { Opacity = 0 })
             {
                 hud.Present("Ctrl+Alt+Space", new(-12000, 8500));
