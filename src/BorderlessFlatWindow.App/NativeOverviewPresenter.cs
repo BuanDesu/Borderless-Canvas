@@ -263,7 +263,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     }
     private void RefreshWorkspaces()
     {
-        view.SetWorkspaces(new[] { new SceneWorkspace(null, "原点", PointD.Zero) }.Concat(bookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition)) ?? []));
+        view.SetWorkspaces(bookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition)) ?? []);
         if (bookmarks is { CanWrite: false }) view.SetStatus(bookmarks.Message);
     }
     private void SaveWorkspace() { if (bookmarks?.CanWrite != true) return; var name = AskName("保存工作区", "工作区"); if (name is not null && !disposed) { bookmarks.Add(name, model.StartCamera.Position); RefreshWorkspaces(); } }

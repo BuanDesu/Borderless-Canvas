@@ -47,12 +47,16 @@ internal static class OverviewSceneCheck
             using (var g = Graphics.FromImage(background))
             using (var fill = new LinearGradientBrush(new Rectangle(Point.Empty, size), Color.FromArgb(185, 202, 235), Color.FromArgb(239, 215, 242), 35)) g.FillRectangle(fill, new Rectangle(Point.Empty, size));
             scene.SetBackdrop(background); scene.SetWallpaper(background);
-            var empty = Guid.NewGuid(); var partial = Guid.NewGuid();
-            scene.SetWorkspaces([new(null, "原点", PointD.Zero), new(partial, "边缘裁剪", new(300, 0)), new(empty, "空视窗", new(1e6, 1e6))]);
+            scene.SetWorkspaces([]); scene.EnsureLayout();
+            if (scene.PreviewLayout().Count != windows.Length) throw new InvalidOperationException("Empty workspace strip changed map previews.");
+            var origin = Guid.NewGuid(); var empty = Guid.NewGuid(); var partial = Guid.NewGuid();
+            // A user-saved name may still be 原点; it has the same identity and preview rules as every saved view.
+            scene.SetWorkspaces([new(origin, "原点", PointD.Zero), new(partial, "边缘裁剪", new(300, 0)), new(empty, "空视窗", new(1e6, 1e6))]);
             scene.EnsureLayout(); scene.RefreshWindows(); scene.Seek(1);
             var layout = scene.PreviewLayout();
             if (layout.Count(p => p.Workspace is null) != windows.Length || layout.Any(p => p.Workspace == empty)) throw new InvalidOperationException("Scene map or empty workspace projection failed.");
             if (!layout.Any(p => p.Workspace == partial && p.Fraction is { } f && f.Size.Width < 1)) throw new InvalidOperationException("Scene edge crop was lost.");
+            if (!layout.Any(p => p.Workspace == origin)) throw new InvalidOperationException("User-saved origin workspace lost its preview.");
             var original = windows.Select(w => model.Projection.ToMap(w.Bounds)).ToArray();
             scene.SetQuery("没有匹配");
             if (scene.PreviewLayout().Count(p => p.Workspace is null && p.Fallback == PreviewState.Unmatched) != windows.Length) throw new InvalidOperationException("Scene search lost title fallbacks.");
@@ -60,6 +64,8 @@ internal static class OverviewSceneCheck
             if (!original.SequenceEqual(windows.Select(w => model.Projection.ToMap(w.Bounds)))) throw new InvalidOperationException("Search rearranged spatial positions.");
             var readyMs = clock.Elapsed.TotalMilliseconds;
             File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(output)!, $"scene-{size.Width}x{size.Height}.png"), scene.RenderSyntheticPng());
+            scene.SetWorkspaces([]);
+            if (scene.PreviewLayout().Count != windows.Length) throw new InvalidOperationException("Removing saved workspaces left preview slices behind.");
             using var sprite = new Bitmap(640, 480);
             using (var g = Graphics.FromImage(sprite)) g.Clear(Color.MediumPurple);
             scene.SetFocusImage(sprite, new(new(80, 80), new(640, 480)), scene.FocusDestination(windows[0].Id)!.Value); scene.Seek(0);

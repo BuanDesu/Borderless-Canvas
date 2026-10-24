@@ -31,7 +31,7 @@ internal sealed partial class SpatialOverviewForm
     }
     private void RefreshSceneWorkspaces()
     {
-        scene?.SetWorkspaces(new[] { new SceneWorkspace(null, "原点", PointD.Zero) }.Concat(sceneBookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition)) ?? []));
+        scene?.SetWorkspaces(sceneBookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition)) ?? []);
         if (sceneBookmarks is { CanWrite: false }) scene?.SetStatus(sceneBookmarks.Message);
     }
     private void ManageSceneWorkspaces()
