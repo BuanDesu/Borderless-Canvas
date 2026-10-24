@@ -61,7 +61,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         && (FindForm() is not MainForm host || host.AllowsCanvasCommands);
     // Reads and native transactions can pump UI messages. Queue input through these
     // short operations; only an explicit interaction/safety boundary revokes it.
-    private bool GlobalInputBlocked => editingArrangement || editingSettings || desktopTransitionPending || panelActionPending || externalRecoveryRunning || recoveryAttention
+    private bool GlobalInputBlocked => editingArrangement || editingSettings || desktopTransitionPending || panelActionPending || externalRecoveryRunning || recoveryAttention || touchNavigation is not null
         || layout is null || FindForm() is MainForm { AllowsCanvasCommands: false };
     private bool CanCaptureGlobalInput => session?.IsRunning == true && !GlobalInputBlocked;
     internal bool CanApplyDesktopTransition => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !HasOverviewWork && !externalRecoveryRunning;
@@ -152,6 +152,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         navigation.DropDownItems.Add("上一视角    Backspace", null, (_, _) => Act(() => session?.Back(DateTimeOffset.UtcNow)));
         navigation.DropDownItems.Add("适配地图", null, (_, _) => preview?.FitToContent());
         navigation.DropDownItems.Add("手动导航", null, (_, _) => globalInput?.Toggle());
+        navigation.DropDownItems.Add("触控导航 · 单指拖动", null, (_, _) => ShowTouchNavigation());
         navigation.DropDownItems.Add("准星模式    Ctrl+Alt+C", null, (_, _) => globalInput?.ToggleCrosshair(afterMenu: true));
         ChromeTheme.StyleMenu(navigation.DropDown);
         moreMenu.Items.Add(navigation);
@@ -170,8 +171,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         moreMenu.Items.Add(shortcutContext);
         moreMenu.Items.Add("操作提示", null, (_, _) => MessageBox.Show(this,
             "开始后接管所有可用窗口，便签保持独立。\n桌面滚轮、Shift 横移、双键拖动；屏幕外沿继续向外推动可平移。\nCtrl+滚轮平滑轮选；Tab 进入/退出总览。\nCtrl+Alt+C 准星模式，移动鼠标直接移动镜头；Esc 或再次按组合键退出。\nCtrl+Alt+P 固定当前窗口；标题栏右键也可切换便签。\n软件 .lnk 快捷方式右键可“以画布便签模式打开”。\n关闭管理器收入托盘，显式退出恢复画布窗口。", "操作提示", MessageBoxButtons.OK, MessageBoxIcon.Information));
-        moreMenu.Items.Add("运行信息", null, (_, _) => MessageBox.Show(this,
-            $"{navigationStatus.Text}\n输入接管 {(globalInput?.State.Available == true ? "已启用" : "已停用")} · 模式 {globalInput?.State.Mode}\n{globalInput?.HookHealth}\n准星输入：{globalInput?.PointerSourceMessage}\n最近退出：{globalInput?.LastExitReason}\n{overviewShortcutStatus.Text}\n{globalInput?.PointerMessage}\n{session?.Message}\n相机 {session?.Workspace.Camera.Position}", "运行信息", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        moreMenu.Items.Add("输入状态…", null, (_, _) => ShowRuntimeInformation());
         ChromeTheme.StyleMenu(moreMenu); ChromeTheme.Accent(start, ChromeTheme.Purple);
         hints.SetToolTip(start, "接管所有可用普通窗口，便签保持独立；接管前记录原位以便恢复");
         hints.SetToolTip(pause, "暂停画布并恢复全部接管窗口的原始位置");
@@ -227,10 +227,12 @@ internal sealed partial class ManagedCanvasControl : UserControl
             return;
         }
         if (reading || session?.IsBusy == true) { globalInput?.Heartbeat(); return; }
-        var events = globalInput?.Drain() ?? [];
+        if (touchInputOverflow) { CloseTouchNavigation(discard: true, refresh: false); Pause("触控输入积压，已暂停并恢复窗口。"); return; }
+        IReadOnlyList<TimedNavigationInput> events = (globalInput?.Drain() ?? []).Concat(touchInputs).ToArray();
+        touchInputs.Clear();
         if (events.Count != 0) lastCanvasInput = System.Diagnostics.Stopwatch.GetTimestamp();
         navigationState = globalInput?.State;
-        if (navigationState is { Crosshair: true, CrosshairCenter: { } center }) { crosshairOverlay ??= new(); crosshairOverlay.Present(center); }
+        if (touchNavigation is null && navigationState is { Crosshair: true, CrosshairCenter: { } center }) { crosshairOverlay ??= new(); crosshairOverlay.Present(center); }
         else crosshairOverlay?.Hide();
         overviewShortcutStatus.Text = globalInput?.OverviewMessage ?? "Ctrl+Alt+O 打开空间总览；快捷键不可用时使用按钮。";
         if (navigationState is not null) navigationStatus.Text = navigationState.Registered ? navigationState.Message
@@ -251,7 +253,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
             else if (item.Input.Kind == NavigationInputKind.CycleWindow)
             {
                 gestures?.End(item.At);
-                var steps = Math.Clamp(Math.Abs(item.Input.WheelDelta) / 120, 1, 12);
+                var steps = Math.Clamp(Math.Abs(item.Input.WheelDelta) / 120, 0, 12);
                 for (var step = 0; step < steps; step++) session?.CycleWindow(item.Input.WheelDelta < 0 ? 1 : -1, item.At, animate: overviewAnimation.Checked && System.Windows.SystemParameters.ClientAreaAnimation);
             }
             else if (item.Input.Kind == NavigationInputKind.TogglePin) RequestPinToggle(item.Input.TargetWindow, item.Input.TargetIdentity, item.Input.TargetId);
@@ -259,7 +261,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         }
         session?.AdvanceCameraTransition(DateTimeOffset.UtcNow);
         gestures?.Tick(DateTimeOffset.UtcNow);
-        if (navigationState?.Active == true && session?.IsRunning == true)
+        if (touchNavigation is not null) { navigationTimer.Start(); hud?.Hide(); }
+        else if (navigationState?.Active == true && session?.IsRunning == true)
         {
             navigationTimer.Start();
             if (navigationState.Manual && !navigationState.Crosshair)
@@ -282,6 +285,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
+        CloseTouchNavigation();
         if (editingArrangement || editingSettings || panelActionPending || externalRecoveryRunning || desktopTransitionPending || layout is null) return;
         if (preparationDisposed) return;
         preparationTimer.Stop();
@@ -520,12 +524,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
         button.Click += (_, _) => Act(action); toolbar.Controls.Add(button);
     }
     internal void Pause(string reason = "已暂停并恢复原始位置；再次开始可恢复画布布局。")
-    { InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
+    { CloseTouchNavigation(discard: true, refresh: false); InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
     private void RefreshState()
     {
         ConfigurePointerScreens();
         RefreshPinMenuTargets();
         var running = session?.IsRunning == true;
+        if (!running || desktopTransitionPending || externalRecoveryRunning || FindForm() is MainForm { AllowsCanvasCommands: false })
+            CloseTouchNavigation(discard: true, refresh: false);
         if (lastSnapshot is not null) RenderCandidates(lastSnapshot);
         UpdateAdmissionState();
         var available = CanCaptureGlobalInput;
@@ -558,7 +564,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal (bool Running, int Count, PointD Camera) Diagnostics() =>
         (session?.IsRunning == true, session?.Workspace.Windows.Count ?? 0, session?.Workspace.Camera.Position ?? PointD.Zero);
     internal void EndNavigationForEditing()
-    { gestures?.End(DateTimeOffset.UtcNow); globalInput?.Exit(); hud?.Hide(); }
+    { CloseTouchNavigation(discard: true); gestures?.End(DateTimeOffset.UtcNow); globalInput?.Exit(); hud?.Hide(); }
     internal string GoToBookmark(Guid id)
     {
         if (!CanJumpToBookmark) return "请先在窗口画布页开始管理，再跳转位置标签。";
@@ -579,7 +585,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
+        if (disposing) { CloseTouchNavigation(discard: true, refresh: false); DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }
     private void ConfigurePointerScreens()

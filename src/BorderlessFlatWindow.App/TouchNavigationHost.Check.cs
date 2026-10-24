@@ -1,0 +1,59 @@
+using System.Runtime.InteropServices;
+using BorderlessFlatWindow.Application.Navigation;
+using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Windows;
+
+namespace BorderlessFlatWindow.App;
+
+internal sealed partial class TouchNavigationHost
+{
+    internal static void CheckOwnedInput(string output)
+    {
+        var foreground = WindowEventListener.ForegroundWindow;
+        using var host = new TouchNavigationHost();
+        var inputs = new List<NavigationInput>(); var exits = 0;
+        host.Input += inputs.Add; host.ExitRequested += () => exits++;
+        using (var surface = new Surface(host) { Bounds = new(100, 100, 320, 240) })
+        {
+            SendOwnMessage(surface.Handle, 0x20A, 1 << 16, 0);
+            SendOwnMessage(surface.Handle, 0x20E, unchecked(-40 << 16), 0);
+            if (inputs.Count != 2 || inputs[0].WheelDelta != 1 || inputs[1].Kind != NavigationInputKind.HorizontalWheel || inputs[1].WheelDelta != -40)
+                throw new InvalidOperationException("Owned wheel messages lost precision or the horizontal axis.");
+            inputs.Clear();
+            SendOwnMessage(surface.Handle, 0x20A, (40 << 16) | 8, 0);
+            SendOwnMessage(surface.Handle, 0x20A, (80 << 16) | 8, 0);
+            if (inputs.Count != 1 || inputs[0].Kind != NavigationInputKind.CycleWindow || inputs[0].WheelDelta != 120)
+                throw new InvalidOperationException("Ctrl modifier from the window message was ignored.");
+            if (surface.Visible || surface.TopMost || surface.ShowInTaskbar || surface.Opacity > .04)
+                throw new InvalidOperationException("Touch fixture unexpectedly became a visible or topmost surface.");
+        }
+        inputs.Clear();
+        host.AcceptContact(1, ContactPhase.Down, new(100, 100));
+        host.AcceptContact(2, ContactPhase.Down, new(500, 500));
+        host.AcceptContact(1, ContactPhase.Move, new(120, 130));
+        host.AcceptContact(1, ContactPhase.Cancel, PointD.Zero);
+        if (inputs.Count != 3 || inputs[0].Kind != NavigationInputKind.PanStart || inputs[1].Position != new PointD(120, 130)
+            || inputs[2].Kind != NavigationInputKind.PanEnd || inputs[2].Position != inputs[1].Position)
+            throw new InvalidOperationException("Owned contact route changed fingers or cancellation coordinates.");
+        inputs.Clear();
+        for (var i = 0; i < 120; i++) host.AcceptWheel(1, false, false, true);
+        if (inputs.Count != 1 || inputs[0].Kind != NavigationInputKind.CycleWindow || inputs[0].WheelDelta != 120)
+            throw new InvalidOperationException("Touchpad receiver expanded precision Ctrl-wheel.");
+        inputs.Clear();
+        foreach (var width in new[] { 320, 440, 860 })
+        {
+            using var tools = host.CreateTools(new(-800, 100, width, 600), passive: true); tools.Opacity = 0; tools.Show();
+            var buttons = tools.Controls.OfType<FlowLayoutPanel>().Single().Controls.OfType<ChromeButton>().ToArray();
+            if (buttons.Length != 4 || buttons.Any(button => button.Bounds.Right > button.Parent!.ClientSize.Width) || tools.TopMost)
+                throw new InvalidOperationException("Touch controls do not fit a compact work area.");
+            using var image = new Bitmap(tools.Width, tools.Height);
+            tools.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size)); image.Save(Path.Combine(output, $"touch-tools-{width}.png"));
+            foreach (var button in buttons) button.PerformClick();
+            tools.Close(); System.Windows.Forms.Application.DoEvents();
+        }
+        if (exits != 6 || inputs.Count != 9 || WindowEventListener.ForegroundWindow != foreground)
+            throw new InvalidOperationException("Touch toolbar lost commands or activated during an invisible fixture.");
+        Console.WriteLine("PASS Owned touch receiver handles two-axis precision wheel, one contact, cancellation and compact touch controls without desktop input or activation");
+    }
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern nint SendOwnMessage(nint window, uint message, nint wParam, nint lParam);
+}

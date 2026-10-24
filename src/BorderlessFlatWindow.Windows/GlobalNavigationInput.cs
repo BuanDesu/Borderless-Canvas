@@ -27,6 +27,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private readonly ConcurrentQueue<Action> commands = new();
     private readonly ConcurrentQueue<TimedNavigationInput> inputs = new();
     private readonly NavigationInputGate gate = new();
+    private readonly WindowCycleWheel cycleWheel = new();
     private readonly DesktopNavigationPolicy automatic = new();
     private readonly DesktopContextClick contextClick = new();
     private static readonly nuint ContextClickTag = 0x42465743;
@@ -244,6 +245,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     private void Leave(string message)
     {
+        cycleWheel.Reset();
         pendingCrosshair = false;
         if (gate.Active || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
         ReleasePointerCapture();
@@ -329,6 +331,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
             var shift = inputKind == NavigationInputKind.Wheel && Down(0x10);
             var control = inputKind == NavigationInputKind.Wheel && Down(0x11);
             var route = control && gate.Active ? (Suppress: true, Queue: true) : gate.Route(inputKind, shift);
+            if (inputKind is NavigationInputKind.Wheel or NavigationInputKind.HorizontalWheel && !control) cycleWheel.Reset();
             automatic.ObserveButton(inputKind, route.Suppress);
             var desktop = IsDesktop(input.Point);
             if (inputKind == NavigationInputKind.RightDown) contextTarget = desktop && nativeInput ? WindowFromPoint(input.Point) : 0;
@@ -341,7 +344,13 @@ public sealed partial class GlobalNavigationInput : IDisposable
             }
             if (route.Queue)
             {
-                Queue(new(control ? NavigationInputKind.CycleWindow : inputKind, new(input.Point.X, input.Point.Y), unchecked((short)(input.Data >> 16)), shift));
+                var delta = (int)unchecked((short)(input.Data >> 16));
+                if (control)
+                {
+                    delta = cycleWheel.Add(delta, InputTime) * 120;
+                    if (delta == 0) return route.Suppress;
+                }
+                Queue(new(control ? NavigationInputKind.CycleWindow : inputKind, new(input.Point.X, input.Point.Y), delta, shift));
             }
             if (route.Suppress) return true;
         }
@@ -407,6 +416,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool RouteKeyboard(nuint message, uint key)
     {
         var up = message is 0x101 or 0x105;
+        if (up && key is 0x11 or 0xA2 or 0xA3) cycleWheel.Reset();
         if (ConsumePinMenuEnter(key, up)) return true;
         if (!up && crosshair && key == 0x1B) { capturedKeys.Add(key); automatic.Suspend(); Leave("已退出准星模式，鼠标恢复自由移动。"); return true; }
         if (!up && crosshair && (key is 0x5B or 0x5C || key == 9 && Down(0x12))) Leave("已退出准星模式，鼠标恢复自由移动。");

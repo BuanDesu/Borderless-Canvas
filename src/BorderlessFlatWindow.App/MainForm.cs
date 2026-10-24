@@ -183,9 +183,11 @@ internal sealed partial class MainForm : Form
         catalogTab.Controls.Add(windowList);
         var catalogActions = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(6) };
         var refresh = new ChromeButton { Text = "检查窗口（只读）", AutoSize = true };
+        var inputStatus = new ChromeButton { Text = "输入状态", AutoSize = true };
+        inputStatus.Click += (_, _) => management.ShowRuntimeInformation();
         refresh.Click += (_, _) => RefreshCatalog();
         showExcluded.CheckedChanged += (_, _) => RenderSnapshot();
-        catalogActions.Controls.AddRange([refresh, showExcluded, catalogSummary]);
+        catalogActions.Controls.AddRange([refresh, inputStatus, showExcluded, catalogSummary]);
         catalogTab.Controls.Add(catalogActions);
 
         if (!showWithoutActivation)
