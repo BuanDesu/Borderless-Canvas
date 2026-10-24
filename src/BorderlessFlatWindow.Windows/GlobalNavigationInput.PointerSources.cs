@@ -36,7 +36,7 @@ public sealed partial class GlobalNavigationInput
         }
         var label = feed switch { PointerFeed.Relative => "原生相对位移", PointerFeed.Absolute => "绝对坐标增量", _ => "普通鼠标坐标兼容" };
         Volatile.Write(ref pointerSourceMessage, label);
-        Publish(true, State.Registered, State.Hotkey, $"准星模式 · {label} · Esc / Ctrl+Alt+C 退出"); return true;
+        Publish(true, State.Registered, State.Hotkey, $"准星模式 · {label} · Esc / {Describe(bindings.Crosshair)} 退出"); return true;
     }
     private void ProcessPointerSample(RawPointerSample sample)
     {

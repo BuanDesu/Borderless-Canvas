@@ -3,7 +3,7 @@ using BorderlessFlatWindow.Application.Discovery;
 
 namespace BorderlessFlatWindow.Application.Navigation;
 
-public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault, CameraDelta, TogglePin, PanStart, PanMove, PanEnd }
+public enum NavigationInputKind { Move, LeftDown, LeftUp, RightDown, RightUp, Wheel, HorizontalWheel, Home, Back, Overview, CycleWindow, Exit, Fault, CameraDelta, TogglePin, PanStart, PanMove, PanEnd, ToggleTouch }
 public readonly record struct NavigationInput(NavigationInputKind Kind, PointD Position, int WheelDelta = 0, bool Shift = false, nint TargetWindow = 0, NativeWindowIdentity? TargetIdentity = null, Guid TargetId = default);
 public sealed record NavigationInputOptions
 {

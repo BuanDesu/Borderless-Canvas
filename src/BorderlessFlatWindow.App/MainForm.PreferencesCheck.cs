@@ -11,7 +11,8 @@ internal sealed partial class MainForm
         Directory.CreateDirectory(directory);
         var settings = Path.Combine(directory, "settings.json"); var journal = Path.Combine(directory, "recovery.json"); var labels = Path.Combine(directory, "bookmarks.json");
         var foreground = WindowEventListener.ForegroundWindow;
-        var expected = new UserPreferences(new NavigationInputOptions(false, true, false, 330), ManualNavigationShortcut.ControlAltN, false, false, false);
+        var expected = new UserPreferences(new NavigationInputOptions(false, true, false, 330), ManualNavigationShortcut.Default, false, false, false)
+            { Bindings = NavigationKeyBindings.Default with { Overview = new(3, 0x4E) } };
         using (var first = new MainForm(new PreviewWindowCatalog(), showWithoutActivation: true, journalPath: journal, bookmarksPath: labels, settingsPath: settings))
         {
             if (first.management.CurrentPreferencesForCheck != UserPreferences.Default || File.Exists(settings)) throw new InvalidOperationException("Fresh UI modified preferences.");

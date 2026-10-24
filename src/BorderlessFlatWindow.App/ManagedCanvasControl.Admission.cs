@@ -115,7 +115,7 @@ internal sealed partial class ManagedCanvasControl
     {
         if (!automaticAdmission.Checked || session?.IsRunning != true) { admissionTimer.Stop(); return; }
         if (reading || editingSettings || desktopTransitionPending || session.IsBusy || session.HasPending || overview is not null || openingOverview
-            || touchNavigation is not null || gestures?.HasGesture == true || navigationState is { Active: true, Manual: true }) return;
+            || gestures?.HasGesture == true || navigationState is { Crosshair: true }) return;
         admissionTimer.Stop();
         try
         {

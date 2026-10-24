@@ -21,7 +21,7 @@ internal static class NavigationRoutingChecks
     {
         check("Desktop worker consumes Ctrl-wheel and complete Tab pairs while application input passes through", Desktop);
         check("The first desktop button down starts a complete two-button gesture despite async button timing", Chord);
-        check("Crosshair is independent of manual navigation and continuously consumes relative motion and clicks", Crosshair);
+        check("Crosshair is independent of desktop navigation and continuously consumes relative motion and clicks", Crosshair);
         check("Crosshair Escape and toggle restore cursor ownership and drain held button releases", Exit);
         check("Crosshair pause, focus, menu and input-source changes release only its own capture", Boundaries);
         check("Hook liveness requires sustained raw movement without callbacks and defers across unsafe boundaries", HookLiveness);
@@ -34,6 +34,51 @@ internal static class NavigationRoutingChecks
         check("Delivered input wakes retry after a stopped UI timer without a settings drain or additional input", DeliveredWake);
         check("A new canvas input session clears an earlier suspension without bypassing Escape in the current session", SessionReentry);
         check("Edge worker accelerates only on fresh outward input and stops on inward movement, location, pause and modifiers", EdgeWorker);
+        check("Touch wheel mode routes both axes over applications while taps and complete left drags pass through", TouchWheelMode);
+        check("Touch mode preserves menus and application keys, exits on Escape/pause, and switches cleanly to crosshair", TouchBoundaries);
+        check("Custom context keys match all modifiers and reconfiguration cannot retain old key capture", CustomContextKeys);
+    }
+    private static void TouchWheelMode()
+    {
+        using var h = new Harness(desktop: false); h.Input.SetTouchNavigation(true); h.Input.SynchronizeRoutingCheck(); h.Input.Drain();
+        for (var repeat = 0; repeat < 3; repeat++)
+        {
+            Require(!h.Input.MouseRoutingCheck(0x201, new(200, 200), before: () => h.Desktop.Keys.Add(1)), "Touch mode captured a click down.");
+            Require(!h.Input.MouseRoutingCheck(0x200, new(250, 240)), "Touch mode captured app dragging.");
+            Require(!h.Input.MouseRoutingCheck(0x202, new(250, 240), before: () => h.Desktop.Keys.Remove(1)), "Touch mode captured a click up.");
+        }
+        Require(h.Input.MouseRoutingCheck(0x20A, new(250, 240), 1) && h.Input.MouseRoutingCheck(0x20E, new(250, 240), -40), "Touchpad axes escaped.");
+        var inputs = h.Input.Drain();
+        Require(inputs.Count == 2 && inputs[0].Input.WheelDelta == 1 && inputs[1].Input.WheelDelta == -40 && h.Input.State.Touch && h.Desktop.Clip is null, "Clicks became canvas gestures or precision was lost.");
+    }
+    private static void TouchBoundaries()
+    {
+        using var h = new Harness(desktop: false); h.Input.SetTouchNavigation(true); h.Input.SynchronizeRoutingCheck(); h.Input.Drain();
+        Require(!h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120, () => h.Desktop.MenuActive = true), "Touch mode stole menu scrolling.");
+        h.Input.SynchronizeRoutingCheck(() => h.Desktop.MenuActive = false);
+        Require(!h.Input.KeyRoutingCheck(0x24) && !h.Input.KeyRoutingCheck(0x24, true), "Touch mode stole application Home.");
+        Require(h.Input.KeyRoutingCheck(0x1B) && h.Input.KeyRoutingCheck(0x1B, true) && !h.Input.State.Touch, "Escape failed to leave touch.");
+        h.Input.SetTouchNavigation(true); h.Input.SynchronizeRoutingCheck(); h.Crosshair();
+        Require(h.Input.State.Crosshair && !h.Input.State.Touch, "Crosshair retained touch mode.");
+        h.Input.SetTouchNavigation(false); h.Input.SynchronizeRoutingCheck(); Require(h.Input.State.Crosshair, "Closing old touch tools exited newer crosshair.");
+        Require(h.Input.MouseRoutingCheck(0x201, h.Desktop.Pointer, before: () => h.Desktop.Keys.Add(1)), "Crosshair down was not captured.");
+        h.Input.SetTouchNavigation(true);
+        Require(h.Input.MouseRoutingCheck(0x202, h.Desktop.Pointer, before: () => h.Desktop.Keys.Remove(1)), "Switching to touch leaked a formerly captured release.");
+        h.Input.SetTouchNavigation(true); h.Input.SetAvailable(false); h.Input.SynchronizeRoutingCheck();
+        Require(!h.Input.State.Touch && !h.Input.State.Crosshair && h.Desktop.Clip is null && !h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120), "Pause retained touch capture.");
+    }
+    private static void CustomContextKeys()
+    {
+        using var h = new Harness();
+        var keys = NavigationKeyBindings.Default with { Touch = new(7, 0x54), Home = new(3, 0x48), Back = new(3, 0x42) };
+        Require(h.Input.TryChangeBindings(keys, out _), "Valid bindings were rejected.");
+        h.Input.MouseRoutingCheck(0x200, h.Desktop.Pointer); h.Input.Drain();
+        Require(!h.Input.KeyRoutingCheck(0x24) && !h.Input.KeyRoutingCheck(0x24, true), "The old Home key stayed captured.");
+        h.Input.SynchronizeRoutingCheck(() => { h.Desktop.Keys.Add(0x11); h.Desktop.Keys.Add(0x12); });
+        Require(h.Input.KeyRoutingCheck(0x48) && h.Input.KeyRoutingCheck(0x48, true) && h.Input.Drain().Single().Input.Kind == NavigationInputKind.Home, "Custom Home modifiers did not route.");
+        Require(h.Input.KeyRoutingCheck(0x42) && h.Input.KeyRoutingCheck(0x42, true) && h.Input.Drain().Single().Input.Kind == NavigationInputKind.Back, "Custom Back did not route.");
+        h.Input.SynchronizeRoutingCheck(() => h.Desktop.Keys.Clear());
+        Require(!h.Input.KeyRoutingCheck(0x48) && !h.Input.KeyRoutingCheck(0x48, true), "Unmodified application key was captured.");
     }
     private static void EdgeWorker()
     {
@@ -165,7 +210,7 @@ internal static class NavigationRoutingChecks
     private static void Crosshair()
     {
         using var h = new Harness(); h.Crosshair();
-        Require(h.Input.State is { Crosshair: true, Manual: false, Active: true } && h.Desktop.Pointer == new PointD(960, 540), "Crosshair reused manual navigation.");
+        Require(h.Input.State is { Crosshair: true, Touch: false, Active: true } && h.Desktop.Pointer == new PointD(960, 540), "Crosshair reused another navigation mode.");
         for (var i = 0; i < 20; i++)
         {
             h.Input.RelativeRoutingCheck(new(8, -5), () => h.Desktop.TickCount += 16);
@@ -266,8 +311,8 @@ internal static class NavigationRoutingChecks
         h.Crosshair(); Require(h.Input.State.Crosshair, "Crosshair did not reenter.");
         h.Input.ToggleCrosshair(); h.Input.SynchronizeRoutingCheck();
         Require(!h.Input.State.Crosshair && h.Desktop.Clip is null && h.Desktop.Pointer == before, "Toggle did not release crosshair.");
-        h.Input.Toggle(); h.Input.SynchronizeRoutingCheck();
-        Require(h.Input.State is { Manual: true, Crosshair: false }, "Manual mode inherited crosshair ownership.");
+        h.Input.MouseRoutingCheck(0x200, before); h.Input.SynchronizeRoutingCheck();
+        Require(!h.Input.State.Crosshair && h.Desktop.Clip is null, "Desktop navigation inherited crosshair ownership.");
     }
     private static void Boundaries()
     {

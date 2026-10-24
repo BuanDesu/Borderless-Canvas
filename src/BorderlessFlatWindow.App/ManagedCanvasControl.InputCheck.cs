@@ -54,8 +54,8 @@ internal sealed partial class ManagedCanvasControl
             var host = new TouchNavigationHost(); touchNavigation = host;
             QueueTouchInput(new(BorderlessFlatWindow.Application.Navigation.NavigationInputKind.PanStart, new(100, 100)));
             QueueTouchInput(new(BorderlessFlatWindow.Application.Navigation.NavigationInputKind.PanMove, new(200, 200)));
-            if (!GlobalInputBlocked || !CaptureRuntimeInformation().Contains("触控导航"))
-                throw new InvalidOperationException("Touch navigation failed to gate global mouse routing or identify itself.");
+            if (GlobalInputBlocked || !CaptureRuntimeInformation().Contains("触控导航"))
+                throw new InvalidOperationException("Touch mode disabled the wheel router or failed to identify itself.");
             if (boundary == "system") SetDesktopTransitionPending(true);
             else if (boundary == "panel") SetPanelActionPending(true);
             else if (boundary == "recovery") SetExternalRecoveryRunning(true);
@@ -64,6 +64,6 @@ internal sealed partial class ManagedCanvasControl
                 throw new InvalidOperationException("A touch surface or deferred contact survived its safety boundary: " + boundary);
             SetDesktopTransitionPending(false); SetPanelActionPending(false); SetExternalRecoveryRunning(false);
         }
-        Console.WriteLine("PASS Touch navigation gates global routing and releases invisible fixtures and queued contacts on panel, recovery, pause and system boundaries");
+        Console.WriteLine("PASS Touch wheel mode retains its router and releases tools and queued input on panel, recovery, pause and system boundaries");
     }
 }

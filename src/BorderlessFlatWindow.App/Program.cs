@@ -200,7 +200,7 @@ internal static class Program
             TouchNavigationHost.CheckOwnedInput(output);
             using (var hud = new NavigationHud { Opacity = 0 })
             {
-                hud.Present("Ctrl+Alt+Space", new(-12000, 8500));
+                hud.Present();
                 System.Windows.Forms.Application.DoEvents();
                 using var hudBitmap = new Bitmap(hud.Width, hud.Height);
                 hud.DrawToBitmap(hudBitmap, new Rectangle(Point.Empty, hud.Size));
@@ -214,6 +214,7 @@ internal static class Program
                 using var settingsBitmap = new Bitmap(settings.Width, settings.Height);
                 settings.DrawToBitmap(settingsBitmap, new Rectangle(Point.Empty, settings.Size));
                 settingsBitmap.Save(Path.Combine(output, "navigation-settings-smoke.png"));
+                settings.CheckKeyBindings(output);
                 settings.Hide();
             }
             using var previewLabels = new BorderlessFlatWindow.Application.Bookmarks.BookmarkLibrary(

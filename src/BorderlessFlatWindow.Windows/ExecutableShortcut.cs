@@ -22,7 +22,7 @@ public sealed record ExecutableShortcut(string Shortcut, string Executable)
             Marshal.ThrowExceptionForHR(((IShellLink)instance).GetPath(target, target.Capacity, 0, 4));
             var executable = Environment.ExpandEnvironmentVariables(target.ToString());
             if (!Path.IsPathFullyQualified(executable) || !string.Equals(Path.GetExtension(executable), ".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(executable))
-                throw new InvalidOperationException("此快捷方式使用商店或系统代理，无法可靠识别新窗口；请正常打开后用 Ctrl+Alt+P 固定。");
+                throw new InvalidOperationException("此快捷方式使用商店或系统代理，无法可靠识别新窗口；请正常打开后用便签快捷键固定。");
             return new(full, Path.GetFullPath(executable));
         }
         finally { if (Marshal.IsComObject(instance)) Marshal.FinalReleaseComObject(instance); }
