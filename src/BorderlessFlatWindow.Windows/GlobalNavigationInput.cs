@@ -49,7 +49,8 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool tabHeld, tabCaptured;
     private readonly HashSet<uint> capturedKeys = [];
     private nuint timer;
-    private int wakePending, wakeDirty, overflow, stopping;
+    private int wakePending, wakeDirty, wakeAwaitingDrain, overflow, stopping;
+    private long lastWakePost;
     private long heartbeat = Environment.TickCount64;
     private bool available, escapeRegistered, disposed;
     private string lastExitReason = "尚未退出导航。";
@@ -83,6 +84,10 @@ public sealed partial class GlobalNavigationInput : IDisposable
         if (startupError is not null) throw new InvalidOperationException("导航输入不可用。", startupError);
     }
     public GlobalNavigationState State => Volatile.Read(ref state);
+    public bool HasPendingUiNotification => Volatile.Read(ref wakeDirty) != 0;
+    // A delivered callback is not the same as a consumed queue. If startup stops
+    // its UI timer before Drain, the watchdog may post one replacement callback.
+    public void AcknowledgeUiWake() => Interlocked.Exchange(ref wakePending, 0);
     public string OverviewMessage => Volatile.Read(ref overviewMessage);
     public long BeginOverview()
     {
@@ -101,8 +106,12 @@ public sealed partial class GlobalNavigationInput : IDisposable
     {
         var changed = available != value;
         available = value;
-        if (!value) pendingCrosshair = false;
-        if (value && changed && !ReestablishInputHooks()) return;
+        if (!value) { pendingCrosshair = false; edgeMotion.Reset(); }
+        if (value && changed)
+        {
+            automatic.Resume();
+            if (!ReestablishInputHooks()) return;
+        }
         if (!value && (overviewInput.Close(overviewInput.Generation) || gate.Active)) Leave("画布未运行，导航已退出。");
         else if (changed) Publish(gate.Active, State.Registered, State.Hotkey, value ? "画布输入已就绪；移至桌面空白处自动导航。" : "画布输入已暂停。");
     });
@@ -126,7 +135,8 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     public IReadOnlyList<TimedNavigationInput> Drain()
     {
-        Volatile.Write(ref heartbeat, InputTime); Interlocked.Exchange(ref wakeDirty, 0); Interlocked.Exchange(ref wakePending, 0);
+        Volatile.Write(ref heartbeat, InputTime); Interlocked.Exchange(ref wakeDirty, 0);
+        Interlocked.Exchange(ref wakeAwaitingDrain, 0); Interlocked.Exchange(ref wakePending, 0);
         var result = new List<TimedNavigationInput>();
         if (Interlocked.Exchange(ref overflow, 0) != 0)
         {
@@ -245,6 +255,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     private void Leave(string message)
     {
+        edgeMotion.Reset();
         cycleWheel.Reset();
         pendingCrosshair = false;
         if (gate.Active || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
@@ -268,9 +279,15 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private void RetryInputWake()
     {
         if (Volatile.Read(ref wakeDirty) == 0) return;
+        var now = InputTime; var previous = Volatile.Read(ref lastWakePost);
+        // Keep raw packets merged until Drain. A delivered but unconsumed wake
+        // may retry at watchdog cadence, never once per high-rate mouse packet.
+        if (Volatile.Read(ref wakeAwaitingDrain) != 0 && now >= previous && now - previous < 100) return;
         if (Interlocked.Exchange(ref wakePending, 1) != 0) return;
+        Volatile.Write(ref lastWakePost, now); Volatile.Write(ref wakeAwaitingDrain, 1);
         try { wakeUi(); }
-        catch (InvalidOperationException) { Interlocked.Exchange(ref wakePending, 0); } // A failed delivery cannot acknowledge future input.
+        catch (InvalidOperationException)
+        { Interlocked.Exchange(ref wakeAwaitingDrain, 0); Interlocked.Exchange(ref wakePending, 0); } // Failed delivery cannot acknowledge future input.
     }
     private void Queue(NavigationInput input)
     {
@@ -318,6 +335,9 @@ public sealed partial class GlobalNavigationInput : IDisposable
         };
         if (kind is { } inputKind)
         {
+            if (!crosshair && inputKind == NavigationInputKind.Move)
+                edgeMotion.ConstrainToPointer(new(input.Point.X, input.Point.Y), pointerScreens, gate.Options);
+            if (inputKind is NavigationInputKind.LeftDown or NavigationInputKind.RightDown) edgeMotion.Reset();
             if (inputKind == NavigationInputKind.Move && ConsumeCrosshairMove(input.Point)) return true;
             // Only our balanced replay bypasses routing; unrelated injected input follows normal policy.
             if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return false;
@@ -416,6 +436,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool RouteKeyboard(nuint message, uint key)
     {
         var up = message is 0x101 or 0x105;
+        if (!up && key is 0x11 or 0x12 or 0xA2 or 0xA3 or 0xA4 or 0xA5 or 0x5B or 0x5C) edgeMotion.Reset();
         if (up && key is 0x11 or 0xA2 or 0xA3) cycleWheel.Reset();
         if (ConsumePinMenuEnter(key, up)) return true;
         if (!up && crosshair && key == 0x1B) { capturedKeys.Add(key); automatic.Suspend(); Leave("已退出准星模式，鼠标恢复自由移动。"); return true; }

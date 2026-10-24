@@ -9,6 +9,7 @@ public sealed partial class GlobalNavigationInput
 {
     private const int CrosshairId = 0x4BF5, PinId = 0x4BF6;
     private RawPointerInput? rawPointer;
+    private readonly EdgePanMotion edgeMotion = new();
     private PixelRect[] pointerScreens = [];
     private bool clipOwned, previousClipUnrestricted;
     private int crosshairButtons;
@@ -59,11 +60,13 @@ public sealed partial class GlobalNavigationInput
     private void ProcessPointerMovement(PointD delta)
     {
         if (crosshair && delta != PointD.Zero) lastRelativeMotion = InputTime;
-        if (!available || overviewOpen || MenuActive() || !GetPointer(out var pointer)) return;
-        if (!crosshair && (Down(1) || Down(2) || Down(4) || Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C) || gate.HasHeldButtons)) return;
+        if (!available || overviewOpen || MenuActive() || !GetPointer(out var pointer)) { edgeMotion.Reset(); return; }
+        if (!crosshair && (Down(1) || Down(2) || Down(4) || Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C) || gate.HasHeldButtons)) { edgeMotion.Reset(); return; }
         if (crosshair && (!ReadPointerClip(out var current) || !SameClip(current, ownedClip)))
         { Leave("鼠标限制已被其他应用更改，准星模式已退出。"); return; }
-        var movement = PointerNavigation.CameraDelta(delta, new(pointer.X, pointer.Y), pointerScreens, gate.Options, crosshair);
+        if (crosshair) edgeMotion.Reset();
+        var movement = crosshair ? PointerNavigation.CameraDelta(delta, new(pointer.X, pointer.Y), pointerScreens, gate.Options, true)
+            : edgeMotion.Observe(delta, new(pointer.X, pointer.Y), pointerScreens, gate.Options, InputTime);
         if (movement != PointD.Zero) Queue(new(NavigationInputKind.CameraDelta, movement));
     }
     private void ToggleCrosshairCore()

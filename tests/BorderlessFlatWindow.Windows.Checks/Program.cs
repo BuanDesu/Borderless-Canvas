@@ -8,6 +8,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--input-routing-only", StringComparer.Ordinal)) return NavigationRoutingChecks.RunStandalone();
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
         if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();
         if (args.Contains("--serve-pin-menu", StringComparer.Ordinal)) return PointerAndPinChecks.ServeMenu();

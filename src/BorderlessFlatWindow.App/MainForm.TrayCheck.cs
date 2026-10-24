@@ -70,31 +70,40 @@ internal sealed partial class MainForm
     }
     private void CheckInputStatusTrayAction()
     {
-        Exception? failure = null; var done = false; var ticks = 0;
+        var priorTopMost = TopMost; TopMost = true;
         var expected = management.CaptureRuntimeInformation();
-        using var timer = new System.Windows.Forms.Timer { Interval = 10 };
-        timer.Tick += (_, _) =>
+        try
         {
-            var dialog = OwnedForms.SingleOrDefault(form => form.Name == "InputStatus" && form.Visible);
-            try
+            trayInputStatus!.PerformClick();
+            var watch = System.Diagnostics.Stopwatch.StartNew(); Form? reportWindow = null;
+            while (reportWindow is null && watch.ElapsedMilliseconds < 3000)
             {
-                if (++ticks > 100) throw new InvalidOperationException("Input status modal timed out.");
-                if (dialog is null) return;
-                var report = DescendantsForTray(dialog).OfType<TextBox>().Single(control => control.Name == "InputStatusReport");
-                if (report.Text != expected || !report.ReadOnly || TrayCheckIsEnabled(Handle) || TrayState.CanConfigure)
-                    throw new InvalidOperationException("Tray input status lost its pre-panel report or modal ownership.");
-                done = true; timer.Stop(); dialog.Close();
+                System.Windows.Forms.Application.DoEvents(); Thread.Sleep(1);
+                reportWindow = OwnedForms.SingleOrDefault(form => form.Name == "InputStatus" && form.Visible);
             }
-            catch (Exception error) { failure = error; timer.Stop(); dialog?.Close(); }
-        };
-        timer.Start(); trayInputStatus!.PerformClick();
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        while (!done && failure is null && watch.ElapsedMilliseconds < 5000) { System.Windows.Forms.Application.DoEvents(); Thread.Sleep(1); }
-        timer.Stop();
-        if (failure is not null) throw failure;
-        if (!done || !TrayCheckIsEnabled(Handle) || pendingInputReport is not null || management.Diagnostics().Running)
-            throw new InvalidOperationException("Input status did not close cleanly or changed canvas ownership.");
-        Console.WriteLine("PASS Tray input status preserves its pre-panel snapshot in an owned selectable read-only dialog without starting management");
+            if (reportWindow is null) throw new InvalidOperationException("Input status did not open.");
+            var report = DescendantsForTray(reportWindow).OfType<TextBox>().Single(control => control.Name == "InputStatusReport");
+            var held = System.Diagnostics.Stopwatch.StartNew();
+            while (held.ElapsedMilliseconds < 500)
+            {
+                TryDismissPopup(); System.Windows.Forms.Application.DoEvents();
+                if (!Visible || !reportWindow.Visible || reportWindow.Modal || !reportWindow.TopMost || !TrayCheckIsEnabled(Handle)
+                    || !TrayState.CanConfigure || report.Text != expected || !report.ReadOnly || !report.ShortcutsEnabled)
+                    throw new InvalidOperationException("Input status vanished, locked the root or lost its copyable snapshot.");
+                Thread.Sleep(5);
+            }
+            var handle = reportWindow.Handle;
+            management.ShowRuntimeInformation(expected);
+            if (OwnedForms.Count(form => form.Name == "InputStatus") != 1 || reportWindow.Handle != handle
+                || !DescendantsForTray(reportWindow).OfType<Button>().Any(button => button.Name == "CopyInputStatus" && button.Enabled))
+                throw new InvalidOperationException("Input status duplicated itself or omitted explicit copy.");
+            reportWindow.Close(); System.Windows.Forms.Application.DoEvents();
+            if (!TrayCheckIsEnabled(Handle) || pendingInputReport is not null || management.Diagnostics().Running)
+                throw new InvalidOperationException("Input status close changed canvas ownership or root enablement.");
+        }
+        finally
+        { foreach (var window in OwnedForms.Where(form => form.Name == "InputStatus").ToArray()) window.Close(); TopMost = priorTopMost; }
+        Console.WriteLine("PASS Input status stays visible beyond popup dismissal, inherits topmost, remains copyable and reusable, and never disables the root");
     }
     internal static void CheckTrayRecoveryProcess(string directory)
     {

@@ -34,7 +34,7 @@ internal sealed class NavigationSettingsDialog : Form
         distance.Value = options.WheelDistance;
         edge.Checked = options.EdgePan; pointerSpeed.Value = (decimal)options.PointerSpeed;
         var content = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new(18), FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        content.Controls.AddRange([vertical, horizontal, drag, edge, new Label { Text = "边缘 / 准星移动灵敏度", AutoSize = true }, pointerSpeed, new Label { Text = "手动导航备用快捷键", AutoSize = true }, shortcut,
+        content.Controls.AddRange([vertical, horizontal, drag, edge, new Label { Text = "边缘速度 / 准星灵敏度", AutoSize = true }, pointerSpeed, new Label { Text = "手动导航备用快捷键", AutoSize = true }, shortcut,
             new Label { Text = "每格滚轮移动距离（画布像素）", AutoSize = true }, distance,
             new Label { Text = "关闭某项后，对应输入直接交给应用。\n设置保存在本机，下次启动保留。", AutoSize = true, Margin = new(0, 12, 0, 0) }]);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new(8), FlowDirection = FlowDirection.RightToLeft };
