@@ -111,7 +111,6 @@ internal sealed class WorkspaceStrip : UserControl
         foreach (Control child in cards.Controls.Cast<Control>().ToArray()) child.Dispose();
         cards.Controls.Clear();
         positions.Clear(); previewIds.Clear();
-        AddCard("原点", PointD.Zero, null);
         if (library is not null) foreach (var bookmark in library.Collection.Items)
             AddCard(bookmark.Name, bookmark.CameraPosition, bookmark.Id);
         message.Text = library is not null && (showStorageMessage || !library.CanWrite) ? library.Message : "工作区记录视角；窗口始终位于同一画布。右击卡片可重命名或删除。";
