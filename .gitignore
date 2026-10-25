@@ -7,3 +7,10 @@ artifacts/
 *.user
 *.suo
 *.log
+*.pdb
+*.dmp
+.env
+.env.*
+*.pem
+*.pfx
+*.p12
