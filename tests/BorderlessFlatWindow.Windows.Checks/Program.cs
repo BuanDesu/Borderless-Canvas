@@ -39,7 +39,11 @@ internal static class Program
         if (preferenceStorage != 0) return preferenceStorage;
         if (bookmarkStorage != 0) return bookmarkStorage;
         if (storage != 0) return storage;
-        if (args.Contains("--storage-only", StringComparer.Ordinal)) return NavigationRoutingChecks.RunStandalone();
+        if (args.Contains("--storage-only", StringComparer.Ordinal))
+        {
+            var routing = NavigationRoutingChecks.RunStandalone();
+            return routing != 0 ? routing : TouchReceiverChecks.RunStandalone();
+        }
         ApplicationConfiguration.Initialize();
         // These fixtures are transparent and never activate. Only their own state is changed.
         using var normal = new Fixture { Text = "BFW native fixture", Bounds = new(100, 100, 400, 300) };

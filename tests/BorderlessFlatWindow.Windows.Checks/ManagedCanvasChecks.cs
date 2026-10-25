@@ -28,7 +28,58 @@ internal static class ManagedCanvasChecks
         check("Native detachment releases only that journal entry, keeps a fixed screen position and rejoins without a jump", Detachment);
         check("Native wheel-cycle frames move the camera continuously without early activation and cancel on pause", CycleFrames);
         check("Native hide/destroy and last-window closure keep the camera running and admit a subsequent window", CloseWithoutPause);
+        check("Closing the final native target before the next catalog refresh cannot turn a pending pan into a canvas pause", CloseBeforeRefresh);
+        check("Incremental native minimize/restore/close events preserve an active canvas and automatic subsequent admission", MinimizedEvents);
     }
+    private static void CloseBeforeRefresh()
+    {
+        using var h = new Harness(); h.B.Close();
+        Require(h.Session.Pan(new(24, 16), DateTimeOffset.UtcNow), "A stale member close paused survivors: " + h.Session.Message); h.Settle();
+        Require(h.Session.IsRunning && h.Session.ManagedIds.Count == 1 && h.A.Location == h.OriginalA.Location - new Size(24, 16), "A survivor did not finish its pending pan.");
+        var camera = h.Session.Workspace.Camera.Position; h.A.Close();
+        Require(h.Session.Pan(new(48, 32), DateTimeOffset.UtcNow), "A stale native close failed the next frame: " + h.Session.Message); h.Settle();
+        Require(h.Session.IsRunning && h.Session.ManagedIds.Count == 0 && h.Session.Workspace.Camera.Position == camera + new PointD(48, 32), "Final stale close lost the empty camera.");
+    }
+    private static void MinimizedEvents()
+    {
+        using var h = new Harness(); var foreground = WindowEventListener.ForegroundWindow;
+        var buffer = new WindowEventBuffer(); var handles = new HashSet<nint> { h.A.Handle, h.B.Handle };
+        using var listener = new WindowEventListener((uint)Environment.ProcessId, includeOwnProcess: true);
+        listener.EventReceived += change => { if (handles.Contains(change.Handle)) buffer.Add(change); };
+        var tracker = new BorderlessFlatWindow.Application.Management.RuntimeAdmissionTracker(); tracker.Reset(h.Catalog.Current, includeExisting: true);
+        void Drain()
+        {
+            if (buffer.Count != 0) h.Session.Observe(buffer.Drain(h.Catalog), foreground, DateTimeOffset.UtcNow);
+            foreach (var handle in h.Session.PendingHandles) h.Catalog.RefreshWindow(handle);
+            if (h.Session.HasPending) h.Session.Observe(h.Catalog.Current, foreground, DateTimeOffset.UtcNow);
+            Require(h.Session.IsRunning, h.Session.Message);
+        }
+        h.B.Close(); PumpUntil(() => { Drain(); return h.Session.ManagedIds.Count == 1; });
+        var world = h.Session.Workspace.Windows.Single(); var camera = h.Session.Workspace.Camera;
+        ShowFixture(h.A.Handle, 7); // SW_SHOWMINNOACTIVE; only our transparent fixture.
+        Require(h.Session.Pan(new(130, 80), DateTimeOffset.UtcNow), "A stale minimize failed the next frame: " + h.Session.Message);
+        PumpUntil(() => { Drain(); return h.Catalog.Current.Entries.Any(entry => entry.Observation.Handle == h.A.Handle && entry.Observation.IsMinimized); });
+        var minimized = h.Catalog.Current.Entries.Single(entry => entry.Observation.Handle == h.A.Handle).Observation.Bounds;
+        Require(h.Session.Pan(new(50, 0), DateTimeOffset.UtcNow), h.Session.Message); h.Catalog.RefreshWindow(h.A.Handle); Drain();
+        Require(h.Catalog.Current.Entries.Single(entry => entry.Observation.Handle == h.A.Handle).Observation.Bounds == minimized
+            && h.Session.Workspace.Windows.Single() == world, "Minimize changed the world or moved the iconic window.");
+        ShowFixture(h.A.Handle, 4); // Restore without activation.
+        PumpUntil(() => { Drain(); return h.Catalog.Current.Entries.Any(entry => entry.Observation.Handle == h.A.Handle && !entry.Observation.IsMinimized) && !h.Session.HasPending; });
+        Require(h.Session.Workspace.Windows.Single() == world, "Native restore rewrote its world location.");
+        ShowFixture(h.A.Handle, 7); h.A.Close();
+        PumpUntil(() => { Drain(); return h.Session.ManagedIds.Count == 0; });
+        using var next = new Fixture("BFW automatic successor", 260); next.Show(); FixtureDesktop.PlaceOwnWindow(next.Handle); handles.Add(next.Handle);
+        // WinEvent create may arrive before the handle is added to our fixture filter.
+        buffer.Add(new(next.Handle, WindowChangeKind.Created)); Drain();
+        var layout = new DesktopDisplayCatalog().ReadDisplays(); var now = DateTimeOffset.UtcNow;
+        tracker.Observe(h.Catalog.Current, h.Session.ManagedIds.ToHashSet(), layout, now);
+        tracker.Observe(h.Catalog.Current, h.Session.ManagedIds.ToHashSet(), layout, now.AddMilliseconds(250));
+        var ready = tracker.Ready(now.AddMilliseconds(250)).Where(entry => entry.Observation.Handle == next.Handle).ToArray();
+        Require(ready.Length == 1 && h.Session.AddWindows(ready, now), "An event-driven successor did not enter the canvas."); h.Settle();
+        Require(h.Session.IsRunning && h.Session.Workspace.Camera.Position == camera.Position + new PointD(180, 80) && WindowEventListener.ForegroundWindow == foreground,
+            "Automatic successor changed the camera, foreground or running state.");
+    }
+    [DllImport("user32.dll", EntryPoint = "ShowWindow")] private static extern bool ShowFixture(nint window, int command);
     private static void CloseWithoutPause()
     {
         using var h = new Harness(); var foreground = WindowEventListener.ForegroundWindow;

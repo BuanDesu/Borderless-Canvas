@@ -29,6 +29,8 @@ public sealed partial class GlobalNavigationInput
     internal bool TouchReceiverTransparentForCheck() => RoutingCheck(() => touchReceivers.Single().NativePassThrough);
     internal void TouchReceiverMessageForCheck(uint message, int delta)
         => RoutingCheck(() => { touchReceivers.Single().SendFixtureMessage(message, unchecked((nuint)(delta << 16))); return true; });
+    internal void PostTouchReceiverForCheck(uint message, int delta, bool shift = false)
+        => RoutingCheck(() => { touchReceivers.Single().PostFixtureMessage(message, unchecked((nuint)((delta << 16) | (shift ? 4 : 0)))); return true; });
     private T RoutingCheck<T>(Func<T> action)
     {
         if (nativeInput) throw new InvalidOperationException("Routing fixtures cannot operate native desktop input.");

@@ -60,6 +60,11 @@ internal sealed class TouchWheelReceiver : IDisposable
     }
     internal void SendFixtureMessage(uint message, nuint wParam)
     { if (Visible) throw new InvalidOperationException("Native receiver fixtures must stay hidden."); SendMessage(handle, message, wParam, 0); }
+    internal void PostFixtureMessage(uint message, nuint wParam)
+    {
+        CheckThread(); if (Visible) throw new InvalidOperationException("Native receiver fixtures must stay hidden.");
+        if (!PostMessage(handle, message, wParam, 0)) throw new Win32Exception(Marshal.GetLastPInvokeError());
+    }
     private void CheckThread()
     { if (Environment.CurrentManagedThreadId != thread) throw new InvalidOperationException("触控接收器必须在输入线程操作。"); }
     public void Dispose()
@@ -77,6 +82,7 @@ internal sealed class TouchWheelReceiver : IDisposable
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)] private static extern int SetWindowLong(nint window, int index, int value);
     [DllImport("user32.dll", EntryPoint = "CallWindowProcW")] private static extern nint CallWindowProc(nint previous, nint window, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern nint SendMessage(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)] private static extern bool PostMessage(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetLayeredWindowAttributes(nint window, uint color, byte alpha, uint flags);
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint window, int command);
 }
