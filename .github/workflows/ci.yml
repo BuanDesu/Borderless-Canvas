@@ -15,6 +15,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check new commit identities and tracked data
+        shell: pwsh
+        env:
+          BFW_PRIVACY_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+          BFW_PRIVACY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          ./scripts/check-repository-privacy.ps1 -SourceRevision $env:BFW_PRIVACY_SOURCE -BaseRevision $env:BFW_PRIVACY_BASE
+          ./scripts/check-repository-privacy-fixtures.ps1
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
