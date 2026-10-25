@@ -13,6 +13,7 @@ internal sealed partial class TouchNavigationHost : IDisposable
     internal bool IsClosed => closing;
     internal event Action<NavigationInput>? Input;
     internal event Action? ExitRequested;
+    internal event Action? FocusRequested;
 
     internal void AcceptWheel(int delta, bool horizontal, bool shift, bool control)
     {
@@ -45,7 +46,8 @@ internal sealed partial class TouchNavigationHost : IDisposable
         var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
         actions.RowStyles.Add(new(SizeType.Percent, 100));
         actions.ColumnStyles.Add(new(SizeType.Percent, 100)); actions.ColumnStyles.Add(new(SizeType.Absolute, 96)); actions.ColumnStyles.Add(new(SizeType.Absolute, 40));
-        actions.Controls.Add(new Label { Text = "双指平移", AccessibleName = "触控导航 · 双指平移", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+        var title = new Label { Text = "双指平移", AccessibleName = "触控导航 · 点击重新接收双指滚动", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Cursor = Cursors.Hand };
+        title.MouseClick += (_, _) => FocusRequested?.Invoke(); actions.Controls.Add(title, 0, 0);
         void Add(string text, NavigationInputKind kind)
         {
             var button = new Button { Text = text, AccessibleName = kind == NavigationInputKind.Exit ? "退出触控导航" : text,

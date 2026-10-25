@@ -15,19 +15,24 @@ internal sealed class TouchWheelReceiver : IDisposable
     private readonly nint original;
     private nint handle;
     internal nint Handle => handle;
+    internal PixelRect Bounds { get; }
     internal bool PassThrough { get; private set; }
     internal bool Visible => handle != 0 && NativeMethods.IsWindowVisible(handle);
+    internal bool BoundsMatch => NativeMethods.GetWindowRect(handle, out var actual) && actual.Left == Bounds.Left && actual.Top == Bounds.Top
+        && actual.Right == Bounds.Right && actual.Bottom == Bounds.Bottom;
 
     internal TouchWheelReceiver(PixelRect bounds, Action<uint, nuint> wheel, Action unexpectedButton, bool show = true)
     {
-        this.wheel = wheel; this.unexpectedButton = unexpectedButton; callback = WindowProc;
-        handle = NativeMethods.CreateWindowExW(0x08080080, "STATIC", "BFW wheel receiver", 0x80000004,
+        this.wheel = wheel; this.unexpectedButton = unexpectedButton; callback = WindowProc; Bounds = bounds;
+        // Precision touchpad targeting differs from an injected mouse wheel.
+        // Keep the focus-capable surface used by the original working mode.
+        handle = NativeMethods.CreateWindowExW(0x00080080, "STATIC", "BFW wheel receiver", 0x80000004,
             bounds.Left, bounds.Top, bounds.Width, bounds.Height, 0, 0, 0, 0);
         if (handle == 0) throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法创建触控滚动接收器。");
         try
         {
             original = SetLong(handle, -4, Marshal.GetFunctionPointerForDelegate(callback));
-            if (original == 0 || !SetLayeredWindowAttributes(handle, 0, 1, 2)) throw new Win32Exception(Marshal.GetLastPInvokeError());
+            if (original == 0 || !SetLayeredWindowAttributes(handle, 0, 6, 2)) throw new Win32Exception(Marshal.GetLastPInvokeError());
             if (show) ShowWindow(handle, 4); // No activation, taskbar item or pointer capture.
         }
         catch { Dispose(); throw; }
@@ -40,6 +45,18 @@ internal sealed class TouchWheelReceiver : IDisposable
         PassThrough = value;
     }
     internal bool NativePassThrough => (GetLong(handle, -20).ToInt64() & 0x20) != 0;
+    internal bool CanFocus => (GetLong(handle, -20).ToInt64() & 0x08000000) == 0;
+    internal nint FixtureHitTest()
+    {
+        CheckThread(); if (Visible) throw new InvalidOperationException("Native receiver fixtures must stay hidden.");
+        var point = (nint)(((Bounds.Top + Bounds.Height / 2) & 0xFFFF) << 16 | ((Bounds.Left + Bounds.Width / 2) & 0xFFFF));
+        return SendMessage(handle, 0x84, 0, point);
+    }
+    internal bool TryFocus()
+    {
+        CheckThread(); if (!Visible || PassThrough || !NativeMethods.SetForegroundWindow(handle)) return false;
+        SetFocus(handle); return NativeMethods.GetForegroundWindow() == handle;
+    }
     internal void RaiseWithoutActivation()
     {
         CheckThread();
@@ -48,7 +65,9 @@ internal sealed class TouchWheelReceiver : IDisposable
     private nint WindowProc(nint window, uint message, nuint wParam, nint lParam)
     {
         if (message == 0x21) return 3; // MA_NOACTIVATE.
-        if (message == 0x84 && PassThrough) return -1;
+        // STATIC defaults to HTTRANSPARENT without SS_NOTIFY. Explicitly expose
+        // a client hit target so physical touchpad targeting can find this HWND.
+        if (message == 0x84) return PassThrough ? -1 : 1;
         if (message is 0x20A or 0x20E) { if (!PassThrough) wheel(message, wParam); return 0; }
         if (message is 0x201 or 0x204 or 0x207 or 0x20B)
         {
@@ -85,4 +104,5 @@ internal sealed class TouchWheelReceiver : IDisposable
     [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)] private static extern bool PostMessage(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetLayeredWindowAttributes(nint window, uint color, byte alpha, uint flags);
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint window, int command);
+    [DllImport("user32.dll")] private static extern nint SetFocus(nint window);
 }

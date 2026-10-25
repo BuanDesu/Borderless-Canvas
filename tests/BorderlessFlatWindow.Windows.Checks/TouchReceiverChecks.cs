@@ -23,6 +23,15 @@ internal static class TouchReceiverChecks
         check("Hidden native touch receiver handles direct two-axis messages, toggles click transparency and fails open without activation", Messages);
         check("The real input worker bridges direct window wheel, button transparency, delayed rearm and pause cleanup on a hidden receiver", WorkerBridge);
         check("Queued native vertical, horizontal and Shift-wheel messages traverse the real worker message pump", QueuedWheel);
+        check("The native wheel surface is a real client hit target, becomes transparent for buttons and rearms", HitTarget);
+    }
+    private static void HitTarget()
+    {
+        using var receiver = new TouchWheelReceiver(new(-3000, -3000, -2600, -2700), (_, _) => { }, () => { }, show: false);
+        Require(receiver.FixtureHitTest() == 1, "An armed surface returned HTTRANSPARENT instead of HTCLIENT; physical touchpad input has no receiver.");
+        receiver.SetPassThrough(true); Require(receiver.FixtureHitTest() == -1, "Button pass-through did not expose the application.");
+        receiver.SetPassThrough(false); Require(receiver.FixtureHitTest() == 1, "The receiver did not rearm its hit target.");
+        Require(receiver.CanFocus && !receiver.TryFocus(), "A hidden fixture must never receive foreground.");
     }
     private static void QueuedWheel()
     {

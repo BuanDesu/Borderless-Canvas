@@ -279,6 +279,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
     }
     private bool RouteMouse(nuint message, MouseInput input)
     {
+        if (touchEnabled && message is 0x20A or 0x20E) touchHookSeen++;
         if (ConsumePointerAuxClick(message, input)) return true;
         if (touchEnabled && message is 0x207 or 0x208 or 0x20B or 0x20C) { TouchPointerPassThrough(); return false; }
         if (message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); }
@@ -303,6 +304,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
             if (touchEnabled)
             {
                 TouchButtonPassThrough(inputKind);
+                if (inputKind == NavigationInputKind.Move) TouchPointerMoved(input.Point);
                 if (inputKind is NavigationInputKind.LeftUp or NavigationInputKind.RightUp && gate.Route(inputKind).Suppress) return true;
                 return RouteTouchWheel(inputKind, input);
             }
