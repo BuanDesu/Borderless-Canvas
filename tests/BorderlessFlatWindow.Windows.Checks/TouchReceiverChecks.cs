@@ -24,6 +24,24 @@ internal static class TouchReceiverChecks
         check("The real input worker bridges direct window wheel, button transparency, delayed rearm and pause cleanup on a hidden receiver", WorkerBridge);
         check("Queued native vertical, horizontal and Shift-wheel messages traverse the real worker message pump", QueuedWheel);
         check("The native wheel surface is a real client hit target, becomes transparent for buttons and rearms", HitTarget);
+        check("A touchpad context tap leaves time for the desktop menu and never rearms during a menu", ContextHandoff);
+    }
+    private static void ContextHandoff()
+    {
+        var platform = new Platform(); using var input = new GlobalNavigationInput(() => { }, null, null, platform);
+        input.ConfigureScreens([platform.VirtualScreen]); input.SetAvailable(true); input.SynchronizeRoutingCheck();
+        Require(input.SetTouchNavigation(true), "Touch did not start."); input.Drain(); input.CreateHiddenTouchReceiverForCheck();
+        Require(!input.MouseRoutingCheck(0x204, new(500, 500), before: () => platform.Keys.Add(2)), "Context tap down was swallowed.");
+        Require(!input.MouseRoutingCheck(0x205, new(500, 500), before: () => platform.Keys.Remove(2)), "Context tap up was swallowed.");
+        input.TimerRoutingCheck(() => platform.TickCount += 200);
+        Require(input.TouchReceiverTransparentForCheck(), "Receiver rearmed before a delayed desktop context menu could open.");
+        platform.MenuActive = true; input.TimerRoutingCheck(() => platform.TickCount += 600);
+        Require(input.TouchReceiverTransparentForCheck(), "Receiver covered an active context menu.");
+        platform.MenuActive = false; input.TimerRoutingCheck();
+        Require(!input.TouchReceiverTransparentForCheck(), "Receiver did not return after the menu closed.");
+        Require(input.MouseRoutingCheck(0x20E, new(500, 500), 1), "Horizontal precision input did not resume after the context menu.");
+        var packets = input.Drain(); Require(packets.Count == 1 && packets[0].Input.Kind == NavigationInputKind.HorizontalWheel && packets[0].Input.WheelDelta == 1,
+            "A context tap became navigation or lost the following gesture.");
     }
     private static void HitTarget()
     {
@@ -56,7 +74,7 @@ internal static class TouchReceiverChecks
         internal readonly HashSet<int> Keys = [];
         public long TickCount { get; set; } = 1000;
         public nint Foreground => 0;
-        public bool MenuActive => false;
+        public bool MenuActive { get; set; }
         public bool Down(int key) => Keys.Contains(key);
         public bool IsDesktop(PointD point) => true;
         public bool GetPointer(out PointD point) { point = new(500, 500); return true; }
@@ -82,7 +100,7 @@ internal static class TouchReceiverChecks
             input.TimerRoutingCheck(() => platform.TickCount += 200);
             if (!input.TouchReceiverTransparentForCheck()) throw new InvalidOperationException("Receiver rearmed during app dragging.");
             if (input.MouseRoutingCheck(up, new(500, 500), before: () => platform.Keys.Remove(key))) throw new InvalidOperationException("A physical button release was swallowed.");
-            input.TimerRoutingCheck(() => platform.TickCount += 200);
+            input.TimerRoutingCheck(() => platform.TickCount += key == 2 ? 600 : 200);
             if (input.TouchReceiverTransparentForCheck()) throw new InvalidOperationException("Receiver did not rearm after a completed app click.");
         }
         input.SetAvailable(false); input.SynchronizeRoutingCheck();

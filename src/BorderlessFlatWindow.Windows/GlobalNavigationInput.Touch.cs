@@ -15,8 +15,6 @@ public sealed partial class GlobalNavigationInput
     private nint touchReceiverForeground;
     private ForegroundWindowBookmark? touchReturnFocus;
     private string touchFocusStatus = "未进入";
-    private PointD? touchPointer;
-    private bool touchFocusPending;
     private string touchRouteStatus = "等待输入", touchReceiverStatus = "未开启";
     public string TouchInputMessage => $"滚动接管：钩子 {Volatile.Read(ref touchHookPackets)} / 接收窗口 {Volatile.Read(ref touchWindowPackets)}"
         + $" · 纵向 {Volatile.Read(ref touchVerticalPackets)} / 横向 {Volatile.Read(ref touchHorizontalPackets)} · 焦点 {Volatile.Read(ref touchFocusStatus)}"
@@ -42,13 +40,6 @@ public sealed partial class GlobalNavigationInput
         catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or COMException)
         { Volatile.Write(ref touchFocusStatus, "焦点暂不可用，滚动接收仍保留"); }
     }
-    private void TouchPointerMoved(Point point)
-    {
-        var position = new PointD(point.X, point.Y); var moved = touchPointer is { } previous && previous != position; touchPointer = position;
-        // Low-level hooks only record intent. Window inspection and bookmark
-        // capture run later on the worker timer, never inside the hook callback.
-        if (moved && nativeInput) touchFocusPending = true;
-    }
     public bool SetTouchNavigation(bool enabled)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -61,7 +52,7 @@ public sealed partial class GlobalNavigationInput
             {
                 touchEnabled = true; mode = NavigationMode.Touch; touchHookPackets = touchWindowPackets = touchVerticalPackets = touchHorizontalPackets = touchHookSeen = 0;
                 Volatile.Write(ref touchRouteStatus, "等待输入");
-                touchPointer = GetPointer(out var point) ? new(point.X, point.Y) : null; Volatile.Write(ref touchFocusStatus, "等待接收");
+                Volatile.Write(ref touchFocusStatus, "等待接收");
                 if (nativeInput) foreach (var area in touchAreas)
                     touchReceivers.Add(new(area, ReceiveTouchWheel, () => Post(() => Leave("触控接收器已停用，请检查输入接管后重试。"))));
                 touchReceiverForeground = ForegroundWindow;
@@ -106,12 +97,13 @@ public sealed partial class GlobalNavigationInput
     private void TouchButtonPassThrough(NavigationInputKind kind)
     {
         if (!touchEnabled || kind is not (NavigationInputKind.LeftDown or NavigationInputKind.LeftUp or NavigationInputKind.RightDown or NavigationInputKind.RightUp)) return;
-        TouchPointerPassThrough();
+        TouchPointerPassThrough(contextTap: kind is NavigationInputKind.RightDown or NavigationInputKind.RightUp);
     }
-    private void TouchPointerPassThrough()
+    private void TouchPointerPassThrough(bool contextTap = false)
     {
-        touchFocusPending = false;
-        touchPassThroughUntil = InputTime + 100;
+        // The desktop's modern menu can open asynchronously after the tap's up.
+        // Keep the complete click exposed while that menu obtains its own HWND.
+        touchPassThroughUntil = Math.Max(touchPassThroughUntil, InputTime + (contextTap ? 500 : 100));
         foreach (var receiver in touchReceivers) receiver.SetPassThrough(true);
     }
     private void RefreshTouchReceivers()
@@ -132,11 +124,8 @@ public sealed partial class GlobalNavigationInput
             if (rearm || foreground != touchReceiverForeground) receiver.RaiseWithoutActivation();
         }
         touchReceiverForeground = foreground;
-        if (touchFocusPending)
-        {
-            touchFocusPending = false;
-            if (nativeInput && GetPointer(out var point) && NativeIsDesktopRoot(WindowUnderTouchReceiver(point))) FocusTouchReceiver();
-        }
+        // Focus is requested only on entry or by an explicit toolbar action.
+        // Hovering the desktop after a tap must not cancel a shell context menu.
     }
     private void DisposeTouchReceivers()
     {
@@ -148,7 +137,7 @@ public sealed partial class GlobalNavigationInput
         {
             touchReturnFocus?.Dispose(); touchReturnFocus = null;
             foreach (var receiver in touchReceivers) receiver.Dispose(); touchReceivers.Clear();
-            touchPassThroughUntil = 0; touchReceiverForeground = 0; touchPointer = null; touchFocusPending = false;
+            touchPassThroughUntil = 0; touchReceiverForeground = 0;
         }
     }
     private bool TouchTarget(Point point)

@@ -304,7 +304,6 @@ public sealed partial class GlobalNavigationInput : IDisposable
             if (touchEnabled)
             {
                 TouchButtonPassThrough(inputKind);
-                if (inputKind == NavigationInputKind.Move) TouchPointerMoved(input.Point);
                 if (inputKind is NavigationInputKind.LeftUp or NavigationInputKind.RightUp && gate.Route(inputKind).Suppress) return true;
                 return RouteTouchWheel(inputKind, input);
             }
