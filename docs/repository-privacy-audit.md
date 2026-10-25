@@ -22,6 +22,7 @@ Gitleaks 从官方发行版下载，并核对官方 SHA-256；扫描在本地执
 
 - 本项目本地 Git 作者固定为 GitHub 隐私邮箱，不修改全局或账户设置。
 - 合并必须显式提供 `--author-email` 和 `--match-head-commit`；普通合并接口默认带入账户邮箱，是这次发现的漏项。GitHub 的 [MergePullRequestInput](https://docs.github.com/en/graphql/reference/pulls#mergepullrequestinput) 支持明确指定作者邮箱。
+- 本次账户的隐私邮箱被 GitHub 合并 API 拒收时，保留错误并重新核对 PR 未合并；采用显式隐私作者/提交者的本地 `--no-ff` 合并和普通快进推送，不回退为个人邮箱。GitHub 可将分支 head 已进入 base 的 PR 标记为[间接合并](https://docs.github.com/en/pull-requests/reference/pull-request-merges#indirect-merges)，执行后仍核验实际 PR 状态。
 - CI 检查新提交范围内的作者与提交者身份，以及已跟踪文件中的运行数据、常见凭据和个人路径；检查消息不打印命中内容。历史基线仍有身份信息，守卫通过不等于历史已清除。
 - 独立合成夹具验证可接受 GitHub 隐私身份，并拒绝凭据、个人路径、运行文件和非隐私作者。它不安装输入钩子或操作桌面。
 - 增补环境文件、私钥材料、调试符号和转储的忽略规则。命名暂存、保留无关未跟踪文件、不上传本地数据的规则写入根目录 `AGENTS.md`。
