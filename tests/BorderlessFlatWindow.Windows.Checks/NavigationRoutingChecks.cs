@@ -62,6 +62,9 @@ internal static class NavigationRoutingChecks
             Require(!h.Input.MouseRoutingCheck(0x200, new(250, 240)), "Touch mode captured app dragging.");
             Require(!h.Input.MouseRoutingCheck(0x202, new(250, 240), before: () => h.Desktop.Keys.Remove(1)), "Touch mode captured a click up.");
         }
+        Require(!h.Input.MouseRoutingCheck(0x204, new(250, 240), before: () => h.Desktop.Keys.Add(2))
+            && !h.Input.MouseRoutingCheck(0x205, new(250, 240), before: () => h.Desktop.Keys.Remove(2)), "A two-finger right tap became a canvas button gesture.");
+        Require(h.Input.Drain().Count == 0 && h.Input.State.Touch, "Touch clicks queued navigation or exited the mode.");
         Require(h.Input.MouseRoutingCheck(0x20A, new(250, 240), 1) && h.Input.MouseRoutingCheck(0x20E, new(250, 240), -40), "Touchpad axes escaped.");
         var inputs = h.Input.Drain();
         Require(inputs.Count == 2 && inputs[0].Input.WheelDelta == 1 && inputs[1].Input.WheelDelta == -40 && h.Input.State.Touch && h.Desktop.Clip is null, "Clicks became canvas gestures or precision was lost.");

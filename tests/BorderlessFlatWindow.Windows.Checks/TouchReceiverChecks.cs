@@ -1,15 +1,47 @@
 using BorderlessFlatWindow.Windows.Interop;
 using BorderlessFlatWindow.Core.Geometry;
+using BorderlessFlatWindow.Application.Navigation;
 
 namespace BorderlessFlatWindow.Windows.Checks;
 
 internal static class TouchReceiverChecks
 {
+    internal static int RunStandalone()
+    {
+        var count = 0; var failures = 0;
+        Run((name, action) =>
+        {
+            count++;
+            try { action(); Console.WriteLine("PASS " + name); }
+            catch (Exception error) { failures++; Console.WriteLine("FAIL " + name + ": " + error.Message); }
+        });
+        Console.WriteLine($"{count - failures}/{count} hidden receiver checks passed (no hooks or desktop input).");
+        return failures == 0 ? 0 : 1;
+    }
     internal static void Run(Action<string, Action> check)
     {
         check("Hidden native touch receiver handles direct two-axis messages, toggles click transparency and fails open without activation", Messages);
         check("The real input worker bridges direct window wheel, button transparency, delayed rearm and pause cleanup on a hidden receiver", WorkerBridge);
+        check("Queued native vertical, horizontal and Shift-wheel messages traverse the real worker message pump", QueuedWheel);
     }
+    private static void QueuedWheel()
+    {
+        var platform = new Platform(); using var input = new GlobalNavigationInput(() => { }, null, null, platform);
+        input.ConfigureScreens([platform.VirtualScreen]); input.SetAvailable(true); input.SynchronizeRoutingCheck();
+        Require(input.SetTouchNavigation(true), "Touch did not start."); input.Drain(); var handle = input.CreateHiddenTouchReceiverForCheck();
+        input.PostTouchReceiverForCheck(0x20A, -32); input.PostTouchReceiverForCheck(0x20E, 24);
+        input.PostTouchReceiverForCheck(0x20A, -17, shift: true); input.SynchronizeRoutingCheck();
+        var packets = input.Drain();
+        Require(packets.Count == 3 && packets[0].Input.Kind == NavigationInputKind.Wheel && packets[0].Input.WheelDelta == -32
+            && packets[1].Input.Kind == NavigationInputKind.HorizontalWheel && packets[1].Input.WheelDelta == 24
+            && packets[2].Input.Shift && packets[2].Input.WheelDelta == -17, "Queued wheel messages were dropped by the input loop.");
+        var camera = PointD.Zero; var gesture = new NavigationGestureSession(() => camera, (position, _) => { camera = position; return true; }, _ => { });
+        foreach (var packet in packets) gesture.Accept(packet.Input, packet.At);
+        gesture.Tick(DateTimeOffset.UtcNow);
+        Require(camera == new PointD(41, 32), "A diagonal two-axis gesture lost precision or reversed an axis.");
+        input.SetAvailable(false); input.SynchronizeRoutingCheck(); Require(!NativeMethods.IsWindow(handle), "Queued receiver survived pause.");
+    }
+    private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private sealed class Platform : INavigationInputPlatform
     {
         internal readonly HashSet<int> Keys = [];

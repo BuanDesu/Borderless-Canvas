@@ -308,11 +308,11 @@ public sealed partial class ManagedCanvasSession : IDisposable
         {
             var byHandle = snapshot.Entries.ToDictionary(entry => entry.Observation.Handle);
             if (!PruneClosed(byHandle, foreground) || !IsRunning) return;
-            // A close commonly emits hide before destroy. Suspend this target
-            // locally so its disappearance cannot roll back surviving windows.
+            // Hide-before-destroy and minimize both retain native ownership.
+            // Suspend only this target before admission/geometry reconciliation.
             foreach (var state in managed.Values)
                 if (byHandle.TryGetValue(state.Identity.Handle, out var hidden) && hidden.Id == state.Id && hidden.Observation.Identity == state.Identity
-                    && hidden.Observation.IsAlive && !hidden.Observation.IsVisible)
+                    && hidden.Observation.IsAlive && (!hidden.Observation.IsVisible || hidden.Observation.IsMinimized))
                 {
                     if (!state.Suspended) InvalidateArrangementFor(state.Id);
                     state.Suspended = true; state.Deadline = null; state.Expected.Clear();
@@ -331,8 +331,8 @@ public sealed partial class ManagedCanvasSession : IDisposable
             var active = managed.Values.FirstOrDefault(window => window.Identity.Handle == foreground);
             if (foreground != lastForeground && focusMotion is not null) CancelCameraTransition();
             if (foreground != lastForeground && active?.Id != cycleTarget) cycleTarget = null;
-            ActiveWindowId = active?.Id;
-            if (!NavigationSuspended && foreground != lastForeground && active is { Parked: true, Suspended: false })
+            ActiveWindowId = active is { Suspended: false } ? active.Id : null;
+            if (!NavigationSuspended && foreground != lastForeground && active is not null && (active.Parked || active.Suspended))
             {
                 var window = Workspace.Windows.Single(window => window.Id == active.Id);
                 if (byHandle.TryGetValue(foreground, out var activated) && activated.Id == active.Id
@@ -344,16 +344,17 @@ public sealed partial class ManagedCanvasSession : IDisposable
                     // Accept that physical intermediate location without changing the logical layout.
                     active.Observed = new(checked((int)current.Position.X), checked((int)current.Position.Y),
                         checked((int)current.Right), checked((int)current.Bottom));
+                    if (active.Suspended) { active.Suspended = false; active.Desired = null; }
+                    if (!ApplyCamera(FocusPosition(window.Bounds), now, recordHistory: true)) return;
+                    activation = null; ActiveWindowId = active.Id;
                 }
-                if (!ApplyCamera(FocusPosition(window.Bounds), now, recordHistory: true)) return;
-                activation = null;
             }
             lastForeground = foreground;
             var mapper = new DesktopCoordinateMapper(Workspace.Camera.Position, layout.CanvasWorkArea);
             foreach (var state in managed.Values.ToArray())
             {
                 if (state.Suspended && byHandle.TryGetValue(state.Identity.Handle, out var hidden) && hidden.Id == state.Id
-                    && hidden.Observation.Identity == state.Identity && !hidden.Observation.IsVisible) continue;
+                    && hidden.Observation.Identity == state.Identity && (!hidden.Observation.IsVisible || hidden.Observation.IsMinimized)) continue;
                 if (!byHandle.TryGetValue(state.Identity.Handle, out var entry) || entry.Id != state.Id
                     || entry.Observation.Identity != state.Identity || !entry.Admission.IsAdmitted
                     || entry.Observation.IsMaximized || entry.Observation.IsTopMost)

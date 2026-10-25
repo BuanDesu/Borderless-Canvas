@@ -188,6 +188,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
                     }
                     else if (GetPointer(out var pointer)) UpdateAutomatic(pointer);
                 }
+                else if (message.Window != 0) DispatchMessage(ref message);
             }
         }
         catch (Exception exception)

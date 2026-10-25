@@ -11,9 +11,25 @@ public sealed class NativeWindowMotionPort : IWindowMotionPort
     private readonly RegisteredWindowMover validator = new();
     public MotionBatchResult RequestBatch(RecoverySession recovery, IReadOnlyList<WindowTranslation> translations)
     {
-        if (translations.Count == 0) return new(true, "No movement needed.");
         if (translations.Select(item => item.RecoveryId).Distinct().Count() != translations.Count)
             return new(false, "Duplicate window in movement batch.");
+        // A window can close/minimize after the catalog snapshot but before this
+        // frame. Leave it for the scheduled observation; do not fail survivors.
+        var active = translations.Where(item => !AwaitingObservation(recovery, item)).ToArray();
+        var result = RequestActiveBatch(recovery, active);
+        if (result.Accepted) return result;
+        var remaining = active.Where(item => !AwaitingObservation(recovery, item)).ToArray();
+        return remaining.Length < active.Length ? RequestActiveBatch(recovery, remaining) : result;
+    }
+    private static bool AwaitingObservation(RecoverySession recovery, WindowTranslation item)
+    {
+        var entry = recovery.Journal.Entries.FirstOrDefault(entry => entry.Id == item.RecoveryId);
+        return entry is not null && (!NativeMethods.IsWindow(entry.Identity.Handle)
+            || (!NativeMethods.IsWindowVisible(entry.Identity.Handle) || NativeMethods.IsIconic(entry.Identity.Handle)) && recovery.CanMove(item.RecoveryId));
+    }
+    private MotionBatchResult RequestActiveBatch(RecoverySession recovery, IReadOnlyList<WindowTranslation> translations)
+    {
+        if (translations.Count == 0) return new(true, "No movable targets; await lifecycle observation.");
         foreach (var item in translations)
         {
             var reason = validator.Validate(recovery, item.RecoveryId, item.Target);
