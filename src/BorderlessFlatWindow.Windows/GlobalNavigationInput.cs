@@ -217,13 +217,13 @@ public sealed partial class GlobalNavigationInput : IDisposable
         edgeMotion.Reset();
         cycleWheel.Reset();
         pendingCrosshair = false;
-        if (gate.Active || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
+        if (gate.Active || touchEnabled || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
         ReleasePointerCapture();
         contextClick.Cancel(); contextTarget = 0; contextGeneration++;
         var active = gate.Active || touchEnabled; touchEnabled = false; gate.Exit(); mode = NavigationMode.Inactive;
         if (escapeRegistered) ReleaseModeKeys();
-        if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
         Publish(false, State.Registered, State.Hotkey, State.Registered ? message : State.Message);
+        if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
     }
     private void ReleaseModeKeys()
     {
@@ -280,8 +280,11 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool RouteMouse(nuint message, MouseInput input)
     {
         if (touchEnabled && message is 0x20A or 0x20E) touchHookSeen++;
+        var ownContextPair = (input.Flags & 1) != 0 && input.Extra == ContextClickTag;
+        if (touchEnabled && !ownContextPair && message == 0x204) touchRightHookDown++;
+        if (touchEnabled && !ownContextPair && message == 0x205) touchRightHookUp++;
         if (ConsumePointerAuxClick(message, input)) return true;
-        if (touchEnabled && message is 0x207 or 0x208 or 0x20B or 0x20C) { TouchPointerPassThrough(); return false; }
+        if (touchEnabled && message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); TouchPointerPassThrough(); return false; }
         if (message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); }
         NavigationInputKind? kind = message switch
         {
@@ -299,11 +302,16 @@ public sealed partial class GlobalNavigationInput : IDisposable
             // Our context replay and system-menu command keep their ownership
             // even while ordinary touch clicks pass directly to applications.
             if ((input.Flags & 1) != 0 && input.Extra == ContextClickTag) return false;
+            if (inputKind == NavigationInputKind.RightUp && touchContextRelease.Route(inputKind).Suppress)
+            { FinishTouchDesktopContext(input.Point); return true; }
             if (ConsumePinMenuClick(inputKind, input.Point)) return true;
             if (ConsumeCrosshairButton(inputKind)) return true;
             if (touchEnabled)
             {
                 TouchButtonPassThrough(inputKind);
+                if (inputKind != NavigationInputKind.Move) contextGeneration++;
+                if (BeginTouchDesktopContext(inputKind, input.Point)) return true;
+                ObserveTouchDesktopContext(inputKind, input.Point);
                 if (inputKind is NavigationInputKind.LeftUp or NavigationInputKind.RightUp && gate.Route(inputKind).Suppress) return true;
                 return RouteTouchWheel(inputKind, input);
             }

@@ -27,6 +27,7 @@ public sealed partial class GlobalNavigationInput
         touchReceivers.Add(receiver); return receiver.Handle;
     });
     internal bool TouchReceiverTransparentForCheck() => RoutingCheck(() => touchReceivers.Single().NativePassThrough);
+    internal long TouchContextValidatedForCheck() => RoutingCheck(() => touchContextValidated);
     internal void TouchReceiverMessageForCheck(uint message, int delta)
         => RoutingCheck(() => { touchReceivers.Single().SendFixtureMessage(message, unchecked((nuint)(delta << 16))); return true; });
     internal void PostTouchReceiverForCheck(uint message, int delta, bool shift = false)

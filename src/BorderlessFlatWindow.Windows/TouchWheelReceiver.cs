@@ -12,6 +12,7 @@ internal sealed class TouchWheelReceiver : IDisposable
     private readonly WindowProcedure callback;
     private readonly Action<uint, nuint> wheel;
     private readonly Action unexpectedButton;
+    private readonly Action<uint>? buttonObserved;
     private readonly nint original;
     private nint handle;
     internal nint Handle => handle;
@@ -21,9 +22,9 @@ internal sealed class TouchWheelReceiver : IDisposable
     internal bool BoundsMatch => NativeMethods.GetWindowRect(handle, out var actual) && actual.Left == Bounds.Left && actual.Top == Bounds.Top
         && actual.Right == Bounds.Right && actual.Bottom == Bounds.Bottom;
 
-    internal TouchWheelReceiver(PixelRect bounds, Action<uint, nuint> wheel, Action unexpectedButton, bool show = true)
+    internal TouchWheelReceiver(PixelRect bounds, Action<uint, nuint> wheel, Action unexpectedButton, bool show = true, Action<uint>? buttonObserved = null)
     {
-        this.wheel = wheel; this.unexpectedButton = unexpectedButton; callback = WindowProc; Bounds = bounds;
+        this.wheel = wheel; this.unexpectedButton = unexpectedButton; this.buttonObserved = buttonObserved; callback = WindowProc; Bounds = bounds;
         // Precision touchpad targeting differs from an injected mouse wheel.
         // Keep the focus-capable surface used by the original working mode.
         handle = NativeMethods.CreateWindowExW(0x00080080, "STATIC", "BFW wheel receiver", 0x80000004,
@@ -64,6 +65,7 @@ internal sealed class TouchWheelReceiver : IDisposable
     }
     private nint WindowProc(nint window, uint message, nuint wParam, nint lParam)
     {
+        if (message is 0x204 or 0x205 or 0x7B) buttonObserved?.Invoke(message);
         if (message == 0x21) return 3; // MA_NOACTIVATE.
         // STATIC defaults to HTTRANSPARENT without SS_NOTIFY. Explicitly expose
         // a client hit target so physical touchpad targeting can find this HWND.
