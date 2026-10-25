@@ -38,6 +38,22 @@ internal static class NavigationRoutingChecks
         check("Touch mode preserves menus and application keys, exits on Escape/pause, and switches cleanly to crosshair", TouchBoundaries);
         check("Custom context keys match all modifiers and reconfiguration cannot retain old key capture", CustomContextKeys);
         check("Touch mode consumes direct target-window wheel messages after desktop mouse navigation and respects exit", DirectTouchWheel);
+        check("A touch exit publishes inactive state and its reason before notifying the UI", TouchExitPublication);
+    }
+    private static void TouchExitPublication()
+    {
+        var platform = new Platform(); GlobalNavigationInput? observed = null; var armed = false;
+        NavigationMode? notifiedMode = null; string? notifiedReason = null;
+        using var input = new GlobalNavigationInput(() =>
+        {
+            if (armed) { notifiedMode ??= observed!.State.Mode; notifiedReason ??= observed!.LastExitReason; }
+        }, null, null, platform);
+        observed = input; input.SetAvailable(true); input.SynchronizeRoutingCheck();
+        Require(input.SetTouchNavigation(true), "Touch did not start."); input.Drain(); armed = true;
+        input.SetTouchNavigation(false);
+        Require(notifiedMode == NavigationMode.Inactive, "The UI was notified of exit while the published mode still said Touch.");
+        Require(notifiedReason == "触控导航已退出。", "A touch exit left an unrelated previous exit reason.");
+        Require(input.Drain().Single().Input.Kind == NavigationInputKind.Exit, "Touch exit lost its notification packet.");
     }
     private static void DirectTouchWheel()
     {

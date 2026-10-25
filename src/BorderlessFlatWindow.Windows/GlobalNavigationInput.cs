@@ -217,13 +217,13 @@ public sealed partial class GlobalNavigationInput : IDisposable
         edgeMotion.Reset();
         cycleWheel.Reset();
         pendingCrosshair = false;
-        if (gate.Active || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
+        if (gate.Active || touchEnabled || crosshair || clipOwned) Volatile.Write(ref lastExitReason, message);
         ReleasePointerCapture();
         contextClick.Cancel(); contextTarget = 0; contextGeneration++;
         var active = gate.Active || touchEnabled; touchEnabled = false; gate.Exit(); mode = NavigationMode.Inactive;
         if (escapeRegistered) ReleaseModeKeys();
-        if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
         Publish(false, State.Registered, State.Hotkey, State.Registered ? message : State.Message);
+        if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
     }
     private void ReleaseModeKeys()
     {
@@ -280,6 +280,8 @@ public sealed partial class GlobalNavigationInput : IDisposable
     private bool RouteMouse(nuint message, MouseInput input)
     {
         if (touchEnabled && message is 0x20A or 0x20E) touchHookSeen++;
+        if (touchEnabled && message == 0x204) touchRightHookDown++;
+        if (touchEnabled && message == 0x205) touchRightHookUp++;
         if (ConsumePointerAuxClick(message, input)) return true;
         if (touchEnabled && message is 0x207 or 0x208 or 0x20B or 0x20C) { TouchPointerPassThrough(); return false; }
         if (message is 0x207 or 0x208 or 0x20B or 0x20C) { contextGeneration++; contextClick.Cancel(); }
