@@ -24,13 +24,14 @@ internal sealed partial class ManagedCanvasControl
             var host = new TouchNavigationHost(); touchNavigation = host;
             host.Input += QueueTouchInput;
             host.ExitRequested += () => CloseTouchNavigation();
+            host.FocusRequested += () => globalInput?.FocusTouchNavigation();
             RefreshState();
             try
             {
                 if (globalInput?.SetTouchNavigation(true) != true) { CloseTouchNavigation(); notice = "画布输入尚未就绪，未进入触控模式。"; RefreshState(); return; }
                 var areas = Screen.AllScreens.Select(screen => screen.WorkingArea).Where(area => area.Width > 0 && area.Height > 0).ToArray();
                 var pointer = Cursor.Position;
-                FindForm()?.Hide(); host.Show(areas, pointer); navigationTimer.Start();
+                FindForm()?.Hide(); host.Show(areas, pointer); globalInput.FocusTouchNavigation(); navigationTimer.Start();
             }
             catch (Exception error) when (Expected(error))
             { CloseTouchNavigation(discard: true); notice = "触控导航未能打开：" + error.Message; FindForm()?.Show(); RefreshState(); }

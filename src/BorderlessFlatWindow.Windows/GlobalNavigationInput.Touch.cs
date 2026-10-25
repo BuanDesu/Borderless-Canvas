@@ -11,8 +11,44 @@ public sealed partial class GlobalNavigationInput
     private readonly List<TouchWheelReceiver> touchReceivers = [];
     private PixelRect[] touchAreas = [];
     private long touchPassThroughUntil, touchHookPackets, touchWindowPackets;
+    private long touchVerticalPackets, touchHorizontalPackets, touchHookSeen;
     private nint touchReceiverForeground;
-    public string TouchInputMessage => $"滚动接管：钩子 {Volatile.Read(ref touchHookPackets)} / 接收窗口 {Volatile.Read(ref touchWindowPackets)}";
+    private ForegroundWindowBookmark? touchReturnFocus;
+    private string touchFocusStatus = "未进入";
+    private PointD? touchPointer;
+    private bool touchFocusPending;
+    private string touchRouteStatus = "等待输入", touchReceiverStatus = "未开启";
+    public string TouchInputMessage => $"滚动接管：钩子 {Volatile.Read(ref touchHookPackets)} / 接收窗口 {Volatile.Read(ref touchWindowPackets)}"
+        + $" · 纵向 {Volatile.Read(ref touchVerticalPackets)} / 横向 {Volatile.Read(ref touchHorizontalPackets)} · 焦点 {Volatile.Read(ref touchFocusStatus)}"
+        + $" · 钩子看见 {Volatile.Read(ref touchHookSeen)} ({Volatile.Read(ref touchRouteStatus)})";
+    public string TouchReceiverMessage => Volatile.Read(ref touchReceiverStatus);
+    public void FocusTouchNavigation() => Post(FocusTouchReceiver);
+    private bool IsTouchReceiver(nint handle) => touchReceivers.Any(receiver => receiver.Handle == handle);
+    private void FocusTouchReceiver()
+    {
+        if (!nativeInput || !touchEnabled || !available || overviewOpen || MenuActive() || Down(1) || Down(2) || Down(4) || Down(5) || Down(6)
+            || !GetPointer(out var point)) return;
+        var receiver = touchReceivers.FirstOrDefault(receiver => point.X >= receiver.Bounds.Left && point.X < receiver.Bounds.Right
+            && point.Y >= receiver.Bounds.Top && point.Y < receiver.Bounds.Bottom) ?? touchReceivers.FirstOrDefault();
+        if (receiver is null || receiver.PassThrough) return;
+        var foreground = ForegroundWindow;
+        if (IsTouchReceiver(foreground)) return;
+        try
+        {
+            var candidate = ForegroundWindowBookmark.Capture(foreground);
+            if (candidate is not null) { touchReturnFocus?.Dispose(); touchReturnFocus = candidate; }
+            Volatile.Write(ref touchFocusStatus, receiver.TryFocus() ? "已接收" : "未获得，点击双指平移重试");
+        }
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or COMException)
+        { Volatile.Write(ref touchFocusStatus, "焦点暂不可用，滚动接收仍保留"); }
+    }
+    private void TouchPointerMoved(Point point)
+    {
+        var position = new PointD(point.X, point.Y); var moved = touchPointer is { } previous && previous != position; touchPointer = position;
+        // Low-level hooks only record intent. Window inspection and bookmark
+        // capture run later on the worker timer, never inside the hook callback.
+        if (moved && nativeInput) touchFocusPending = true;
+    }
     public bool SetTouchNavigation(bool enabled)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -23,7 +59,9 @@ public sealed partial class GlobalNavigationInput
             if (!enabled || !available || overviewOpen) { completion.SetResult(!enabled); return; }
             try
             {
-                touchEnabled = true; mode = NavigationMode.Touch; touchHookPackets = touchWindowPackets = 0;
+                touchEnabled = true; mode = NavigationMode.Touch; touchHookPackets = touchWindowPackets = touchVerticalPackets = touchHorizontalPackets = touchHookSeen = 0;
+                Volatile.Write(ref touchRouteStatus, "等待输入");
+                touchPointer = GetPointer(out var point) ? new(point.X, point.Y) : null; Volatile.Write(ref touchFocusStatus, "等待接收");
                 if (nativeInput) foreach (var area in touchAreas)
                     touchReceivers.Add(new(area, ReceiveTouchWheel, () => Post(() => Leave("触控接收器已停用，请检查输入接管后重试。"))));
                 touchReceiverForeground = ForegroundWindow;
@@ -37,11 +75,13 @@ public sealed partial class GlobalNavigationInput
     private bool RouteTouchWheel(NavigationInputKind kind, MouseInput input)
     {
         if (kind is not (NavigationInputKind.Wheel or NavigationInputKind.HorizontalWheel)) return false;
-        if (!available || overviewOpen || MenuActive() || !TouchTarget(input.Point)) { cycleWheel.Reset(); return false; }
+        var rejection = !available ? "未启用" : overviewOpen ? "总览打开" : MenuActive() ? "菜单打开" : !TouchTarget(input.Point) ? "目标不在接收区" : null;
+        if (rejection is not null) { Volatile.Write(ref touchRouteStatus, rejection); cycleWheel.Reset(); return false; }
         var horizontal = kind == NavigationInputKind.HorizontalWheel;
         var shift = !horizontal && Down(0x10); var control = !horizontal && Down(0x11);
         var delta = (int)unchecked((short)(input.Data >> 16));
-        if (!QueueTouchWheel(kind, delta, shift, control)) return false;
+        if (!QueueTouchWheel(kind, delta, shift, control)) { Volatile.Write(ref touchRouteStatus, "轴已禁用"); return false; }
+        Volatile.Write(ref touchRouteStatus, "已接管");
         touchHookPackets++; return true;
     }
     private bool QueueTouchWheel(NavigationInputKind kind, int delta, bool shift, bool control)
@@ -49,7 +89,11 @@ public sealed partial class GlobalNavigationInput
         var horizontal = kind == NavigationInputKind.HorizontalWheel;
         if (!control && (horizontal || shift ? !gate.Options.HorizontalWheel : !gate.Options.VerticalWheel)) { cycleWheel.Reset(); return false; }
         if (control) delta = cycleWheel.Add(delta, InputTime) * 120; else cycleWheel.Reset();
-        if (delta != 0) Queue(new(control ? NavigationInputKind.CycleWindow : kind, PointD.Zero, delta, shift));
+        if (delta != 0)
+        {
+            if (horizontal || shift) touchHorizontalPackets++; else touchVerticalPackets++;
+            Queue(new(control ? NavigationInputKind.CycleWindow : kind, PointD.Zero, delta, shift));
+        }
         return true;
     }
     private void ReceiveTouchWheel(uint message, nuint wParam)
@@ -66,26 +110,51 @@ public sealed partial class GlobalNavigationInput
     }
     private void TouchPointerPassThrough()
     {
+        touchFocusPending = false;
         touchPassThroughUntil = InputTime + 100;
         foreach (var receiver in touchReceivers) receiver.SetPassThrough(true);
     }
     private void RefreshTouchReceivers()
     {
+        if (touchEnabled && nativeInput && GetPointer(out var sample))
+        {
+            var inside = touchAreas.Any(area => sample.X >= area.Left && sample.X < area.Right && sample.Y >= area.Top && sample.Y < area.Bottom);
+            Volatile.Write(ref touchReceiverStatus, $"接收层 {touchReceivers.Count} · 边界匹配 {touchReceivers.All(receiver => receiver.BoundsMatch)} · 光标在区域 {inside} · 命中接收层 {IsTouchReceiver(GetAncestor(WindowFromPoint(sample), 2))}");
+        }
         if (!touchEnabled || touchReceivers.Count == 0 || InputTime < touchPassThroughUntil || MenuActive()
             || Down(1) || Down(2) || Down(4) || Down(5) || Down(6)) return;
         var foreground = ForegroundWindow;
+        if (nativeInput && touchReceivers.Any(receiver => receiver.Visible))
+            Volatile.Write(ref touchFocusStatus, IsTouchReceiver(foreground) ? "已接收" : "应用交互中");
         foreach (var receiver in touchReceivers)
         {
             var rearm = receiver.PassThrough; receiver.SetPassThrough(false);
             if (rearm || foreground != touchReceiverForeground) receiver.RaiseWithoutActivation();
         }
         touchReceiverForeground = foreground;
+        if (touchFocusPending)
+        {
+            touchFocusPending = false;
+            if (nativeInput && GetPointer(out var point) && NativeIsDesktopRoot(WindowUnderTouchReceiver(point))) FocusTouchReceiver();
+        }
     }
     private void DisposeTouchReceivers()
-    { foreach (var receiver in touchReceivers) receiver.Dispose(); touchReceivers.Clear(); touchPassThroughUntil = 0; touchReceiverForeground = 0; }
+    {
+        // Restore only while our receiver still owns foreground. An application
+        // chosen by a real click keeps its focus throughout mode exit.
+        try { if (nativeInput && IsTouchReceiver(ForegroundWindow)) touchReturnFocus?.TryRestore(); }
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or COMException) { }
+        finally
+        {
+            touchReturnFocus?.Dispose(); touchReturnFocus = null;
+            foreach (var receiver in touchReceivers) receiver.Dispose(); touchReceivers.Clear();
+            touchPassThroughUntil = 0; touchReceiverForeground = 0; touchPointer = null; touchFocusPending = false;
+        }
+    }
     private bool TouchTarget(Point point)
     {
         if (!nativeInput) return true;
+        if (!touchAreas.Any(area => point.X >= area.Left && point.X < area.Right && point.Y >= area.Top && point.Y < area.Bottom)) return false;
         var window = WindowFromPoint(point); if (window == 0) return false;
         var root = GetAncestor(window, 2); if (root == 0) root = window;
         if (touchReceivers.Any(receiver => receiver.Handle == root)) return true;

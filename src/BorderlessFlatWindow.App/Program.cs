@@ -11,6 +11,13 @@ internal static class Program
             System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        if (args.Contains("--touchpad-lab", StringComparer.Ordinal))
+        {
+            var reportIndex = Array.IndexOf(args, "--lab-report");
+            if (reportIndex >= 0 && reportIndex + 1 >= args.Length) return 1;
+            using var lab = new TouchpadInputLab(reportIndex < 0 ? null : Path.GetFullPath(args[reportIndex + 1]));
+            System.Windows.Forms.Application.Run(lab); return 0;
+        }
         var interactionCheck = Array.IndexOf(args, "--interaction-check");
         if (interactionCheck >= 0)
         {
