@@ -28,7 +28,7 @@ git -C $fixture -c user.email=noreply@github.com commit --quiet --allow-empty -m
 $base = (git -C $fixture rev-parse HEAD).Trim()
 Assert-Rejected 'personal author metadata' { git -C $fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m 'synthetic identity rejection' }
 git -C $fixture commit --quiet --allow-empty -m 'synthetic private identity restored'
-& $guard -RepositoryDirectory $fixture
+Assert-Rejected 'non-noreply ancestor behind a clean tip' { }
 $rangeRejected = $false
 try { & $guard -RepositoryDirectory $fixture -BaseRevision $base | Out-Null } catch { $rangeRejected = $true }
 if (!$rangeRejected) { throw 'A clean tip hid non-noreply metadata in the new commit range.' }

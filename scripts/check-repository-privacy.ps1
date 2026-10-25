@@ -8,13 +8,12 @@ Push-Location $RepositoryDirectory
 try {
     $range = if ($BaseRevision -and $BaseRevision -notmatch '^0+$') { "$BaseRevision..$SourceRevision" } else { $SourceRevision }
     $arguments = @('log', '--format=%ae%x09%ce')
-    if (!$BaseRevision -or $BaseRevision -match '^0+$') { $arguments += '-1' }
     $metadata = @(git @arguments $range)
     if ($LASTEXITCODE -ne 0 -or !$metadata.Count) { throw 'Cannot verify commit identity; fetch the complete audit range.' }
     foreach ($line in $metadata) {
         foreach ($email in ($line -split "`t")) {
             if ($email -notmatch '^(?:[^\s<>@]+@users\.noreply\.github\.com|noreply@github\.com)$') {
-                throw 'New commit metadata contains a non-noreply identity; the value was not printed.'
+                throw 'Reachable commit metadata contains a non-noreply identity; the value was not printed.'
             }
         }
     }
@@ -37,5 +36,5 @@ try {
             if ($text -match $pattern) { throw "Potential private content rejected in $file; the value was not printed." }
         }
     }
-    Write-Output "PASS Repository privacy: $($files.Count) tracked files and $($metadata.Count) new commit identities; historical erasure requires a separate audit."
+    Write-Output "PASS Repository privacy: $($files.Count) tracked files and $($metadata.Count) reachable/range commit identities; platform copies require a separate audit."
 } finally { Pop-Location }
