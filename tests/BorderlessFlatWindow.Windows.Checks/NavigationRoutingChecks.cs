@@ -39,6 +39,34 @@ internal static class NavigationRoutingChecks
         check("Custom context keys match all modifiers and reconfiguration cannot retain old key capture", CustomContextKeys);
         check("Touch mode consumes direct target-window wheel messages after desktop mouse navigation and respects exit", DirectTouchWheel);
         check("A touch exit publishes inactive state and its reason before notifying the UI", TouchExitPublication);
+        check("A solitary touch desktop context tap is handed off once while application right clicks pass through", TouchDesktopContext);
+        check("Touch desktop handoff cancels across menu, target and pause changes and pairs the withheld release", TouchDesktopContextBoundaries);
+    }
+    private static void TouchDesktopContext()
+    {
+        using var h = new Harness(); h.Input.SetTouchNavigation(true); h.Input.Drain();
+        Require(h.Input.MouseRoutingCheck(0x204, h.Desktop.Pointer, before: () => h.Desktop.Keys.Add(2)), "Desktop context down reached the wheel surface before handoff.");
+        Require(h.Input.MouseRoutingCheck(0x205, h.Desktop.Pointer, before: () => h.Desktop.Keys.Remove(2)), "Desktop context up was not paired.");
+        Require(h.Input.TouchContextValidatedForCheck() == 1 && h.Input.State.Touch && h.Input.Drain().Count == 0, "Desktop context tap was lost, duplicated or exited touch mode.");
+        h.Desktop.Desktop = false;
+        Require(!h.Input.MouseRoutingCheck(0x204, h.Desktop.Pointer, before: () => h.Desktop.Keys.Add(2))
+            && !h.Input.MouseRoutingCheck(0x205, h.Desktop.Pointer, before: () => h.Desktop.Keys.Remove(2)), "Application context input was intercepted.");
+        Require(h.Input.TouchContextValidatedForCheck() == 1, "Application context input was replayed.");
+    }
+    private static void TouchDesktopContextBoundaries()
+    {
+        using var h = new Harness(); h.Input.SetTouchNavigation(true); h.Input.Drain();
+        void Down() => Require(h.Input.MouseRoutingCheck(0x204, h.Desktop.Pointer, before: () => h.Desktop.Keys.Add(2)), "Desktop down was not captured.");
+        void Up() => Require(h.Input.MouseRoutingCheck(0x205, h.Desktop.Pointer, before: () => h.Desktop.Keys.Remove(2)), "A withheld release escaped.");
+        Down(); h.Desktop.MenuActive = true; Up(); h.Desktop.MenuActive = false;
+        Down(); h.Desktop.Desktop = false; Up(); h.Desktop.Desktop = true;
+        Down(); h.Input.MouseRoutingCheck(0x201, h.Desktop.Pointer, before: () => h.Desktop.Keys.Add(1)); Up();
+        h.Input.MouseRoutingCheck(0x202, h.Desktop.Pointer, before: () => h.Desktop.Keys.Remove(1));
+        Require(h.Input.TouchContextValidatedForCheck() == 0, "A cancelled chord was handed off.");
+        Down(); Up(); Require(h.Input.TouchContextValidatedForCheck() == 1, "A completed left chord poisoned the following context tap.");
+        Down(); h.Input.SetAvailable(false); h.Input.SynchronizeRoutingCheck(); h.Input.Drain(); Up();
+        Require(h.Input.TouchContextValidatedForCheck() == 1 && !h.Input.State.Touch, "An invalidated context tap was handed to another target.");
+        Require(!h.Input.MouseRoutingCheck(0x205, h.Desktop.Pointer), "An already paired release stayed captured.");
     }
     private static void TouchExitPublication()
     {

@@ -106,6 +106,7 @@ internal static class Program
         ManagedCanvasChecks.Run(Check);
         NavigationInputChecks.Run(Check);
         TouchReceiverChecks.Run(Check);
+        TouchReceiverChecks.RunHitTesting(Check);
         NavigationRoutingChecks.Run(Check);
         PointerAndPinChecks.Run(normal, Check);
         OverviewChecks.Run(Check);

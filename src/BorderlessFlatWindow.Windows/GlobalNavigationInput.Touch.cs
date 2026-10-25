@@ -13,6 +13,7 @@ public sealed partial class GlobalNavigationInput
     private long touchPassThroughUntil, touchHookPackets, touchWindowPackets;
     private long touchVerticalPackets, touchHorizontalPackets, touchHookSeen;
     private long touchRightHookDown, touchRightHookUp, touchRightWindowDown, touchRightWindowUp, touchContextWindow, touchUnexpectedButtons;
+    private long touchContextValidated = 0;
     private nint touchReceiverForeground;
     private ForegroundWindowBookmark? touchReturnFocus;
     private string touchFocusStatus = "未进入";
@@ -21,7 +22,8 @@ public sealed partial class GlobalNavigationInput
         + $" · 纵向 {Volatile.Read(ref touchVerticalPackets)} / 横向 {Volatile.Read(ref touchHorizontalPackets)} · 焦点 {Volatile.Read(ref touchFocusStatus)}"
         + $" · 钩子看见 {Volatile.Read(ref touchHookSeen)} ({Volatile.Read(ref touchRouteStatus)})"
         + $" · 右键钩子 {Volatile.Read(ref touchRightHookDown)}/{Volatile.Read(ref touchRightHookUp)}"
-        + $" · 右键窗口 {Volatile.Read(ref touchRightWindowDown)}/{Volatile.Read(ref touchRightWindowUp)} / 菜单 {Volatile.Read(ref touchContextWindow)} / 异常按钮 {Volatile.Read(ref touchUnexpectedButtons)}";
+        + $" · 右键窗口 {Volatile.Read(ref touchRightWindowDown)}/{Volatile.Read(ref touchRightWindowUp)} / 菜单 {Volatile.Read(ref touchContextWindow)} / 异常按钮 {Volatile.Read(ref touchUnexpectedButtons)}"
+        + $" · 桌面交接 {Volatile.Read(ref touchContextValidated)}/{Volatile.Read(ref touchContextSent)} ({Volatile.Read(ref touchContextOutcome)})";
     public string TouchReceiverMessage => Volatile.Read(ref touchReceiverStatus);
     public void FocusTouchNavigation() => Post(FocusTouchReceiver);
     private bool IsTouchReceiver(nint handle) => touchReceivers.Any(receiver => receiver.Handle == handle);
@@ -55,6 +57,7 @@ public sealed partial class GlobalNavigationInput
             {
                 touchEnabled = true; mode = NavigationMode.Touch; touchHookPackets = touchWindowPackets = touchVerticalPackets = touchHorizontalPackets = touchHookSeen = 0;
                 touchRightHookDown = touchRightHookUp = touchRightWindowDown = touchRightWindowUp = touchContextWindow = touchUnexpectedButtons = 0;
+                touchContextValidated = touchContextSent = 0; Volatile.Write(ref touchContextOutcome, "等待");
                 Volatile.Write(ref touchRouteStatus, "等待输入");
                 Volatile.Write(ref touchFocusStatus, "等待接收");
                 if (nativeInput) foreach (var area in touchAreas)
