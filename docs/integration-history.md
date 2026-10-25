@@ -18,3 +18,5 @@
 | [#26](https://github.com/BuanDesu/Borderless-Flat-Window/pull/26) | 首个试用包 | 2e8818e5973d8be88534adae528030631f31c6d1 |
 
 首个试用包代码集成后 tree：`2c1c06618e8079ce3437b4ba5d8915c209c75d29`。本地日志和桌面截图不纳入记录；表格只保存仓库内可验证的提交身份。
+
+2026-10-25 触控板修正：[PR #69](https://github.com/BuanDesu/Borderless-Flat-Window/pull/69) 恢复接收层真实命中及正式画布双轴平移，合并提交 `89646c9f9900077231aa87f3ad3eb8cde4a7d23f`；[PR #70](https://github.com/BuanDesu/Borderless-Flat-Window/pull/70) 的透明期调整未通过桌面单次右键实体复验，保留其失败边界，合并提交 `a4a86a2aa9717f41e881668953655f8a28c5fbaf`。随后 [PR #71](https://github.com/BuanDesu/Borderless-Flat-Window/pull/71) 的桌面成对交接、退出状态顺序及匿名诊断在准确构建 `b02cd13` 上通过本机实体复验；完整来源、校验与自动检查见[交付记录](touch-context-handoff.md#实体复验与交付)。
