@@ -84,6 +84,8 @@ Windows 11 build 22621 及以上默认使用无桌面位图读回的原生总览
 
 仓库隐私与维护状态见[2026-10-25 审计](docs/repository-privacy-audit.md)。内容扫描未发现凭据或本机运行数据；main 可达作者历史及指定旧 Actions 身份记录已清理，GitHub 只读 PR/平台副本仍由 #72 跟踪，仓库继续保持私有。
 
+2026-10-26 的[公开前复核](docs/repository-publication-review.md)确认：没有未合并 PR，现存 CI 全部成功；按所有者选择，待 GitHub 清理旧引用并完成复核后公开。账户邮箱展示设置没有修改旧提交元数据。
+
 ## 目录
 
 ```text
