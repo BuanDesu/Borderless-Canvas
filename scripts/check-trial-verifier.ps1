@@ -102,4 +102,35 @@ Save-CheckManifest $portable $true; Verify $portable | Out-Null
 $config = Join-Path $portable 'tools/recovery/BorderlessFlatWindow.Recovery.runtimeconfig.json'
 [IO.File]::WriteAllText($config, '{"runtimeOptions":{"includedFrameworks":[{"name":"Microsoft.NETCore.App","version":"10.0.12"}]}}')
 Save-CheckManifest $portable $true; Reject { Verify $portable }
+
+# These non-executable placeholders isolate path detection from debug paths
+# already present in the ordinary compiled test baseline.
+$privateBaseline = Join-Path $checkRoot 'private-path-baseline'
+Copy-Item -LiteralPath $baseline -Destination $privateBaseline -Recurse
+foreach ($binary in (Get-ChildItem -LiteralPath $privateBaseline -File -Recurse | Where-Object { $_.Extension -in @('.dll', '.exe') })) {
+    [IO.File]::WriteAllText($binary.FullName, 'Synthetic verifier-only binary placeholder, never executed. Vendor path D:\vendor\build\component.pdb is not a local private root.')
+}
+Save-CheckManifest $privateBaseline
+& (Join-Path $PSScriptRoot 'verify-trial.ps1') -Directory $privateBaseline -RequireClean -RejectLocalBuildPaths | Out-Null
+foreach ($encoding in @([Text.Encoding]::UTF8, [Text.Encoding]::Unicode)) {
+    foreach ($privateRoot in @($taskRoot, $taskRoot.Replace('\', '/'), $taskRoot.Replace('\', '\\'), $env:USERPROFILE)) {
+        if (!$privateRoot) { continue }
+        $offsets = if ($encoding.CodePage -eq 1200) { @(0, 1) } else { @(0) }
+        foreach ($offset in $offsets) {
+            $caseNumber++; $directory = Join-Path $checkRoot "case-$caseNumber"
+            Copy-Item -LiteralPath $privateBaseline -Destination $directory -Recurse
+            $payload = $encoding.GetBytes('Synthetic CodeView/string payload: ' + $privateRoot + '/private-source.cs')
+            if ($offset) { $payload = [byte[]]@(127) + $payload }
+            [IO.File]::WriteAllBytes((Join-Path $directory 'BorderlessFlatWindow.App.dll'), $payload)
+            Save-CheckManifest $directory
+            $rejection = $null
+            try { & (Join-Path $PSScriptRoot 'verify-trial.ps1') -Directory $directory -RequireClean -RejectLocalBuildPaths | Out-Null }
+            catch { $rejection = $_.Exception.Message }
+            if (!$rejection -or !$rejection.Contains('local build/profile path') -or $rejection.Contains($privateRoot)) {
+                throw 'Private-path fixture was not rejected safely; matching value withheld.'
+            }
+        }
+    }
+}
 Write-Output 'PASS Trial verifier validates compiled framework-dependent and synthetic isolated-runtime layouts; rejects changed/missing/unlisted payload, symbols/user data, notices, metadata, cross-tool patch mismatch, duplicate and escaping ZIP entries.'
+Write-Output 'PASS Private-build verification rejects local workspace/profile paths in UTF-8/UTF-16 (both byte alignments) and slash/JSON forms without printing values, while accepting unrelated vendor paths.'
