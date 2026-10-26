@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Directory, [string]$Archive, [switch]$RequireClean)
+param([Parameter(Mandatory)][string]$Directory, [string]$Archive, [switch]$RequireClean, [switch]$RejectLocalBuildPaths)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath($Directory).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $prefix = $root + [IO.Path]::DirectorySeparatorChar
@@ -27,6 +27,14 @@ while ($directories.Count) {
     }
 }
 $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$privateBuildRoots = @()
+if ($RejectLocalBuildPaths) {
+    $privateBuildRoots = @(@((Split-Path -Parent $PSScriptRoot), $env:USERPROFILE) |
+        Where-Object { $_ -and $_.Length -gt 3 } | ForEach-Object {
+            $value = $_.TrimEnd('\', '/')
+            $value; $value.Replace('\', '/'); $value.Replace('\', '\\')
+        } | Select-Object -Unique)
+}
 foreach ($entry in $manifest.files) {
     $path = Resolve-PayloadPath $entry.name
     if (!$names.Add($entry.name.Replace('\', '/')) -or $entry.name -eq 'manifest.json' -or $entry.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
@@ -34,6 +42,22 @@ foreach ($entry in $manifest.files) {
     if ([IO.Path]::GetFileName($path) -match '^(settings|recovery|bookmarks)\.json$' -or [IO.Path]::GetExtension($path) -eq '.pdb') { throw 'Runtime user data or debug symbols must not be distributed.' }
     if (!(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -ne $entry.bytes -or
         (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'Payload length/hash mismatch.' }
+    if ($RejectLocalBuildPaths) {
+        # CodeView paths use UTF-8; managed string heaps can use UTF-16. Inspect
+        # binary payload too, without printing the matching directory or value.
+        $bytes = [IO.File]::ReadAllBytes($path)
+        foreach ($encoding in @([Text.Encoding]::UTF8, [Text.Encoding]::Unicode)) {
+            $offsets = if ($encoding.CodePage -eq 1200 -and $bytes.Length -gt 1) { @(0, 1) } else { @(0) }
+            foreach ($offset in $offsets) {
+                $content = $encoding.GetString($bytes, $offset, $bytes.Length - $offset)
+                foreach ($privateRoot in $privateBuildRoots) {
+                    if ($content.IndexOf($privateRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                        throw "Package contains a local build/profile path in payload: $($entry.name); value withheld."
+                    }
+                }
+            }
+        }
+    }
 }
 if ($paths.Count -ne $names.Count + 1) { throw 'Package contains unlisted/missing files.' }
 foreach ($required in @('BorderlessFlatWindow.App.exe', 'Probe.cmd',

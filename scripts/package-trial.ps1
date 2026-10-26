@@ -28,6 +28,10 @@ try {
     if (Test-Path -LiteralPath "$destination.zip") { throw "Archive already exists: $destination.zip" }
     $staging = Join-Path $taskRoot ".local/trial-publish/$([Guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $destination,$staging -Force | Out-Null
+    # Checks build with portable debug information. Publishing can otherwise reuse
+    # those dependency assemblies, including their absolute CodeView PDB paths.
+    dotnet clean BorderlessFlatWindow.slnx --configuration Release --nologo --disable-build-servers -m:1
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot clean checked build outputs before publishing.' }
     $projects = @(
         'src/BorderlessFlatWindow.App',
         'src/BorderlessFlatWindow.Recovery',
@@ -39,7 +43,7 @@ try {
         $publishArguments = @('publish', "$project/$name.csproj", '--configuration', 'Release', '--runtime', 'win-x64',
             '--self-contained', $SelfContained.IsPresent.ToString().ToLowerInvariant(), '--output', $published,
             '--nologo', '--disable-build-servers', '-m:1', '-p:PublishSingleFile=false', '-p:PublishTrimmed=false', '-p:PublishReadyToRun=false',
-            '-p:DebugType=None', '-p:DebugSymbols=false')
+            '-p:DebugType=None', '-p:DebugSymbols=false', "-p:PathMap=$taskRoot=/_/bfw")
         if ($RuntimeVersion) { $publishArguments += "-p:RuntimeFrameworkVersion=$RuntimeVersion" }
         dotnet @publishArguments
         if ($LASTEXITCODE -ne 0) { throw "Publish failed: $name" }
@@ -146,7 +150,7 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $destination 'manifest.json') -Encoding utf8
     Compress-Archive -LiteralPath $destination -DestinationPath "$destination.zip"
-    & (Join-Path $PSScriptRoot 'verify-trial.ps1') -Directory $destination -Archive "$destination.zip"
+    & (Join-Path $PSScriptRoot 'verify-trial.ps1') -Directory $destination -Archive "$destination.zip" -RejectLocalBuildPaths
     Write-Output "Trial directory: $destination"
     Write-Output "Trial archive: $destination.zip"
     if ($SelfContained) { Write-Output 'Runtime: included; Windows x64 portable folder, SDK and .NET installation not required.' }

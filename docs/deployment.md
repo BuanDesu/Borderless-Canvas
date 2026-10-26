@@ -48,7 +48,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./Launch.ps1 -Mode Recov
 
 ## 许可与验收
 
-`scripts/verify-trial.ps1 -Directory <目录> -Archive <ZIP> -RequireClean` 核对源码标识、全部文件与 ZIP 的长度/哈希、入口、运行配置和许可材料，拒绝额外文件、用户运行数据、PDB、越界/重复路径及重解析点。打包脚本自动调用；哈希清单证明文件一致性，不是发布者数字签名。便携包不附开发调试符号，开发构建仍保留其调试能力。
+`scripts/verify-trial.ps1 -Directory <目录> -Archive <ZIP> -RequireClean -RejectLocalBuildPaths` 核对源码标识、全部文件与 ZIP 的长度/哈希、入口、运行配置和许可材料，拒绝额外文件、用户运行数据、PDB、越界/重复路径及重解析点，并检查二进制中的本机构建与用户目录。打包脚本自动启用路径检查；哈希清单证明文件一致性，不是发布者数字签名。
+
+打包在完成检查后清理 Release 输出，再以无调试符号及固定源路径映射重新发布，避免复用检查阶段依赖 DLL 内的绝对 CodeView/PDB 路径。普通开发构建继续保留调试能力；旧包诊断可以省略新增的路径检查开关，但新生成包必须通过该检查。
 
 源码修改标记同时考虑已跟踪改动与源码/测试/脚本/文档/许可目录和构建配置内未跟踪的输入，避免新代码尚未加入 Git 却被标为干净版本。与构建无关的项目根目录未跟踪文件不进入包或这一标记。
 
