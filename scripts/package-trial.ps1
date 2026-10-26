@@ -122,7 +122,7 @@ try {
         @{ name = [IO.Path]::GetRelativePath($destination, $_.FullName); bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
     })
     $manifest = @{
-        schemaVersion = 1; sourceRevision = $revision; trackedSourcesModified = $dirty
+        schemaVersion = 2; sourceRevision = $revision; trackedSourcesModified = $dirty
         applicationVersion = $applicationVersion
         builtAtUtc = [DateTime]::UtcNow.ToString('O'); platform = 'win-x64'; frameworkDependent = !$SelfContained.IsPresent
         deployment = $(if ($SelfContained) { 'self-contained' } else { 'framework-dependent' })

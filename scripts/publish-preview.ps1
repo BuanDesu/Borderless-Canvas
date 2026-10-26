@@ -62,6 +62,10 @@ try {
         $remoteTag = Git-Command @('ls-remote', 'origin', "refs/tags/$tag^{}")
     }
     if ($remoteTag.Split()[0] -ne $manifest.sourceRevision) { throw 'Release tag differs from checked package.' }
+    git show-ref --verify --quiet "refs/tags/$tag"
+    if ($LASTEXITCODE -ne 0) { Git-Command @('fetch', 'origin', "refs/tags/${tag}:refs/tags/$tag") | Out-Null }
+    $tagger = (Git-Command @('for-each-ref', '--format=%(taggeremail)', "refs/tags/$tag")).Trim([char[]]'<>')
+    if ($tagger -notmatch '^[^\s<>@]+@users\.noreply\.github\.com$') { throw 'Tagger metadata is not GitHub noreply; value withheld.' }
     $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     $uploadArchive = Join-Path $receipt 'BorderlessFlatWindow-win-x64-portable.zip'
     if (Test-Path -LiteralPath $uploadArchive) {

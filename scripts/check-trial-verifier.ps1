@@ -16,7 +16,7 @@ foreach ($name in @('deployment.md', 'compatibility.md', 'LICENSE', 'THIRD-PARTY
 [IO.File]::WriteAllText((Join-Path $baseline 'VERSION.txt'), '0.1.0-preview.2')
 function Save-CheckManifest([string]$Directory, [bool]$Portable = $false) {
     $manifest = [ordered]@{
-        schemaVersion = 1; sourceRevision = '1111111111111111111111111111111111111111'; trackedSourcesModified = $false
+        schemaVersion = 2; sourceRevision = '1111111111111111111111111111111111111111'; trackedSourcesModified = $false
         applicationVersion = '0.1.0-preview.2'
         platform = 'win-x64'; frameworkDependent = !$Portable; deployment = $(if ($Portable) {'self-contained'} else {'framework-dependent'})
         requiredRuntime = $(if ($Portable) {$null} else {'Microsoft.WindowsDesktop.App 10.0 x64'})
@@ -50,7 +50,7 @@ foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'harness', 'm
         'harness' { [IO.File]::WriteAllText((Join-Path $directory 'BorderlessFlatWindow.App.Checks.dll'), 'Synthetic fixture'); Save-CheckManifest $directory }
         'missing-version' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.applicationVersion = ''; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
         'source-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.sourceRevision = 'invalid'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
-        'schema-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.schemaVersion = 2; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
+        'schema-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.schemaVersion = 3; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
         'boolean-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.trackedSourcesModified = 'false'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
         'missing-notice' { Rename-Item -LiteralPath (Join-Path $directory 'licenses/dotnet-distribution/LICENSE.txt') -NewName 'other.txt'; Save-CheckManifest $directory }
         'missing-project-license' { Rename-Item -LiteralPath (Join-Path $directory 'LICENSE') -NewName 'other-license.txt'; Save-CheckManifest $directory }

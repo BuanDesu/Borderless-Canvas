@@ -7,7 +7,7 @@ foreach ($path in @($root, $manifestPath)) {
     if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse points are not package payload.' }
 }
 $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-if ($manifest.schemaVersion -ne 1 -or $manifest.sourceRevision -notmatch '^[0-9a-f]{40}$' -or $manifest.applicationVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$' -or
+if ($manifest.schemaVersion -ne 2 -or $manifest.sourceRevision -notmatch '^[0-9a-f]{40}$' -or $manifest.applicationVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$' -or
     $manifest.trackedSourcesModified -isnot [bool] -or $manifest.frameworkDependent -isnot [bool] -or
     $manifest.platform -ne 'win-x64' -or !@($manifest.files).Count -or ($RequireClean -and $manifest.trackedSourcesModified)) { throw 'Manifest source/deployment metadata is invalid or not clean.' }
 function Resolve-PayloadPath([string]$Name) {
