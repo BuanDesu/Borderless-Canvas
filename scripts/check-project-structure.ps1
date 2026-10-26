@@ -30,4 +30,15 @@ foreach ($name in @('BorderlessFlatWindow.App', 'BorderlessFlatWindow.Presentati
     }
 }
 Write-Output 'PASS Structure: acyclic production references, portable layers, and evaluated App/Presentation compile lists exclude diagnostics and labs.'
+function Read-UiHostProfile([string]$Project) {
+    $result = dotnet msbuild $Project -nologo "-p:Configuration=$Configuration" '-getProperty:TargetFramework,UseWindowsForms,ApplicationHighDpiMode,RootNamespace'
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect UI host configuration.' }
+    return (($result -join "`n" | ConvertFrom-Json).Properties)
+}
+$runtimeProfile = Read-UiHostProfile (Join-Path $taskRoot 'src/BorderlessFlatWindow.App/BorderlessFlatWindow.App.csproj')
+$fixtureProfile = Read-UiHostProfile (Join-Path $taskRoot 'tests/BorderlessFlatWindow.App.Checks/BorderlessFlatWindow.App.Checks.csproj')
+foreach ($property in @('TargetFramework', 'UseWindowsForms', 'ApplicationHighDpiMode', 'RootNamespace')) {
+    if ($runtimeProfile.$property -cne $fixtureProfile.$property) { throw "UI harness configuration differs from production: $property" }
+}
+Write-Output 'PASS UI host profile: framework, WinForms, DPI mode and resource namespace match production.'
 & (Join-Path $PSScriptRoot 'check-document-links.ps1')
