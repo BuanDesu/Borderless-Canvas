@@ -6,7 +6,7 @@ using BorderlessFlatWindow.Application.Recovery;
 
 namespace BorderlessFlatWindow.App;
 
-internal sealed class RecoveryDiagnosticsControl : UserControl
+internal sealed partial class RecoveryDiagnosticsControl : UserControl
 {
     private readonly string journalPath;
     private readonly Label summary = new() { Dock = DockStyle.Fill, Padding = new(14) };
@@ -69,15 +69,6 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
             summary.Text = $"无法读取或日志正被使用；文件已保留。\n\n{exception.Message}";
             return 0;
         }
-    }
-
-    internal void CheckCorruptJournalSmoke()
-    {
-        const string fixture = "{intentionally-invalid-gui-recovery-fixture";
-        File.WriteAllText(journalPath, fixture);
-        if (RefreshJournal() != 0 || !RequiresAttention || recover.Enabled || !summary.Text.Contains("文件已保留")
-            || File.ReadAllText(journalPath) != fixture)
-            throw new InvalidOperationException("Corrupt recovery data did not remain visible, disabled and preserved.");
     }
 
     private async Task RecoverAsync()
@@ -145,8 +136,6 @@ internal sealed class RecoveryDiagnosticsControl : UserControl
             || expectedIds is not null && !expectedIds.SetEquals(report.Results.Select(item => item.EntryId))) throw new JsonException("恢复结果不完整或记录批次已改变，未更改画布状态。");
         return report;
     }
-    internal Task RunFixtureRecovery() => RecoverAsync();
-
     private static string FindRecoveryExecutable()
     {
         var adjacent = Path.Combine(AppContext.BaseDirectory, "BorderlessFlatWindow.Recovery.exe");

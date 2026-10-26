@@ -3,8 +3,13 @@ using BorderlessFlatWindow.Windows;
 
 namespace BorderlessFlatWindow.App;
 
-internal sealed class NavigationSettingsDialog : Form
+internal sealed partial class NavigationSettingsDialog : Form
 {
+    internal DialogResult ShowFor(Control anchor)
+    {
+        var host = anchor.FindForm(); TopMost = host?.TopMost == true;
+        return ShowDialog(host ?? (IWin32Window)anchor);
+    }
     private readonly bool showWithoutActivation;
     protected override bool ShowWithoutActivation => showWithoutActivation;
     private readonly CheckBox vertical = new() { Text = "滚轮纵向平移", AutoSize = true };
@@ -25,25 +30,6 @@ internal sealed class NavigationSettingsDialog : Form
         }
     }
     internal NavigationInputOptions Options => new(vertical.Checked, horizontal.Checked, drag.Checked, (int)distance.Value, edge.Checked, (double)pointerSpeed.Value);
-    internal void CheckKeyBindings(string output)
-    {
-        if (!showWithoutActivation) throw new InvalidOperationException("Synthetic settings checks only.");
-        var tabs = Controls.OfType<TabControl>().Single(); tabs.SelectedIndex = 1;
-        var save = (ChromeButton)AcceptButton!;
-        var original = bindingFields[2].Key.SelectedItem;
-        bindingFields[2].Key.SelectedItem = bindingFields[2].Key.Items.Cast<KeyOption>().Single(value => value.Key == Bindings.Crosshair.Key);
-        save.PerformClick();
-        if (DialogResult == DialogResult.OK || string.IsNullOrEmpty(error.Text) || !Visible) throw new InvalidOperationException("Duplicate key settings closed or silently accepted.");
-        bindingFields[2].Key.SelectedItem = original; error.Text = ""; error.Visible = false; System.Windows.Forms.Application.DoEvents();
-        if (bindingFields.Any(pair => pair.Key.Right > pair.Key.Parent!.ClientSize.Width || pair.Modifier.Bottom > pair.Modifier.Parent!.ClientSize.Height)) throw new InvalidOperationException("Key controls are clipped.");
-        using var bitmap = new Bitmap(Width, Height); DrawToBitmap(bitmap, new Rectangle(Point.Empty, Size)); bitmap.Save(Path.Combine(output, "navigation-keys-smoke.png"));
-        Console.WriteLine("PASS Key settings retain duplicate errors without closing and show all six commands in a synthetic nonactivating fixture");
-    }
-    internal DialogResult ShowFor(Control anchor)
-    {
-        var host = anchor.FindForm(); TopMost = host?.TopMost == true;
-        return ShowDialog(host ?? (IWin32Window)anchor);
-    }
     internal NavigationSettingsDialog(NavigationInputOptions options, NavigationKeyBindings? bindings = null, bool showWithoutActivation = false, Func<NavigationKeyBindings, string?>? tryBindings = null)
     {
         this.showWithoutActivation = showWithoutActivation;

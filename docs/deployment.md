@@ -2,7 +2,11 @@
 
 当前仍为 Windows x64 私有内部试用。无需安装服务、开机启动或管理员权限。正常启动默认注册当前用户的软件 `.lnk` 右键便签入口，可在“更多 → 软件快捷方式右键入口”关闭并移除。应用依旧使用本机用户数据目录；“便携”指运行时随包携带，不表示把隐私数据写进程序目录。
 
+版本由根目录 `Version.props` 提供。程序集、包名、`VERSION.txt` 和 manifest 的 `applicationVersion` 使用同一预发行版本，运行信息保留提交 SHA。用户包仅包含使用、部署、兼容与许可材料；UI 检查与 Lab 工具不随包发布。清单升级为 schemaVersion 2 并要求版本字段，旧 schemaVersion 1 包应使用对应标签的校验脚本。
+
 ## 两种包
+
+从已合并的干净 main 打包并完成精确提交 CI 后，可执行 `./scripts/publish-preview.ps1 -Directory <便携目录>` 创建带附件的草稿；显式加 `-Publish` 才发布为预发行版。入口要求仓库保持私有、来源/版本/标签一致、完整便携/原生检查标志，使用 noreply 标签身份，核验两个远端附件的大小和 SHA-256；不会覆盖现有不同附件。支持中断后读取现状再继续，不自动重试覆盖或删除。上传文件名保持 README 中的新手下载名称，版本由 Releases 标签和包内 VERSION/manifest 区分。
 
 | 模式 | 目标机器需要什么 | manifest |
 | --- | --- | --- |
@@ -42,7 +46,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./Launch.ps1 -Mode Recov
 
 先在旧版暂停并恢复，再从托盘退出，待原实例结束后把新版解压到不同目录并启动。不要覆盖运行中的文件。设置、工作区和恢复记录仍位于 `%LOCALAPPDATA%\BorderlessFlatWindow`，新包不会包含这些数据；更新不自动开始接管。
 
-软件快捷方式入口仅位于 `HKCU\Software\Classes\lnkfile\shell\BorderlessFlatWindow.Sticky`，带应用所有权标记，不修改默认关联。升级时新目录中的程序会更新入口路径。移除前先关闭该入口选项，再完成恢复和退出，通过文件资源管理器删除应用目录。若已删除旧目录，可用有效包关闭该选项以移除残留入口；没有服务需要卸载，详情见[便签说明](pointer-and-sticky.md)。
+软件快捷方式入口仅位于 `HKCU\Software\Classes\lnkfile\shell\BorderlessFlatWindow.Sticky`，带应用所有权标记，不修改默认关联。升级时新目录中的程序会更新入口路径。移除前先关闭该入口选项，再完成恢复和退出，通过文件资源管理器删除应用目录。若已删除旧目录，可用有效包关闭该选项以移除残留入口；没有服务需要卸载，详情见[便签说明](https://github.com/BuanDesu/Borderless-Flat-Window/blob/main/docs/pointer-and-sticky.md)。
 
 默认保留用户数据。若也要清理数据，先检查 `pending: 0`，按需备份工作区和设置，再由用户处理对应目录；待恢复或损坏而尚未处理的日志不作为缓存清除。这里没有自动删除或卸载脚本。
 
@@ -58,7 +62,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./Launch.ps1 -Mode Recov
 
 默认 CI 增加真实 Windows PowerShell 启动器检查：空日志检查/恢复、损坏数据和原字节保留，空格/符号/中文路径，六个 CMD 的失败退出，以及合成缺失/损坏运行时。校验器覆盖实际编译的框架依赖夹具和合成的独立运行时布局，拒绝缺件/越界/隐私数据和跨工具版本不符。检查仅使用独立夹具，无桌面接管。
 
-便携包同时指定 `-NativeOverviewChecks` 时，还会自动执行 `scripts/check-portable.ps1`：直接运行包内 EXE，在自身进程中核验 CoreCLR/host/WPF 的模块位置，再完成原生总览、真实独立恢复桥接和恢复启动器。仅对子进程把 DOTNET_ROOT 指向不可用位置，不移除或修改机器已安装的运行时。恢复检查只使用独立合成记录，重复使用非空夹具目录会拒绝且保留文件；`portableChecksRun` 仅在这些发布后检查成功后置为 true。
+便携包同时指定 `-NativeOverviewChecks` 时，还会执行 `scripts/check-portable.ps1`：先运行实际包内 App 的有界 `--runtime-check`，核验 CoreCLR/host/WPF 的模块来自包内；再在本地忽略目录构建临时 UI 宿主，加载该包内的生产依赖 DLL 和真正的独立 Recovery EXE，验证原生总览、恢复桥接与恢复启动器。临时宿主复用同一份 UI 源码，但不是正式 App 的逐字节副本，不进入用户包。只对子进程把 DOTNET_ROOT 指向不可用位置，不修改机器运行时。恢复检查只使用独立合成记录，重复使用非空夹具目录会拒绝且保留文件；`portableChecksRun` 仅在整组验证成功后为 true。
 
 首次完整原生回归曾出现预览测试“未找到元素”，原日志只有消息，无法区分它来自单次全桌面身份查找，还是失败诊断的另一处 Single。相关三处身份读取现改用相同目标的稳定准入等待，失败诊断也能表示缺失观察值；预览、裁剪及资源断言保持。八项预览/焦点检查连续三轮通过，完整 59 项原生检查随后通过。这记录为测试读取的加固，不证明所有夹具/文件替换偶发问题已消失，T11/T12 继续追踪。
 

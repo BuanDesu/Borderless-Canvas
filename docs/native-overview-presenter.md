@@ -1,6 +1,6 @@
 # 完整总览的原生宿主适配
 
-这是上一轮[原生宿主实验](live-overview-surface.md)的生产结构适配。Windows 11 build 22621 及以上默认使用真实 WPF 顶层窗口，较早系统默认保留 WinForms 顶层窗口；两者复用同一个 `SpatialOverviewView`，地图、搜索、工作区和 CRT 内容不再分别实现。
+这是上一轮[原生宿主实验](history/live-overview-surface.md)的生产结构适配。Windows 11 build 22621 及以上默认使用真实 WPF 顶层窗口，较早系统默认保留 WinForms 顶层窗口；两者复用同一个 `SpatialOverviewView`，地图、搜索、工作区和 CRT 内容不再分别实现。
 
 ## 使用与边界
 

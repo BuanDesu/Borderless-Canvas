@@ -74,6 +74,6 @@
 - 离屏窗口在总览中的预览可能停帧；返回窗口后再正常操作。
 - 锁屏、显示器或电源状态改变后，画布可能为恢复窗口而暂停；检查后手动点击“开始”。
 
-这是便携试用版，完整兼容与性能验收继续进行。框架依赖小包另需 .NET 10 Windows Desktop Runtime x64；便携包自带运行时。包内 `manifest.json` 记录来源版本、运行时和文件校验值，技术说明见[部署](deployment.md)、[验收范围](release-v1-readiness.md)，第三方许可见包内 `THIRD-PARTY-NOTICES.md`。
+这是便携试用版，完整兼容与性能验收继续进行。框架依赖小包另需 .NET 10 Windows Desktop Runtime x64；便携包自带运行时。版本见 `VERSION.txt` 或“输入状态”中的构建信息。包内 `manifest.json` 记录来源版本、运行时和文件校验值，技术说明见[部署](deployment.md)、[兼容范围](compatibility.md)，第三方许可见包内 `THIRD-PARTY-NOTICES.md`。
 
 反馈时请描述操作步骤、预期和实际现象，先去掉真实窗口标题、账号、个人路径和桌面内容。原始设置、恢复日志及输入报告留在本机。

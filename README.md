@@ -79,10 +79,11 @@
 ```powershell
 .\scripts\build.ps1
 .\scripts\check.ps1 -Configuration Release
+.\scripts\check.ps1 -Configuration Release -Layer Ui
 .\scripts\run.ps1
 ```
 
-[开发任务](TODO.md) · [需求](windows-spatial-canvas-requirements.zh-CN.md) · [架构](docs/architecture.md) · [验收范围](docs/release-v1-readiness.md) · [部署](docs/deployment.md) · [第三方许可](THIRD-PARTY-NOTICES.md)
+[文档索引](docs/README.md) · [变更记录](CHANGELOG.md) · [开发任务](TODO.md) · [需求](windows-spatial-canvas-requirements.zh-CN.md) · [架构](docs/architecture.md) · [验收范围](docs/release-v1-readiness.md) · [部署](docs/deployment.md) · [第三方许可](THIRD-PARTY-NOTICES.md)
 
 项目代码与原创素材采用 [MIT 许可证](LICENSE)。第三方字体与运行时保留各自的许可证，见[第三方许可](THIRD-PARTY-NOTICES.md)。
 
