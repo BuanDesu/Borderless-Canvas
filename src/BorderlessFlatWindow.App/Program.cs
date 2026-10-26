@@ -1,3 +1,5 @@
+using BorderlessFlatWindow.Application.Overview;
+using BorderlessFlatWindow.Application.Startup;
 using BorderlessFlatWindow.Windows;
 
 namespace BorderlessFlatWindow.App;
@@ -7,291 +9,40 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Contains("--smoke-check", StringComparer.Ordinal))
-            System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+        LaunchArguments options;
+        try { options = LaunchArguments.Parse(args); }
+        catch (ArgumentException error) { Console.Error.WriteLine(error.Message); return 2; }
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
-        if (args.Contains("--touchpad-lab", StringComparer.Ordinal))
+        if (options.Has("--runtime-check"))
         {
-            var reportIndex = Array.IndexOf(args, "--lab-report");
-            if (reportIndex >= 0 && reportIndex + 1 >= args.Length) return 1;
-            using var lab = new TouchpadInputLab(reportIndex < 0 ? null : Path.GetFullPath(args[reportIndex + 1]));
-            System.Windows.Forms.Application.Run(lab); return 0;
+            BorderlessFlatWindow.Presentation.SpatialOverviewView.WarmUp();
+            Thread.Sleep(1200); // Bounded observation window for the external package verifier; no canvas or hooks.
+            Console.WriteLine("PASS Production runtime and presentation initialization");
+            return 0;
         }
-        var interactionCheck = Array.IndexOf(args, "--interaction-check");
-        if (interactionCheck >= 0)
+        var fixedShortcut = options.Value("--launch-fixed-shortcut");
+        if (fixedShortcut is not null)
         {
-            if (interactionCheck + 1 >= args.Length) return 1;
-            var output = Path.GetFullPath(args[interactionCheck + 1]); Directory.CreateDirectory(output);
-            try { InteractionSmokeCheck.Run(output); return 0; }
-            catch (Exception error) { Console.Error.WriteLine("Interaction check: " + error.Message); return 1; }
-        }
-        string? fixedShortcut = null;
-        var fixedIndex = Array.IndexOf(args, "--launch-fixed-shortcut");
-        if (fixedIndex >= 0)
-        {
-            if (fixedIndex + 1 >= args.Length || !Path.IsPathFullyQualified(args[fixedIndex + 1]) || !string.Equals(Path.GetExtension(args[fixedIndex + 1]), ".lnk", StringComparison.OrdinalIgnoreCase)) return 1;
-            fixedShortcut = Path.GetFullPath(args[fixedIndex + 1]);
+            if (!Path.IsPathFullyQualified(fixedShortcut) || !string.Equals(Path.GetExtension(fixedShortcut), ".lnk", StringComparison.OrdinalIgnoreCase)) return 1;
             var sent = ShortcutCommandChannel.Send(fixedShortcut).GetAwaiter().GetResult();
             if (sent == ShortcutDelivery.Delivered) return 0;
             if (sent == ShortcutDelivery.Unavailable)
             { MessageBox.Show("画布实例暂时无法接收便签请求，未重复打开目标。请稍后重试。", "便签启动", MessageBoxButtons.OK, MessageBoxIcon.Information); return 1; }
         }
-        var recoveryCheck = Array.IndexOf(args, "--trial-recovery-check");
-        if (recoveryCheck >= 0)
-        {
-            if (recoveryCheck + 1 >= args.Length || args[recoveryCheck + 1].StartsWith("--", StringComparison.Ordinal)) return 1;
-            try { MainForm.CheckTrayRecoveryProcess(Path.GetFullPath(args[recoveryCheck + 1])); return 0; }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
-            { Console.Error.WriteLine("Trial recovery check failed: " + error.Message); return 1; }
-        }
-        var backdropCheck = Array.IndexOf(args, "--native-backdrop-check");
-        if (backdropCheck >= 0) return backdropCheck + 1 < args.Length ? NativeBackdropCheck.Run(Path.GetFullPath(args[backdropCheck + 1])) : 1;
-        var overviewHost = BorderlessFlatWindow.Application.Overview.OverviewHostOptions.Resolve(args, Environment.OSVersion.Version);
-        OverviewRuntimeOptions.UseNative = overviewHost.UseNative;
-        OverviewRuntimeOptions.ForceSolid = overviewHost.ForceSolid;
-        var nativeCheck = Array.IndexOf(args, "--native-overview-check");
-        if (nativeCheck >= 0) return nativeCheck + 1 < args.Length ? NativeOverviewCheck.Run(Path.GetFullPath(args[nativeCheck + 1]),
-            args.Contains("--compare-system-transitions", StringComparer.Ordinal)) : 1;
-        var liveLab = Array.IndexOf(args, "--live-overview-lab");
-        if (liveLab >= 0) return liveLab + 1 < args.Length ? LiveOverviewLab.Run(Path.GetFullPath(args[liveLab + 1]),
-            args.Contains("--lab-interactive", StringComparer.Ordinal), args.Contains("--lab-solid", StringComparer.Ordinal)) : 1;
-        FrostedBackdrop.DirectReadback = args.Contains("--direct-readback", StringComparer.Ordinal);
-        var overviewBenchmark = Array.IndexOf(args, "--overview-benchmark");
-        if (overviewBenchmark >= 0) return overviewBenchmark + 1 < args.Length ? OverviewLoadBenchmark.Run(Path.GetFullPath(args[overviewBenchmark + 1])) : 1;
-        var sceneCheck = Array.IndexOf(args, "--scene-check");
-        if (sceneCheck >= 0) return sceneCheck + 1 < args.Length ? OverviewSceneCheck.Run(Path.GetFullPath(args[sceneCheck + 1])) : 1;
-        var motionCheck = Array.IndexOf(args, "--motion-check");
-        if (motionCheck >= 0) return motionCheck + 1 < args.Length ? OverviewRenderCheck.Run(Path.GetFullPath(args[motionCheck + 1])) : 1;
-        var metricsIndex = Array.IndexOf(args, "--motion-metrics");
-        if (metricsIndex >= 0)
-        {
-            if (metricsIndex + 1 >= args.Length) return 1;
-            SpatialOverviewForm.MotionMetricsPath = Path.GetFullPath(args[metricsIndex + 1]);
-        }
-        var smoke = args.Contains("--smoke-check", StringComparer.Ordinal);
-        var journalIndex = Array.IndexOf(args, "--journal");
-        if (journalIndex >= 0 && (journalIndex + 1 >= args.Length || args[journalIndex + 1].StartsWith("--", StringComparison.Ordinal))) return 1;
-        var journalPath = journalIndex < 0 ? null : args[journalIndex + 1];
-        var bookmarkIndex = Array.IndexOf(args, "--bookmarks");
-        if (bookmarkIndex >= 0 && (bookmarkIndex + 1 >= args.Length || args[bookmarkIndex + 1].StartsWith("--", StringComparison.Ordinal))) return 1;
-        var bookmarkPath = bookmarkIndex < 0 ? null : args[bookmarkIndex + 1];
-        var settingsIndex = Array.IndexOf(args, "--settings");
-        if (settingsIndex >= 0 && (settingsIndex + 1 >= args.Length || args[settingsIndex + 1].StartsWith("--", StringComparison.Ordinal))) return 1;
-        var settingsPath = settingsIndex < 0 ? null : args[settingsIndex + 1];
-        if (!smoke)
-        {
-            try { BorderlessFlatWindow.Windows.Preferences.JsonPreferencesStore.EnsureSeparateDataFiles(
-                settingsPath ?? BorderlessFlatWindow.Windows.Preferences.JsonPreferencesStore.DefaultPath,
-                journalPath ?? BorderlessFlatWindow.Windows.Recovery.JsonRecoveryJournalStore.DefaultPath,
-                bookmarkPath ?? BorderlessFlatWindow.Windows.Bookmarks.JsonBookmarkStore.DefaultPath); }
-            catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException) { Console.Error.WriteLine("本地数据路径无效或重复。"); return 1; }
-        }
-        if (smoke)
-        {
-            PixelFont.VerifyGlyphs();
-            CanvasPreviewControl.CheckCompactSurfaces();
-            ArrangementDialogCheck.Run();
-            var sampleWindows = new BorderlessFlatWindow.Core.Canvas.CanvasWindow[] {
-                new(Guid.NewGuid(), "Synthetic A", new(new(50, 60), new(430, 310))),
-                new(Guid.NewGuid(), "Synthetic B", new(new(100, 90), new(560, 360))),
-                new(Guid.NewGuid(), "Synthetic distant", new(new(3800, 2400), new(430, 310))) };
-            var sampleRegion = new BorderlessFlatWindow.Core.Geometry.RectD(new(0, 0), new(1200, 800));
-            using (var arrangement = new CanvasArrangementDialog(sampleWindows, sampleRegion, [sampleRegion], showWithoutActivation: true))
-            {
-                arrangement.Show(); System.Windows.Forms.Application.DoEvents();
-                if (!arrangement.CanApply || arrangement.SelectedIds.Length != 2) throw new InvalidOperationException("Arrangement preview did not select its visible synthetic sources.");
-                using var image = new Bitmap(arrangement.Width, arrangement.Height);
-                arrangement.DrawToBitmap(image, new Rectangle(Point.Empty, arrangement.Size));
-                var previewDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
-                Directory.CreateDirectory(previewDirectory); image.Save(Path.Combine(previewDirectory, "arrangement-smoke.png"));
-                arrangement.DialogResult = DialogResult.Cancel; arrangement.Close();
-            }
-            var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-smoke", Guid.NewGuid().ToString("N")));
-            Directory.CreateDirectory(fixture);
-            InteractionSmokeCheck.Run(fixture);
-            bookmarkPath = Path.Combine(fixture, "bookmarks.json");
-            journalPath = Path.Combine(fixture, "recovery.json");
-            settingsPath = Path.Combine(fixture, "settings.json");
-            MainForm.CheckPreferenceRestart(Path.Combine(fixture, "preferences-restart"));
-            MainForm.CheckTrayRecoveryProcess(Path.Combine(fixture, "tray-recovery"));
-            MainForm.CheckDesktopLifecycleDispose(Path.Combine(fixture, "desktop-dispose"));
-            MainForm.CheckEmptyLaunchStart(Path.Combine(fixture, "empty-launch"));
-        }
-        using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath,
-            reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal), settingsPath: settingsPath, initialFixedShortcut: fixedShortcut);
-        if (smoke)
-        {
-            // Realize child HWNDs without making an interactive window visible.
-            form.Opacity = 0;
-            form.ShowInTaskbar = false;
-            form.Show();
-            System.Windows.Forms.Application.DoEvents();
-            form.CheckDesktopLifecycleSmoke();
-            form.CheckInputAvailabilitySmoke();
-            form.CheckOwnerInputWakeSmoke();
-            using var bitmap = new Bitmap(form.Width, form.Height);
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
-            Directory.CreateDirectory(output);
-            bitmap.Save(Path.Combine(output, "shell-smoke.png"));
-            form.PrepareSampleSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "sample-smoke.png"));
-            form.PrepareCatalogSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "catalog-smoke.png"));
-            form.PrepareDisplaySmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "display-smoke.png"));
-            form.PrepareLiveSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "live-map-smoke.png"));
-            form.PrepareRecoverySmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "recovery-smoke.png"));
-            form.CheckRecoveryErrorSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "recovery-error-smoke.png"));
-            form.PrepareBookmarkSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "bookmarks-smoke.png"));
-            form.PrepareBookmarkSearchSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "bookmarks-search-smoke.png"));
-            form.CheckBookmarkCommandsSmoke();
-            File.WriteAllText(bookmarkPath!, "{intentionally-malformed-smoke-fixture");
-            form.ReloadBookmarksSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "bookmarks-readonly-smoke.png"));
-            form.ResetBookmarksSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "bookmarks-reset-smoke.png"));
-            form.PrepareRuntimeChromeSmoke();
-            System.Windows.Forms.Application.DoEvents();
-            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-            bitmap.Save(Path.Combine(output, "runtime-shell-smoke.png"));
-            var regularSize = form.ClientSize;
-            form.ClientSize = new(800, 560);
-            System.Windows.Forms.Application.DoEvents();
-            using (var compact = new Bitmap(form.Width, form.Height))
-            { form.DrawToBitmap(compact, new Rectangle(Point.Empty, form.Size)); compact.Save(Path.Combine(output, "runtime-compact-smoke.png")); }
-            form.ClientSize = regularSize;
-            form.CheckTraySmoke();
-            form.PreparePopupSmoke();
-            foreach (var page in new (string Name, int Index, int Sub)[] { ("console-home", 0, 0), ("console-windows", 1, 0), ("console-displays", 1, 1), ("console-map", 1, 2), ("console-recovery", 2, 0) })
-            {
-                form.PrepareRuntimePageSmoke(page.Index, page.Sub); System.Windows.Forms.Application.DoEvents();
-                using var portrait = new Bitmap(form.Width, form.Height);
-                form.DrawToBitmap(portrait, new Rectangle(Point.Empty, form.Size)); portrait.Save(Path.Combine(output, page.Name + "-smoke.png"));
-            }
-            form.PrepareRuntimePageSmoke(0);
-            foreach (var warm in new[] { true, false })
-            {
-                ChromeTheme.SetPalette(BorderlessFlatWindow.Core.Appearance.CandyPalette.FromSamples(warm
-                    ? [new(230, 95, 30), new(210, 80, 20), new(230, 160, 60)] : [new(20, 90, 220), new(35, 110, 210), new(75, 40, 190)]));
-                ChromeTheme.Apply(form); System.Windows.Forms.Application.DoEvents();
-                using var colored = new Bitmap(form.Width, form.Height);
-                form.DrawToBitmap(colored, new Rectangle(Point.Empty, form.Size)); colored.Save(Path.Combine(output, warm ? "console-warm-smoke.png" : "console-cool-smoke.png"));
-            }
-            ChromeTheme.SetPalette(BorderlessFlatWindow.Core.Appearance.CandyPalette.Default); ChromeTheme.Apply(form);
-            TouchNavigationHost.CheckOwnedInput(output);
-            using (var hud = new NavigationHud { Opacity = 0 })
-            {
-                hud.Present();
-                System.Windows.Forms.Application.DoEvents();
-                using var hudBitmap = new Bitmap(hud.Width, hud.Height);
-                hud.DrawToBitmap(hudBitmap, new Rectangle(Point.Empty, hud.Size));
-                hudBitmap.Save(Path.Combine(output, "navigation-hud-smoke.png"));
-                hud.Hide();
-            }
-            using (var settings = new NavigationSettingsDialog(new(wheelDistance: 240), showWithoutActivation: true) { Opacity = 0 })
-            {
-                settings.Show();
-                System.Windows.Forms.Application.DoEvents();
-                using var settingsBitmap = new Bitmap(settings.Width, settings.Height);
-                settings.DrawToBitmap(settingsBitmap, new Rectangle(Point.Empty, settings.Size));
-                settingsBitmap.Save(Path.Combine(output, "navigation-settings-smoke.png"));
-                settings.CheckKeyBindings(output);
-                settings.Hide();
-            }
-            using var previewLabels = new BorderlessFlatWindow.Application.Bookmarks.BookmarkLibrary(
-                () => new BorderlessFlatWindow.Windows.Bookmarks.JsonBookmarkStore(Path.Combine(Path.GetDirectoryName(bookmarkPath!)!, "visual-bookmarks.json")));
-            previewLabels.Reload(); previewLabels.Add("工作", new(0, 0)); previewLabels.Add("资料", new(1200, -800)); previewLabels.Add("灵感", new(-1600, 400));
-            using (var overview = new SpatialOverviewForm([
-                new(Guid.NewGuid(), "编辑器", new(new(-900, 0), new(640, 480))),
-                new(Guid.NewGuid(), "浏览器", new(new(0, 0), new(800, 600))),
-                new(Guid.NewGuid(), "资料", new(new(0, -700), new(640, 480))),
-                new(Guid.NewGuid(), "聊天", new(new(1000, 100), new(480, 700)))],
-                new(new(-200, 100), new(1920, 1080)), new(0, 0, 1200, 800), showWithoutActivation: true, bookmarks: previewLabels)
-            { Opacity = 0 })
-            {
-                overview.Show();
-                System.Windows.Forms.Application.DoEvents();
-                using var overviewBitmap = new Bitmap(overview.Width, overview.Height);
-                overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size));
-                overviewBitmap.Save(Path.Combine(output, "overview-smoke.png"));
-                overview.SetSmokeEntrance(.45); System.Windows.Forms.Application.DoEvents();
-                overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size)); overviewBitmap.Save(Path.Combine(output, "overview-transition-smoke.png"));
-                overview.EndSmokeEntrance();
-                overview.SetSmokeQuery("资料");
-                System.Windows.Forms.Application.DoEvents();
-                overview.DrawToBitmap(overviewBitmap, new Rectangle(Point.Empty, overview.Size));
-                overviewBitmap.Save(Path.Combine(output, "overview-search-smoke.png"));
-                overview.SetSmokeQuery(""); overview.Size = new(800, 560);
-                System.Windows.Forms.Application.DoEvents();
-                using (var compact = new Bitmap(overview.Width, overview.Height))
-                { overview.DrawToBitmap(compact, new Rectangle(Point.Empty, overview.Size)); compact.Save(Path.Combine(output, "overview-compact-smoke.png")); }
-                overview.Font = PixelFont.Create(18); System.Windows.Forms.Application.DoEvents();
-                using (var largeText = new Bitmap(overview.Width, overview.Height))
-                { overview.DrawToBitmap(largeText, new Rectangle(Point.Empty, overview.Size)); largeText.Save(Path.Combine(output, "overview-large-text-smoke.png")); }
-                overview.Hide();
-            }
-            var inspection = new DesktopWindowCatalog().Inspect();
-            var hostBounds = form.Bounds; var hostBorder = form.FormBorderStyle; var hostTitle = form.Text; var hostTopMost = form.TopMost;
-            var hostReturned = false;
-            using (var embedded = new SpatialOverviewForm([
-                new(Guid.NewGuid(), "总览承载检查", new(new(-600, 100), new(640, 480)))],
-                new(new(240, 0), new(1920, 1080)), new(0, 0, 1200, 800), showWithoutActivation: true))
-            {
-                form.PresentOverview(embedded, () => hostReturned = true);
-                System.Windows.Forms.Application.DoEvents();
-                if (!embedded.TopLevel || embedded.Parent is not null) throw new InvalidOperationException("Overview is not an independent top-level surface.");
-                using var hostBitmap = new Bitmap(embedded.Width, embedded.Height);
-                embedded.DrawToBitmap(hostBitmap, new Rectangle(Point.Empty, embedded.Size));
-                hostBitmap.Save(Path.Combine(output, "overview-host-smoke.png"));
-                embedded.CancelOverview();
-                System.Windows.Forms.Application.DoEvents();
-            }
-            if (!hostReturned || form.Bounds != hostBounds || form.FormBorderStyle != hostBorder || form.Text != hostTitle || form.TopMost != hostTopMost)
-                throw new InvalidOperationException("Overview did not restore its host window.");
-            var tracking = form.GetTrackingDiagnostics();
-            File.WriteAllText(Path.Combine(output, "shell-smoke.json"),
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    os = Environment.OSVersion.VersionString,
-                    candidateCount = inspection.AdmittedWindows.Count,
-                    inspectedCount = inspection.Entries.Count,
-                    liveMapWindowCount = tracking.WindowCount,
-                    winEventWatching = tracking.Watching,
-                    reasons = inspection.Entries.GroupBy(entry => entry.Admission.Reason.ToString())
-                        .ToDictionary(group => group.Key, group => group.Count()),
-                    sampleWindows = 4,
-                    desktopMutationEnabled = false
-                }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-            form.Close();
-            return 0;
-        }
+        var host = OverviewHostOptions.Resolve(args, Environment.OSVersion.Version);
+        OverviewRuntimeOptions.UseNative = host.UseNative; OverviewRuntimeOptions.ForceSolid = host.ForceSolid;
+        FrostedBackdrop.DirectReadback = options.Has("--direct-readback");
+        if (options.Value("--motion-metrics") is { } metrics) SpatialOverviewForm.MotionMetricsPath = Path.GetFullPath(metrics);
+        var journal = options.Value("--journal"); var bookmarks = options.Value("--bookmarks"); var settings = options.Value("--settings");
+        try { BorderlessFlatWindow.Windows.Preferences.JsonPreferencesStore.EnsureSeparateDataFiles(
+            settings ?? BorderlessFlatWindow.Windows.Preferences.JsonPreferencesStore.DefaultPath,
+            journal ?? BorderlessFlatWindow.Windows.Recovery.JsonRecoveryJournalStore.DefaultPath,
+            bookmarks ?? BorderlessFlatWindow.Windows.Bookmarks.JsonBookmarkStore.DefaultPath); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or IOException)
+        { Console.Error.WriteLine("本地数据路径无效或重复。"); return 1; }
+        using var form = new MainForm(new DesktopWindowCatalog(), journalPath: journal, bookmarksPath: bookmarks,
+            reviewPanel: options.Has("--review-panel"), settingsPath: settings, initialFixedShortcut: fixedShortcut);
         System.Windows.Forms.Application.Run(form);
         return 0;
     }

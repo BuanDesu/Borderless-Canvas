@@ -230,12 +230,6 @@ internal sealed partial class SpatialOverviewForm
         using var attributes = new ImageAttributes(); attributes.SetColorMatrix(new ColorMatrix { Matrix33 = opacity });
         graphics.DrawImage(image, bounds, 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, attributes);
     }
-    internal void SetSmokeEntrance(double progress)
-    {
-        if (!showWithoutActivation) throw new InvalidOperationException("Synthetic rendering only.");
-        if (!entering) PrepareEntrance(); entranceProgress = OverviewMotion.Ease(progress); AnimatePreviews(); transitionCover?.Refresh();
-    }
-    internal void EndSmokeEntrance() => CompleteEntrance();
     private sealed class TransitionCover : Control
     {
         private readonly SpatialOverviewForm owner;

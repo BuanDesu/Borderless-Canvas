@@ -41,7 +41,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private readonly System.Windows.Forms.Timer verify = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer navigationTimer = new() { Interval = 16 };
     private readonly System.Windows.Forms.Timer launchTimer = new() { Interval = 100 };
-    private bool launchStartPending;
+    private readonly CanvasLaunchCoordinator launch = new();
     private readonly Label navigationStatus = new() { AutoSize = true, Padding = new(4) };
     private GlobalNavigationInput? globalInput;
     private NavigationGestureSession? gestures;
@@ -59,14 +59,15 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal bool HasOverview => overview is not null;
     internal bool IsOverviewTransitioning => overview?.IsTransitioning == true;
     internal bool HasOverviewWork => overview is not null || overviewRequested || openingOverview || preparingOverviewHost;
-    internal bool CanUsePanelCommands => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !desktopTransitionPending
-        && (FindForm() is not MainForm host || host.AllowsCanvasCommands);
+    private CanvasInteractionState InteractionState => new(reading, session?.IsBusy == true, editingArrangement || editingSettings,
+        desktopTransitionPending, FindForm() is MainForm { AllowsCanvasCommands: false }, panelActionPending,
+        externalRecoveryRunning, recoveryAttention, layout is not null);
+    internal bool CanUsePanelCommands => InteractionState.CanUsePanelCommands;
     // Reads and native transactions can pump UI messages. Queue input through these
     // short operations; only an explicit interaction/safety boundary revokes it.
-    private bool GlobalInputBlocked => editingArrangement || editingSettings || desktopTransitionPending || panelActionPending || externalRecoveryRunning || recoveryAttention
-        || layout is null || FindForm() is MainForm { AllowsCanvasCommands: false };
-    private bool CanCaptureGlobalInput => session?.IsRunning == true && !GlobalInputBlocked;
-    internal bool CanApplyDesktopTransition => !reading && session?.IsBusy != true && !editingArrangement && !editingSettings && !HasOverviewWork && !externalRecoveryRunning;
+    private bool GlobalInputBlocked => InteractionState.GlobalInputBlocked;
+    private bool CanCaptureGlobalInput => InteractionState.CanCaptureInput(session?.IsRunning == true);
+    internal bool CanApplyDesktopTransition => InteractionState.CanApplyDesktopTransition(HasOverviewWork);
     internal bool DesktopTransitionPending => desktopTransitionPending;
     internal bool CanStartForLifecycleCheck => start.Enabled && !recoveryAttention;
     private bool desktopTransitionPending;
@@ -500,25 +501,25 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void QueueLaunchStart()
     {
-        launchStartPending = true;
+        launch.Request();
         // OnShown can still be inside native/WPF initialization. Start on the UI
         // loop, retaining the request across short reads and disabled-owner work.
         launchTimer.Start();
     }
     private void ContinueLaunchStart(bool inputReady)
     {
-        if (!launchStartPending) return;
-        if (IsDisposed || Disposing || session?.Status is CanvasSessionStatus.Running or CanvasSessionStatus.Paused or CanvasSessionStatus.RecoveryRequired
-            || recoveryAttention || externalRecoveryRunning || desktopTransitionPending || displayFailure is not null)
+        if (IsDisposed || Disposing)
         { CancelLaunchStart(); return; }
-        if (!inputReady)
-        { CancelLaunchStart(); notice = "输入接管未就绪，未自动开始画布。"; RefreshState(); return; }
-        if (session is null || layout is null || !CanUsePanelCommands) return;
+        var decision = launch.Advance(session?.Status ?? CanvasSessionStatus.Idle, InteractionState, inputReady, session is not null, displayFailure is not null);
+        if (decision is LaunchStartDecision.None or LaunchStartDecision.Wait) return;
         CancelLaunchStart();
+        if (decision == LaunchStartDecision.Cancel) return;
+        if (decision == LaunchStartDecision.InputUnavailable)
+        { CancelLaunchStart(); notice = "输入接管未就绪，未自动开始画布。"; RefreshState(); return; }
         // An empty selection is an active canvas awaiting future windows.
         Begin();
     }
-    private void CancelLaunchStart() { launchStartPending = false; launchTimer.Stop(); }
+    private void CancelLaunchStart() { launch.Cancel(); launchTimer.Stop(); }
 
     private void VerifyPending()
     {

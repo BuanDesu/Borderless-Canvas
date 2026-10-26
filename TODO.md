@@ -1,8 +1,19 @@
 # TODO
 
+工程结构整理（2026-10-26）：
+
+- [x] 提取平台无关的启动、交互资格与触控进入代号，纳入默认模型回归。
+- [x] 独立 App.Checks 和 Lab，移出 UI 断言/实验入口；实际编译清单与依赖方向受守卫检查。
+- [x] CI 分开 Core 与隐藏 UI 任务，真实桌面验收保持显式入口。
+- [x] 当前架构、文档索引与历史归档分开，新增本地文档链接检查。
+- [x] Version.props、程序、VERSION.txt、manifest 和预发行标签统一；用户包精简文档，增加带校验的发布入口。
+- [x] 修正包校验条件的逻辑优先级，增加无版本、非法元数据和混入检查宿主的反例。
+
+设计与验证边界见 [ADR 0003](docs/adr/0003-isolated-ui-validation.md) 和[检查分层](docs/testing.md)。完整设备/应用、长期性能和正式版条件继续按 T11–T13 跟踪。
+
 [GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
 
-当前状态：首个原型的 T01–T10 与 FR-02 功能 PR 已按授权合并，[提交记录](docs/integration-history.md)可追踪。新版加入自动导航、工作区总览、同 DPI 多屏与托盘；验证范围和待人工项目见[反馈改进](docs/interaction-refresh.md)。T11–T13 的完整兼容、性能与发布条件尚未完成。
+当前状态：首个原型的 T01–T10 与 FR-02 功能 PR 已按授权合并，[提交记录](docs/history/integration-history.md)可追踪。新版加入自动导航、工作区总览、同 DPI 多屏与托盘；验证范围和待人工项目见[反馈改进](docs/history/interaction-refresh.md)。T11–T13 的完整兼容、性能与发布条件尚未完成。
 
 ## 已完成：M0 基础项目
 
@@ -47,7 +58,7 @@
 - [x] 新窗默认自动接入，托盘隐藏/返回/暂停/退出。
 - [x] 最终包上的物理组合、工作区编辑、托盘入口及真实双屏人工验收（用户确认全部正常）。
 
-视觉改进 [Issue #29](https://github.com/BuanDesu/Borderless-Flat-Window/issues/29)：糖果色玻璃材质、悬浮按钮、精简主命令栏、二级菜单和任务视图式总览，见[设计记录](docs/candy-glass-design.md)。
+视觉改进 [Issue #29](https://github.com/BuanDesu/Borderless-Flat-Window/issues/29)：糖果色玻璃材质、悬浮按钮、精简主命令栏、二级菜单和任务视图式总览，见[设计记录](docs/history/candy-glass-design.md)。
 
 本轮继续改进 [Issue #31](https://github.com/BuanDesu/Borderless-Flat-Window/issues/31)：
 
@@ -58,7 +69,7 @@
 - [x] 202 模型、15 文件、48 原生检查与常规/紧凑布局复核。
 - [x] 用户已确认：桌面单独右击及菜单关闭后滚轮正常，双键松开不误弹菜单、Backspace 返回起点，原创托盘图标可见且双击返回。
 
-新反馈 [Issue #33](https://github.com/BuanDesu/Borderless-Flat-Window/issues/33)，规则见[面板、过渡与取色](docs/console-and-wallpaper.md)：
+新反馈 [Issue #33](https://github.com/BuanDesu/Borderless-Flat-Window/issues/33)，规则见[面板、过渡与取色](docs/history/console-and-wallpaper.md)：
 
 - [x] 独立总览宿主、单缓冲场景过渡，当前/最后焦点窗口 DWM 缩小归位及禁用动画降级。
 - [x] 标签与工作区名称按实际字体测量；诊断说明按宽度换行。
@@ -66,7 +77,7 @@
 - [x] 本地壁纸 25 点取色、糖果色匹配、后台采样、系统事件刷新与失败回退。
 - [x] 用户已确认面板位置、自动收起和托盘点击返回；继续优化过渡与外观。
 
-新反馈 [Issue #35](https://github.com/BuanDesu/Borderless-Flat-Window/issues/35)，规则与边界见[总览合成与像素按键](docs/overview-compositor.md)：
+新反馈 [Issue #35](https://github.com/BuanDesu/Borderless-Flat-Window/issues/35)，规则与边界见[总览合成与像素按键](docs/history/overview-compositor.md)：
 
 - [x] Tab / Shift+Tab 往返总览，Ctrl+Tab 轮选，保留模态编辑的 Tab 遍历。
 - [x] 完全自绘圆角按钮与 SVG 键帽；私有加载简中/英文像素字体并随包保留许可证。
@@ -76,7 +87,7 @@
 - [x] 用户确认：无方形黑框，字体/圆角/标签完整，不同视角含空视窗和边缘裁剪，离屏地图仍有预览。
 - [ ] 用户反馈过渡仍卡顿、界面质感不足，后续由 #37 继续验收。
 
-新反馈 [Issue #37](https://github.com/BuanDesu/Borderless-Flat-Window/issues/37)，参考与规则见 [Fluent 控制台与合成层过渡](docs/fluent-motion.md)：
+新反馈 [Issue #37](https://github.com/BuanDesu/Borderless-Flat-Window/issues/37)，参考与规则见 [Fluent 控制台与合成层过渡](docs/history/fluent-motion.md)：
 
 - [x] 重读 vxwm 无限画布、聚焦、回原点与缩放模块，区分 X11 dwm 和 Windows DWM。
 - [x] Fluent 间距与层级、同尺寸同基线的主按键、等宽分组；系统正文字体与像素品牌字分层。
@@ -85,7 +96,7 @@
 - [x] 283 项模型/存储/原生检查；两种分辨率合成时钟与释放、真实自有 Probe 往返和工作区内容复核。CI、合并和试用包校验记录回填 #37。
 - [x] 用户反馈：面板方向大体合适；过渡仍卡顿、Tab 不能快速往返，关闭键与留白问题转入 #39。
 
-新反馈 [Issue #39](https://github.com/BuanDesu/Borderless-Flat-Window/issues/39)，实现与边界见[可中断总览与页面过渡](docs/responsive-transitions.md)：
+新反馈 [Issue #39](https://github.com/BuanDesu/Borderless-Flat-Window/issues/39)，实现与边界见[可中断总览与页面过渡](docs/history/responsive-transitions.md)：
 
 - [x] 可中断、可反向的总览时钟；准备期间和过渡中继续处理切换请求，保留模态输入。
 - [x] 缓存返回场景，合成层焦点图像缩放及保守遮挡降级，子控件仅复制对应背景区域。
@@ -95,7 +106,7 @@
 - [ ] 用户复验：物理快速连按 Tab / Shift+Tab 和实际桌面流畅度，继续在 #41 跟踪。
 - [ ] T11/T12 继续追踪完整回归中偶发的文件替换访问失败与夹具初始化问题，不以单次成功关闭。
 
-后续反馈 [Issue #41](https://github.com/BuanDesu/Borderless-Flat-Window/issues/41)，详见[总览渲染重构](docs/retained-overview.md)：
+后续反馈 [Issue #41](https://github.com/BuanDesu/Borderless-Flat-Window/issues/41)，详见[总览渲染重构](docs/history/retained-overview.md)：
 
 - [x] 用户确认主面板通过，选择保留空间关系并重做总览渲染。
 - [x] 核对原生任务视图的公开接口边界；不以系统选窗列表代替空间地图。
@@ -107,8 +118,8 @@
 - [x] 用户确认资源管理器选窗后再次进入总览，Tab 已不会落入资源管理器控件。
 - [x] 空闲时有界准备一个隐藏宿主；完整输入失效、单次转移和重入代号保护，按键前成本单列。修正隐藏句柄的 TopMost 激活，保留前台不变断言及真实源回归。
 - [x] 焦点截图改为读回前后分别核验，覆盖遮挡移除竞态和失败释放；拆分读回/核验/上传时序，并以匿名样式分类解释遮挡降级。
-- [x] [直接读回实验](docs/capture-readback.md)完成合成原生颜色/资源基准与真实样本核对；真实收益证据不足，保留开发者显式启用，默认不切换。
-- [x] [原生总览宿主实验](docs/live-overview-surface.md)：不读取桌面像素的系统背景请求与实时缩略图矩形过渡，正反向、端点空闲及中途关闭独立验证；背景视觉和完整生产接入尚未确认，保持显式启用。
+- [x] [直接读回实验](docs/history/capture-readback.md)完成合成原生颜色/资源基准与真实样本核对；真实收益证据不足，保留开发者显式启用，默认不切换。
+- [x] [原生总览宿主实验](docs/history/live-overview-surface.md)：不读取桌面像素的系统背景请求与实时缩略图矩形过渡，正反向、端点空闲及中途关闭独立验证；背景视觉和完整生产接入尚未确认，保持显式启用。
 - [x] [完整总览的原生适配](docs/native-overview-presenter.md)：共享视图、真实宿主接口、地图/搜索/工作区及全局会话接入；三尺寸、双背景模式、空闲后反向、模态输入与计时回归。提供显式试用入口，背景与自然操作验收仍未完成，默认不切换。
 - [x] [原生背景修正](docs/native-backdrop-validation.md)：显式启用并读取非客户区渲染策略；十组自有图案对照验证实际背景响应与细条纹衰减，遮挡/位置变化控制零读回。完整原生总览已观察到模糊背景，选窗、重开、Tab 返回与暂停恢复通过，默认仍不切换。
 - [x] [原生预览刷新合并](docs/native-overview-presenter.md#减少重复预览同步)：准备阶段同步 3 次降为 1 次，未变化的窗口快照和几何不重复查询；保留源变更、开关、F5 与模态/关闭边界，批次重入更新排队且关闭失效。首次显示等待与连续呈现仍继续优化。
@@ -117,7 +128,7 @@
 - [x] Windows 11 build 22621 及以上默认使用原生总览；较早系统保留窗体路径，新增 `Start-FormOverview.cmd` 明确回退。启动选择覆盖系统边界、冲突参数与强制纯色。
 - [ ] 本地实际呈现/物理快速输入矩阵、原生宿主工作区编辑、多窗口长期与完整硬件验收；T11/T12 继续性能与兼容工作。
 
-T12 的[总览负载基线](docs/overview-load-baseline.md)已覆盖 48 个自有原生窗口样本、预览开关及离屏增长，拆分入口计时；同步作用域复用 COM 查询服务，保留全部身份和桌面核验，该轮 300 项检查通过。下方区域整理已继续补齐，真实输入/呈现与 GPU/长期资源矩阵仍继续，T12 不据此整体勾选。
+T12 的[总览负载基线](docs/history/overview-load-baseline.md)已覆盖 48 个自有原生窗口样本、预览开关及离屏增长，拆分入口计时；同步作用域复用 COM 查询服务，保留全部身份和桌面核验，该轮 300 项检查通过。下方区域整理已继续补齐，真实输入/呈现与 GPU/长期资源矩阵仍继续，T12 不据此整体勾选。
 
 - [ ] **T11：窗口特殊状态与多屏兼容。** 验证最小化、最大化、全屏、置顶、owner/模态框、输入法及权限不足；扩展混合 DPI、拔插/主屏变化、休眠和 Explorer 重启；记录常用应用兼容矩阵。对应 FR-12、AT-05/09/10/11/12。依赖 T06、T07、T09。 [Issue #11](https://github.com/BuanDesu/Borderless-Flat-Window/issues/11)
 - [ ] **T12：性能基线与可撤销整理。** 测量 10/30/更多窗口、预览开关和离屏数量增长下的输入延迟、CPU/GPU/内存；合并高频更新；提供只影响选区的平铺与撤销，不自动压缩全画布。对应 FR-11、NFR-03。依赖 T07、T09。 [Issue #12](https://github.com/BuanDesu/Borderless-Flat-Window/issues/12)

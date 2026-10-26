@@ -10,7 +10,7 @@ try {
     $taskRevision = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify measurement source.' }
     $taskModified = [bool](git status --porcelain --untracked-files=no)
-    dotnet run --project src/BorderlessFlatWindow.App --configuration Release --no-build -- --overview-benchmark $taskOutput
+    dotnet run --project tools/BorderlessFlatWindow.Lab --configuration Release --no-build -- benchmark $taskOutput
     if ($LASTEXITCODE -ne 0) { throw "Overview benchmark failed: $LASTEXITCODE" }
     $taskReport = Get-Content -LiteralPath $taskOutput -Raw | ConvertFrom-Json
     $taskReport | Add-Member -NotePropertyName SourceRevision -NotePropertyValue $taskRevision

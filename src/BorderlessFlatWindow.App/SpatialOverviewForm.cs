@@ -320,7 +320,7 @@ internal sealed partial class SpatialOverviewForm : Form
         }
         RefreshSelection(); return true;
     }
-    internal void SetSmokeQuery(string text) { if (scene is not null) scene.SetQuery(text); else search.Text = text; }
+
 
     private sealed class InlineSelectionLabel : Label
     {

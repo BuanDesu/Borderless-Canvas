@@ -17,11 +17,12 @@ try {
     $revision = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source revision.' }
     $dirty = [bool](git status --porcelain --untracked-files=no)
-    $untrackedInputs = @(git ls-files --others --exclude-standard -- src tests scripts docs licenses .github .gitattributes README.md TODO.md LICENSE THIRD-PARTY-NOTICES.md '*.props' '*.targets' '*.sln*' '*.csproj' global.json NuGet.Config)
+    $untrackedInputs = @(git ls-files --others --exclude-standard -- src tests tools scripts docs licenses .github .gitattributes README.md TODO.md LICENSE THIRD-PARTY-NOTICES.md '*.props' '*.targets' '*.sln*' '*.csproj' global.json NuGet.Config)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect source inputs.' }
     if ($untrackedInputs.Count) { $dirty = $true }
+    $applicationVersion = ([xml](Get-Content -Raw -LiteralPath (Join-Path $taskRoot 'Version.props'))).Project.PropertyGroup.Version
     if (-not $OutputDirectory) {
-        $OutputDirectory = Join-Path $taskRoot "artifacts/trial/BorderlessFlatWindow-$($revision.Substring(0, 8))-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        $OutputDirectory = Join-Path $taskRoot "artifacts/trial/BorderlessFlatWindow-$applicationVersion-win-x64-$($revision.Substring(0, 8))-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     }
     $destination = [IO.Path]::GetFullPath($OutputDirectory)
     if (Test-Path -LiteralPath $destination) { throw "Output already exists; choose a new directory: $destination" }
@@ -66,32 +67,10 @@ try {
         }
     }
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/trial-guide.zh-CN.md') -Destination (Join-Path $destination '试用说明.md')
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/interaction-refresh.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/integration-history.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/candy-glass-design.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/console-and-wallpaper.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/overview-compositor.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/fluent-motion.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/responsive-transitions.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/retained-overview.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/overview-load-baseline.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/capture-readback.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/native-overview-presenter.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/native-backdrop-validation.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/region-arrangement.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/local-preferences.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/pointer-and-sticky.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/startup-and-remote-input.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/touch-and-precision-input.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/edge-speed-and-input-notifications.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/workspace-input-refresh.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/touch-receiver-and-window-lifetime.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/touch-message-pump-and-minimized-windows.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/tray-control.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/deployment.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/desktop-lifecycle.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/recovery-display-fallback.md') -Destination $destination
-    Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/release-v1-readiness.md') -Destination $destination
+    foreach ($document in @('deployment.md', 'compatibility.md')) {
+        Copy-Item -LiteralPath (Join-Path $taskRoot "docs/$document") -Destination $destination
+    }
+    [IO.File]::WriteAllText((Join-Path $destination 'VERSION.txt'), $applicationVersion + [Environment]::NewLine)
     Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD-PARTY-NOTICES.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'LICENSE') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Launch.ps1') -Destination $destination
@@ -133,6 +112,8 @@ try {
         }
     }
     $portableChecksRun = $false
+    $binaryVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $destination 'BorderlessFlatWindow.App.dll')).ProductVersion.Split('+')[0]
+    if ($binaryVersion -ne $applicationVersion) { throw 'Published application version differs from Version.props.' }
     if ($SelfContained -and $NativeOverviewChecks) {
         & (Join-Path $PSScriptRoot 'check-portable.ps1') -Directory $destination
         $portableChecksRun = $true
@@ -142,6 +123,7 @@ try {
     })
     $manifest = @{
         schemaVersion = 1; sourceRevision = $revision; trackedSourcesModified = $dirty
+        applicationVersion = $applicationVersion
         builtAtUtc = [DateTime]::UtcNow.ToString('O'); platform = 'win-x64'; frameworkDependent = !$SelfContained.IsPresent
         deployment = $(if ($SelfContained) { 'self-contained' } else { 'framework-dependent' })
         requiredRuntime = $(if ($SelfContained) { $null } else { 'Microsoft.WindowsDesktop.App 10.0 x64' })

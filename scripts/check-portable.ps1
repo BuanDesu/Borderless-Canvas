@@ -37,16 +37,36 @@ function Run-PortableChild([string]$Executable, [string[]]$Arguments, [switch]$O
     } finally { $process.Dispose() }
 }
 $app = Join-Path $package 'BorderlessFlatWindow.App.exe'
-$result = Run-PortableChild $app @('--native-overview-check', (Join-Path $output 'overview.json')) -ObserveRuntime
-if ($result.Code -ne 0) { throw "Published native overview failed: $($result.Error)" }
+$result = Run-PortableChild $app @('--runtime-check') -ObserveRuntime
+if ($result.Code -ne 0 -or !$result.Output.Contains('PASS Production runtime')) { throw "Published runtime initialization failed: $($result.Error)" }
 foreach ($required in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'PresentationNative_cor3.dll')) {
     if (!$result.Modules.ContainsKey($required) -or !$result.Modules[$required].StartsWith($package + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Published runtime was not observed inside the package: $required" }
 }
 $recoveryOutput = Join-Path $output 'recovery-fixture'
-$result = Run-PortableChild $app @('--trial-recovery-check', $recoveryOutput)
+# UI fixtures live in a disposable harness. Its production dependencies and
+# independent recovery executable are replaced by the exact published payload.
+# The actual App executable above is checked separately; do not call this a
+# byte-identical production UI binary test.
+$harness = Join-Path $output 'harness'
+dotnet publish (Join-Path $taskRoot 'tests/BorderlessFlatWindow.App.Checks/BorderlessFlatWindow.App.Checks.csproj') -c Release -r win-x64 --self-contained true --nologo --disable-build-servers -m:1 --output $harness "-p:RuntimeFrameworkVersion=$($config.runtimeOptions.includedFrameworks[0].version)" -p:DebugType=None -p:DebugSymbols=false "-p:PathMap=$taskRoot=/_/bfw"
+if ($LASTEXITCODE -ne 0) { throw 'Cannot publish the isolated portable verification harness.' }
+foreach ($name in @('Core', 'Application', 'Windows', 'Presentation')) {
+    Copy-Item -LiteralPath (Join-Path $package "BorderlessFlatWindow.$name.dll") -Destination $harness -Force
+}
+foreach ($suffix in @('.exe')) {
+    $target = [IO.Path]::GetFullPath((Join-Path $harness "BorderlessFlatWindow.Recovery$suffix"))
+    if (!$target.StartsWith([IO.Path]::GetFullPath($output) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Harness cleanup escaped its isolated directory.' }
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target }
+}
+New-Item -ItemType Directory -Path (Join-Path $harness 'tools') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $package 'tools/recovery') -Destination (Join-Path $harness 'tools') -Recurse
+$checker = Join-Path $harness 'BorderlessFlatWindow.App.Checks.exe'
+$result = Run-PortableChild $checker @('--native-overview-check', (Join-Path $output 'overview.json'))
+if ($result.Code -ne 0) { throw "Published-dependency overview fixture failed: $($result.Error)" }
+$result = Run-PortableChild $checker @('--trial-recovery-check', $recoveryOutput)
 if ($result.Code -ne 0 -or !$result.Output.Contains('PASS Actual independent recovery process')) { throw "Published GUI recovery bridge failed: $($result.Error)" }
 $before = Get-FileHash -LiteralPath (Join-Path $recoveryOutput 'recovery.json')
-$result = Run-PortableChild $app @('--trial-recovery-check', $recoveryOutput)
+$result = Run-PortableChild $checker @('--trial-recovery-check', $recoveryOutput)
 if ($result.Code -ne 1 -or (Get-FileHash -LiteralPath $before.Path).Hash -ne $before.Hash) { throw 'Recovery fixture allowed reusing a nonempty output directory.' }
 $journal = Join-Path $output "state & quoted'/recovery.json"
 $shell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -54,6 +74,6 @@ foreach ($mode in @('Inspect', 'Recover')) {
     $result = Run-PortableChild $shell @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $package 'Launch.ps1'),'-Mode',$mode,'-JournalPath',$journal)
     if ($result.Code -ne 0) { throw "Published isolated recovery launcher failed: $($result.Error)" }
 }
-[pscustomobject]@{ RuntimeVersion=$config.runtimeOptions.includedFrameworks[0].version; PrivateRuntimeObserved=$true; NativeOverview=$true; IndependentRecovery=$true; ExistingFixturePreserved=$true; Launchers=$true } |
+[pscustomobject]@{ RuntimeVersion=$config.runtimeOptions.includedFrameworks[0].version; PrivateRuntimeObserved=$true; SourceLinkedUiHarness=$true; PublishedDependencies=$true; NativeOverview=$true; IndependentRecovery=$true; ExistingFixturePreserved=$true; Launchers=$true } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'summary.json') -Encoding utf8
-Write-Output 'PASS Published portable app loads CoreCLR/host/WPF from its own folder, passes native overview and actual isolated recovery bridge, preserves existing fixture output and runs both recovery launcher modes.'
+Write-Output 'PASS Actual portable App loads its own CoreCLR/host/WPF; a disposable source-linked UI harness verifies published dependencies and the real recovery executable; fixture preservation and launchers pass.'

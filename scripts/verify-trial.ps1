@@ -7,9 +7,9 @@ foreach ($path in @($root, $manifestPath)) {
     if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse points are not package payload.' }
 }
 $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-if ($manifest.schemaVersion -ne 1 -or $manifest.sourceRevision -notmatch '^[0-9a-f]{40}$' -or
+if ($manifest.schemaVersion -ne 1 -or $manifest.sourceRevision -notmatch '^[0-9a-f]{40}$' -or $manifest.applicationVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$' -or
     $manifest.trackedSourcesModified -isnot [bool] -or $manifest.frameworkDependent -isnot [bool] -or
-    $manifest.platform -ne 'win-x64' -or !@($manifest.files).Count -or $RequireClean -and $manifest.trackedSourcesModified) { throw 'Manifest source/deployment metadata is invalid or not clean.' }
+    $manifest.platform -ne 'win-x64' -or !@($manifest.files).Count -or ($RequireClean -and $manifest.trackedSourcesModified)) { throw 'Manifest source/deployment metadata is invalid or not clean.' }
 function Resolve-PayloadPath([string]$Name) {
     if (!$Name -or [IO.Path]::IsPathRooted($Name) -or $Name.Contains(':') -or
         @($Name -split '[/\\]' | Where-Object { $_ -in @('', '.', '..') -or $_ -match '[. ]$' }).Count) { throw 'Invalid relative payload path.' }
@@ -40,6 +40,7 @@ foreach ($entry in $manifest.files) {
     if (!$names.Add($entry.name.Replace('\', '/')) -or $entry.name -eq 'manifest.json' -or $entry.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
         $entry.bytes -isnot [long] -and $entry.bytes -isnot [int] -or $entry.bytes -lt 0) { throw 'Invalid/duplicate payload metadata.' }
     if ([IO.Path]::GetFileName($path) -match '^(settings|recovery|bookmarks)\.json$' -or [IO.Path]::GetExtension($path) -eq '.pdb') { throw 'Runtime user data or debug symbols must not be distributed.' }
+    if ([IO.Path]::GetFileName($path) -match '^BorderlessFlatWindow\..*(Checks|Lab)\.' ) { throw 'Verification harnesses and laboratories must not be distributed.' }
     if (!(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -ne $entry.bytes -or
         (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'Payload length/hash mismatch.' }
     if ($RejectLocalBuildPaths) {
@@ -62,10 +63,11 @@ foreach ($entry in $manifest.files) {
 if ($paths.Count -ne $names.Count + 1) { throw 'Package contains unlisted/missing files.' }
 foreach ($required in @('BorderlessFlatWindow.App.exe', 'Probe.cmd',
     'Launch.ps1', 'Start.cmd', 'Recover.cmd', 'Inspect-Recovery.cmd', 'Start-NativeOverview.cmd', 'Start-FormOverview.cmd',
-    'deployment.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt',
+    'deployment.md', 'compatibility.md', 'VERSION.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt',
     'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
     if (!$names.Contains($required)) { throw "Missing entry point/notice: $required" }
 }
+if ([IO.File]::ReadAllText((Join-Path $root 'VERSION.txt')).Trim() -ne $manifest.applicationVersion) { throw 'User-visible version differs from the manifest.' }
 if (!$manifest.frameworkDependent) {
     if ($manifest.deployment -ne 'self-contained' -or $null -ne $manifest.requiredRuntime -or @($manifest.bundledFrameworks).Count -ne 2 -or
         (@($manifest.bundledFrameworks.name | Sort-Object) -join ',') -ne 'Microsoft.NETCore.App,Microsoft.WindowsDesktop.App' -or

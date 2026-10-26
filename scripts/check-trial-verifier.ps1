@@ -9,13 +9,15 @@ foreach ($project in @('src/BorderlessFlatWindow.App', 'src/BorderlessFlatWindow
     foreach ($file in (Get-ChildItem -LiteralPath $build -File | Where-Object { $_.Extension -in @('.dll', '.exe') -or $_.Name -match '\.(deps|runtimeconfig)\.json$' })) { Copy-Item -LiteralPath $file.FullName -Destination $baseline -Force }
 }
 foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'trial') -File)) { Copy-Item -LiteralPath $file.FullName -Destination $baseline }
-foreach ($name in @('deployment.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt', 'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
+foreach ($name in @('deployment.md', 'compatibility.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt', 'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
     $path = Join-Path $baseline $name; New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
     [IO.File]::WriteAllText($path, 'Synthetic notice for verifier fixture, not a distributable package.')
 }
+[IO.File]::WriteAllText((Join-Path $baseline 'VERSION.txt'), '0.1.0-preview.2')
 function Save-CheckManifest([string]$Directory, [bool]$Portable = $false) {
     $manifest = [ordered]@{
         schemaVersion = 1; sourceRevision = '1111111111111111111111111111111111111111'; trackedSourcesModified = $false
+        applicationVersion = '0.1.0-preview.2'
         platform = 'win-x64'; frameworkDependent = !$Portable; deployment = $(if ($Portable) {'self-contained'} else {'framework-dependent'})
         requiredRuntime = $(if ($Portable) {$null} else {'Microsoft.WindowsDesktop.App 10.0 x64'})
         bundledFrameworks = $(if ($Portable) {@(@{name='Microsoft.NETCore.App';version='10.0.13'},@{name='Microsoft.WindowsDesktop.App';version='10.0.13'})} else {@()})
@@ -26,16 +28,16 @@ function Save-CheckManifest([string]$Directory, [bool]$Portable = $false) {
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Directory 'manifest.json') -Encoding utf8
 }
 function Verify([string]$Directory, [string]$Archive) { & (Join-Path $PSScriptRoot 'verify-trial.ps1') -Directory $Directory -Archive $Archive -RequireClean }
-function Reject([scriptblock]$Action) {
+function Reject([scriptblock]$Action, [string]$Case = 'unnamed') {
     $rejected = $false
     try { & $Action | Out-Null } catch { $rejected = $true }
-    if (!$rejected) { throw 'Invalid package passed verification.' }
+    if (!$rejected) { throw "Invalid package passed verification: $Case" }
 }
 Save-CheckManifest $baseline
 $zipPath = "$baseline.zip"; Compress-Archive -LiteralPath $baseline -DestinationPath $zipPath
 Verify $baseline $zipPath | Out-Null
 $caseNumber = 0
-foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'missing-notice', 'missing-project-license', 'duplicate', 'escape', 'dirty', 'runtime-mismatch')) {
+foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'harness', 'missing-version', 'source-metadata', 'schema-metadata', 'boolean-metadata', 'missing-notice', 'missing-project-license', 'duplicate', 'escape', 'dirty', 'runtime-mismatch')) {
     $caseNumber++; $directory = Join-Path $checkRoot "case-$caseNumber"
     Copy-Item -LiteralPath $baseline -Destination $directory -Recurse
     $manifestPath = Join-Path $directory 'manifest.json'
@@ -45,6 +47,11 @@ foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'missing-noti
         'missing' { Rename-Item -LiteralPath (Join-Path $directory 'BorderlessFlatWindow.App.dll') -NewName 'missing.bin' }
         'pdb' { [IO.File]::WriteAllText((Join-Path $directory 'private.pdb'), 'symbols'); Save-CheckManifest $directory }
         'userdata' { [IO.File]::WriteAllText((Join-Path $directory 'settings.json'), '{}'); Save-CheckManifest $directory }
+        'harness' { [IO.File]::WriteAllText((Join-Path $directory 'BorderlessFlatWindow.App.Checks.dll'), 'Synthetic fixture'); Save-CheckManifest $directory }
+        'missing-version' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.applicationVersion = ''; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
+        'source-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.sourceRevision = 'invalid'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
+        'schema-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.schemaVersion = 2; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
+        'boolean-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.trackedSourcesModified = 'false'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
         'missing-notice' { Rename-Item -LiteralPath (Join-Path $directory 'licenses/dotnet-distribution/LICENSE.txt') -NewName 'other.txt'; Save-CheckManifest $directory }
         'missing-project-license' { Rename-Item -LiteralPath (Join-Path $directory 'LICENSE') -NewName 'other-license.txt'; Save-CheckManifest $directory }
         'duplicate' {
@@ -64,7 +71,7 @@ foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'missing-noti
             Save-CheckManifest $directory
         }
     }
-    Reject { Verify $directory }
+    Reject { Verify $directory } $kind
 }
 # Archive corruption is checked independently of an otherwise valid directory/manifest.
 foreach ($kind in @('duplicate', 'escape')) {

@@ -7,20 +7,20 @@ internal sealed partial class ManagedCanvasControl
 {
     private TouchNavigationHost? touchNavigation;
     private readonly Queue<TimedNavigationInput> touchInputs = new();
-    private bool touchNavigationRequested, touchInputOverflow;
+    private readonly NavigationModeCoordinator modes = new();
+    private bool touchInputOverflow;
+    private bool touchNavigationRequested => modes.TouchPending;
     internal void ToggleTouchNavigation()
     { if (touchNavigation is not null || touchNavigationRequested) CloseTouchNavigation(); else ShowTouchNavigation(); }
     internal void ShowTouchNavigation()
     {
         if (session?.IsRunning != true) { notice = "请先开始画布，再进入触控导航。"; RefreshState(); return; }
         if (!CanUsePanelCommands || HasOverviewWork || touchNavigation is not null || touchNavigationRequested) return;
-        touchNavigationRequested = true;
+        var request = modes.RequestTouch();
         BeginInvoke(() =>
         {
-            if (!touchNavigationRequested) return;
-            touchNavigationRequested = false;
-            if (IsDisposed || Disposing || session?.IsRunning != true || !CanUsePanelCommands || HasOverviewWork || GlobalInputBlocked) return;
-            EndNavigationForEditing(); InvalidateOverviewPreparation(); session.StopCameraTransition();
+            if (!modes.CompleteTouch(request, !IsDisposed && !Disposing && session?.IsRunning == true && CanUsePanelCommands && !HasOverviewWork && !GlobalInputBlocked)) return;
+            EndNavigationForEditing(); InvalidateOverviewPreparation(); session!.StopCameraTransition();
             var host = new TouchNavigationHost(); touchNavigation = host;
             host.Input += QueueTouchInput;
             host.ExitRequested += () => CloseTouchNavigation();
@@ -46,7 +46,7 @@ internal sealed partial class ManagedCanvasControl
     }
     private void CloseTouchNavigation(bool discard = false, bool refresh = true)
     {
-        touchNavigationRequested = false;
+        modes.CancelTouch();
         var host = touchNavigation; touchNavigation = null;
         if (host is not null)
         {
