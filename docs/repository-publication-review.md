@@ -12,7 +12,7 @@
 | 可达项目历史 | 115 个提交均为 GitHub 隐私邮箱；完整身份守卫通过 |
 | 内容复扫 | Gitleaks 对普通项目分支的全部可达变更复扫通过，未检出凭据；原始报告仅本地保存 |
 | 平台旧对象 | 仍可通过 API 读取重写前的旧作者邮箱；关闭个人资料邮箱展示没有改变既有提交 |
-| 项目许可 | 尚未指定项目源码的公开许可证；第三方原文与项目授权分开保留，继续由 #13 跟踪 |
+| 项目许可 | 已按所有者决定采用根目录 MIT 许可证；第三方原文与项目授权分开保留，完整分发审查继续由 #13 跟踪 |
 
 GitHub [提交邮箱说明](https://docs.github.com/en/account-and-profile/how-tos/email-preferences/setting-your-commit-email-address)明确，设置变更不修改既有提交邮箱。官方[历史数据清理说明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)指出旧 PR 引用和缓存需要平台协助，是否受理由 GitHub 决定。因此本次不将账户展示设置视作清理完成的证据。
 
@@ -20,7 +20,7 @@ GitHub [提交邮箱说明](https://docs.github.com/en/account-and-profile/how-t
 
 - [#11](https://github.com/BuanDesu/Borderless-Flat-Window/issues/11)：特殊窗口状态、混合 DPI、真实硬件切换及应用兼容矩阵。
 - [#12](https://github.com/BuanDesu/Borderless-Flat-Window/issues/12)：真实输入 P95、呈现与长期资源测量。已有自有窗口负载样本和整理撤销实现。
-- [#13](https://github.com/BuanDesu/Borderless-Flat-Window/issues/13)：项目许可、分发审查、干净系统验收及正式版交付条件。
+- [#13](https://github.com/BuanDesu/Borderless-Flat-Window/issues/13)：项目 MIT 许可已选定；分发审查、干净系统验收及正式版交付条件仍开放。
 - [#72](https://github.com/BuanDesu/Borderless-Flat-Window/issues/72)：旧 PR 引用、旧提交和平台缓存的作者身份清理。
 
 前三项保留为开发与正式版验收工作，源码仓库公开后也继续跟踪；不把它们误记为已经通过。当前公开操作等待 #72 的平台处理与复核，不创建正式版发布记录。

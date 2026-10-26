@@ -4,6 +4,31 @@ namespace BorderlessFlatWindow.App;
 
 internal sealed partial class ManagedCanvasControl
 {
+    internal void CheckEmptyLaunchStart()
+    {
+        if (FindForm() is not MainForm { IsTransparentFixture: true } || globalInput is not null || session?.Status != BorderlessFlatWindow.Application.Management.CanvasSessionStatus.Idle
+            || catalog.Inspect().Entries.Count != 0)
+            throw new InvalidOperationException("Empty startup checks require an isolated, inactive empty catalog.");
+        QueueLaunchStart(); reading = true;
+        ContinueLaunchStart(inputReady: true);
+        if (!launchStartPending || !launchTimer.Enabled || session.IsRunning) throw new InvalidOperationException("A startup read lost the pending launch request.");
+        reading = false; editingSettings = true; ContinueLaunchStart(inputReady: true);
+        if (!launchStartPending || session.IsRunning) throw new InvalidOperationException("Startup failed to wait for the editing boundary.");
+        editingSettings = false; ContinueLaunchStart(inputReady: false);
+        if (launchStartPending || session.IsRunning) throw new InvalidOperationException("Missing input readiness started a canvas.");
+        QueueLaunchStart(); recoveryAttention = true; ContinueLaunchStart(inputReady: true);
+        if (launchStartPending || session.IsRunning) throw new InvalidOperationException("A pending recovery was bypassed by startup.");
+        recoveryAttention = false; QueueLaunchStart(); ContinueLaunchStart(inputReady: true);
+        if (!session.IsRunning || session.ManagedIds.Count != 0 || launchStartPending || launchTimer.Enabled)
+            throw new InvalidOperationException("An empty desktop failed to start exactly once.");
+        var now = DateTimeOffset.UtcNow;
+        session.Pan(new(240, -120), now); session.Observe(catalog.Inspect(), 0, now);
+        if (!session.IsRunning || session.Workspace.Camera.Position != new BorderlessFlatWindow.Core.Geometry.PointD(240, -120))
+            throw new InvalidOperationException("The empty running canvas lost navigation or stopped on an empty observation.");
+        Pause(); QueueLaunchStart(); ContinueLaunchStart(inputReady: true);
+        if (session.IsRunning || launchStartPending) throw new InvalidOperationException("Startup overrode an explicit pause.");
+        Console.WriteLine("PASS Deferred empty-desktop launch survives reads/editing, starts with zero windows, permits navigation, respects input/recovery gates and never resumes an explicit pause");
+    }
     internal void CheckOwnerInputWake()
     {
         if (FindForm() is not MainForm { IsTransparentFixture: true } host || globalInput is not null || session?.IsRunning == true)

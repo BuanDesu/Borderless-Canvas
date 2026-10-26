@@ -62,7 +62,7 @@ foreach ($entry in $manifest.files) {
 if ($paths.Count -ne $names.Count + 1) { throw 'Package contains unlisted/missing files.' }
 foreach ($required in @('BorderlessFlatWindow.App.exe', 'Probe.cmd',
     'Launch.ps1', 'Start.cmd', 'Recover.cmd', 'Inspect-Recovery.cmd', 'Start-NativeOverview.cmd', 'Start-FormOverview.cmd',
-    'deployment.md', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt',
+    'deployment.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt',
     'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
     if (!$names.Contains($required)) { throw "Missing entry point/notice: $required" }
 }

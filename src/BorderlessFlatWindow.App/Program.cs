@@ -116,6 +116,7 @@ internal static class Program
             MainForm.CheckPreferenceRestart(Path.Combine(fixture, "preferences-restart"));
             MainForm.CheckTrayRecoveryProcess(Path.Combine(fixture, "tray-recovery"));
             MainForm.CheckDesktopLifecycleDispose(Path.Combine(fixture, "desktop-dispose"));
+            MainForm.CheckEmptyLaunchStart(Path.Combine(fixture, "empty-launch"));
         }
         using var form = new MainForm(smoke ? new PreviewWindowCatalog() : new DesktopWindowCatalog(), showWithoutActivation: smoke, journalPath: journalPath, bookmarksPath: bookmarkPath,
             reviewPanel: args.Contains("--review-panel", StringComparer.Ordinal), settingsPath: settingsPath, initialFixedShortcut: fixedShortcut);

@@ -6,6 +6,15 @@ namespace BorderlessFlatWindow.App;
 
 internal sealed partial class MainForm
 {
+    internal static void CheckEmptyLaunchStart(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        using var form = new MainForm(new PreviewWindowCatalog(empty: true), showWithoutActivation: true,
+            journalPath: Path.Combine(directory, "recovery.json"), bookmarksPath: Path.Combine(directory, "bookmarks.json"),
+            settingsPath: Path.Combine(directory, "settings.json")) { Opacity = 0, ShowInTaskbar = false };
+        form.Show(); System.Windows.Forms.Application.DoEvents();
+        form.management.CheckEmptyLaunchStart();
+    }
     internal void CheckInputAvailabilitySmoke() { management.CheckInputAvailabilityBoundaries(); management.CheckTouchNavigationBoundaries(); }
     internal void CheckOwnerInputWakeSmoke() => management.CheckOwnerInputWake();
     internal static void CheckDesktopLifecycleDispose(string directory)

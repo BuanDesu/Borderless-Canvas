@@ -5,6 +5,7 @@ internal static partial class ManagementChecks
     private static IEnumerable<(string Name, Action Run)> LifetimeCases()
     {
         yield return ("An empty canvas starts and admits future windows without resetting its view", EmptyStart);
+        yield return ("Launching with only minimized windows starts an empty canvas and admits a later ordinary window", MinimizedAtLaunch);
         yield return ("Runtime windows can close in any order and the final empty canvas accepts another window", RuntimeClose);
         yield return ("Hidden windows stay fixed while survivors pan, then rejoin their saved world position", HiddenRejoin);
         yield return ("A closing active window cannot pull the camera toward a formerly parked window", CloseForeground);
@@ -49,6 +50,18 @@ internal static partial class ManagementChecks
             "Closing the minimized final window ended the empty canvas or retained its record.");
         h.Native[44] = Window(44, Rect(70, 90)); Require(h.Session.AddWindows(Late(h, 44), Now), h.Session.Message); h.Tick();
         Require(h.Session.Workspace.Camera == camera, "New admission reset the empty camera.");
+    }
+    private static void MinimizedAtLaunch()
+    {
+        using var h = new Harness();
+        foreach (var handle in h.Native.Keys.ToArray()) h.Native[handle] = h.Native[handle] with { IsMinimized = true };
+        Require(h.Selected().Count == 0, "Minimized launch fixtures were unexpectedly admitted.");
+        h.Begin();
+        Require(h.Session.IsRunning && h.Session.ManagedIds.Count == 0 && h.Batches == 0, "Minimized-only launch did not stay active without moving windows.");
+        h.Session.Navigate(new(500, -100), Now); h.Tick();
+        h.Native[44] = Window(44, Rect(100, 100)); Require(h.Session.AddWindows(Late(h, 44), Now), h.Session.Message); h.Tick();
+        Require(h.Session.IsRunning && h.Session.ManagedIds.Count == 1 && h.Session.Workspace.Camera.Position == new PointD(500, -100)
+            && h.Native[42].IsMinimized && h.Native[43].IsMinimized, "Later admission reset the view or restored minimized launch windows.");
     }
     private static void EmptyStart()
     {
