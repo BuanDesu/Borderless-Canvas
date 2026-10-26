@@ -40,6 +40,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal event Action? WallpaperRefreshRequested;
     private readonly System.Windows.Forms.Timer verify = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer navigationTimer = new() { Interval = 16 };
+    private readonly System.Windows.Forms.Timer launchTimer = new() { Interval = 100 };
+    private bool launchStartPending;
     private readonly Label navigationStatus = new() { AutoSize = true, Padding = new(4) };
     private GlobalNavigationInput? globalInput;
     private NavigationGestureSession? gestures;
@@ -180,6 +182,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
         navigationTimer.Tick += (_, _) => NavigationFrame();
+        launchTimer.Tick += (_, _) => ContinueLaunchStart(globalInput is not null);
         preparationTimer.Tick += (_, _) => PrepareOverviewWhileIdle();
         Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(commandDeck);
         InitializePinControls();
@@ -492,10 +495,30 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     internal void StartOnLaunch()
     {
-        if (FindForm() is MainForm { IsTransparentFixture: true } || session?.Status != CanvasSessionStatus.Idle) return;
-        if (globalInput is null) { notice = "输入接管未就绪，未自动开始画布。"; RefreshState(); return; }
+        if (FindForm() is MainForm { IsTransparentFixture: true }) return;
+        QueueLaunchStart();
+    }
+    private void QueueLaunchStart()
+    {
+        launchStartPending = true;
+        // OnShown can still be inside native/WPF initialization. Start on the UI
+        // loop, retaining the request across short reads and disabled-owner work.
+        launchTimer.Start();
+    }
+    private void ContinueLaunchStart(bool inputReady)
+    {
+        if (!launchStartPending) return;
+        if (IsDisposed || Disposing || session?.Status is CanvasSessionStatus.Running or CanvasSessionStatus.Paused or CanvasSessionStatus.RecoveryRequired
+            || recoveryAttention || externalRecoveryRunning || desktopTransitionPending || displayFailure is not null)
+        { CancelLaunchStart(); return; }
+        if (!inputReady)
+        { CancelLaunchStart(); notice = "输入接管未就绪，未自动开始画布。"; RefreshState(); return; }
+        if (session is null || layout is null || !CanUsePanelCommands) return;
+        CancelLaunchStart();
+        // An empty selection is an active canvas awaiting future windows.
         Begin();
     }
+    private void CancelLaunchStart() { launchStartPending = false; launchTimer.Stop(); }
 
     private void VerifyPending()
     {
@@ -531,7 +554,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         button.Click += (_, _) => Act(action); toolbar.Controls.Add(button);
     }
     internal void Pause(string reason = "已暂停并恢复原始位置；再次开始可恢复画布布局。")
-    { CloseTouchNavigation(discard: true, refresh: false); InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
+    { CancelLaunchStart(); CloseTouchNavigation(discard: true, refresh: false); InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
     private void RefreshState()
     {
         ConfigurePointerScreens();
@@ -594,6 +617,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
+        if (disposing) { CancelLaunchStart(); launchTimer.Dispose(); }
         if (disposing) { DisposeInputStatus(); CloseTouchNavigation(discard: true, refresh: false); DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }

@@ -9,7 +9,7 @@ foreach ($project in @('src/BorderlessFlatWindow.App', 'src/BorderlessFlatWindow
     foreach ($file in (Get-ChildItem -LiteralPath $build -File | Where-Object { $_.Extension -in @('.dll', '.exe') -or $_.Name -match '\.(deps|runtimeconfig)\.json$' })) { Copy-Item -LiteralPath $file.FullName -Destination $baseline -Force }
 }
 foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'trial') -File)) { Copy-Item -LiteralPath $file.FullName -Destination $baseline }
-foreach ($name in @('deployment.md', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt', 'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
+foreach ($name in @('deployment.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt', 'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
     $path = Join-Path $baseline $name; New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
     [IO.File]::WriteAllText($path, 'Synthetic notice for verifier fixture, not a distributable package.')
 }
@@ -35,7 +35,7 @@ Save-CheckManifest $baseline
 $zipPath = "$baseline.zip"; Compress-Archive -LiteralPath $baseline -DestinationPath $zipPath
 Verify $baseline $zipPath | Out-Null
 $caseNumber = 0
-foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'missing-notice', 'duplicate', 'escape', 'dirty', 'runtime-mismatch')) {
+foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'missing-notice', 'missing-project-license', 'duplicate', 'escape', 'dirty', 'runtime-mismatch')) {
     $caseNumber++; $directory = Join-Path $checkRoot "case-$caseNumber"
     Copy-Item -LiteralPath $baseline -Destination $directory -Recurse
     $manifestPath = Join-Path $directory 'manifest.json'
@@ -46,6 +46,7 @@ foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'missing-noti
         'pdb' { [IO.File]::WriteAllText((Join-Path $directory 'private.pdb'), 'symbols'); Save-CheckManifest $directory }
         'userdata' { [IO.File]::WriteAllText((Join-Path $directory 'settings.json'), '{}'); Save-CheckManifest $directory }
         'missing-notice' { Rename-Item -LiteralPath (Join-Path $directory 'licenses/dotnet-distribution/LICENSE.txt') -NewName 'other.txt'; Save-CheckManifest $directory }
+        'missing-project-license' { Rename-Item -LiteralPath (Join-Path $directory 'LICENSE') -NewName 'other-license.txt'; Save-CheckManifest $directory }
         'duplicate' {
             $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
             $manifest.files += $manifest.files[0]; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath

@@ -54,7 +54,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./Launch.ps1 -Mode Recov
 
 源码修改标记同时考虑已跟踪改动与源码/测试/脚本/文档/许可目录和构建配置内未跟踪的输入，避免新代码尚未加入 Git 却被标为干净版本。与构建无关的项目根目录未跟踪文件不进入包或这一标记。
 
-随包组件和许可来源见 `THIRD-PARTY-NOTICES.md`。SDK 分发原文和自包含运行时包的对应版本 LICENSE/NOTICE 随包保留，并进入哈希清单；不把这些条款套用到项目代码。
+项目代码与原创素材采用根目录 `LICENSE` 中的 MIT 许可证，该文件随包保留并进入哈希清单。随包第三方组件和许可来源见 `THIRD-PARTY-NOTICES.md`。SDK 分发原文和自包含运行时包的对应版本 LICENSE/NOTICE 同样保留；第三方条款各自适用。
 
 默认 CI 增加真实 Windows PowerShell 启动器检查：空日志检查/恢复、损坏数据和原字节保留，空格/符号/中文路径，六个 CMD 的失败退出，以及合成缺失/损坏运行时。校验器覆盖实际编译的框架依赖夹具和合成的独立运行时布局，拒绝缺件/越界/隐私数据和跨工具版本不符。检查仅使用独立夹具，无桌面接管。
 

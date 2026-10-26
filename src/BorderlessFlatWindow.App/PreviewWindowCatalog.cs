@@ -7,9 +7,9 @@ namespace BorderlessFlatWindow.App;
 internal sealed class PreviewWindowCatalog : ITrackedDesktopWindowCatalog
 {
     private readonly WindowCatalogSnapshot snapshot;
-    internal PreviewWindowCatalog()
+    internal PreviewWindowCatalog(bool empty = false)
     {
-        var titles = new[] { "Studio / 编辑器", "Research / 浏览器", "Notes / 资料", "Terminal / 终端" };
+        var titles = empty ? [] : new[] { "Studio / 编辑器", "Research / 浏览器", "Notes / 资料", "Terminal / 终端" };
         snapshot = new(DateTimeOffset.UtcNow, titles.Select((title, index) => new InspectedWindow(Guid.NewGuid(), new WindowObservation
         {
             Handle = 100 + index, ProcessId = 1000u + (uint)index, ProcessCreationFileTime = 1,

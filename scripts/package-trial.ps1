@@ -17,7 +17,7 @@ try {
     $revision = (git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source revision.' }
     $dirty = [bool](git status --porcelain --untracked-files=no)
-    $untrackedInputs = @(git ls-files --others --exclude-standard -- src tests scripts docs licenses .github .gitattributes README.md TODO.md THIRD-PARTY-NOTICES.md '*.props' '*.targets' '*.sln*' '*.csproj' global.json NuGet.Config)
+    $untrackedInputs = @(git ls-files --others --exclude-standard -- src tests scripts docs licenses .github .gitattributes README.md TODO.md LICENSE THIRD-PARTY-NOTICES.md '*.props' '*.targets' '*.sln*' '*.csproj' global.json NuGet.Config)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect source inputs.' }
     if ($untrackedInputs.Count) { $dirty = $true }
     if (-not $OutputDirectory) {
@@ -93,6 +93,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/recovery-display-fallback.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'docs/release-v1-readiness.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD-PARTY-NOTICES.md') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $taskRoot 'LICENSE') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Launch.ps1') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Probe.cmd') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/trial/Start-NativeOverview.cmd') -Destination $destination

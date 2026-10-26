@@ -14,7 +14,7 @@
 
 ## 第一次使用
 
-先打开两个普通应用窗口，再启动本软件。正常启动后，它会自动管理已有窗口；之后新开的普通窗口也会自动加入。若面板显示“已暂停”，点击“开始”。
+启动本软件后，画布会自动开始；没有打开窗口、或所有窗口都已最小化时也可以使用。已有的普通窗口和之后新开的普通窗口会自动加入。若你手动暂停过，点击“开始”恢复。
 
 **把鼠标移到桌面空白处**，试着滚动滚轮：窗口会随视角移动。把鼠标移回应用窗口，就可以照常点击、输入和滚动页面。
 
@@ -84,7 +84,7 @@
 
 [开发任务](TODO.md) · [需求](windows-spatial-canvas-requirements.zh-CN.md) · [架构](docs/architecture.md) · [验收范围](docs/release-v1-readiness.md) · [部署](docs/deployment.md) · [第三方许可](THIRD-PARTY-NOTICES.md)
 
-项目参考了 vxwm、Halley 的交互思路，采用 Windows 原生实现，没有复制其实现代码。项目源码尚未选择公开发布许可证。
+项目代码与原创素材采用 [MIT 许可证](LICENSE)。第三方字体与运行时保留各自的许可证，见[第三方许可](THIRD-PARTY-NOTICES.md)。
 
 仓库当前保持私有；旧引用的隐私清理进展由 [#72](https://github.com/BuanDesu/Borderless-Flat-Window/issues/72) 跟踪，见[公开前复核](docs/repository-publication-review.md)。
 
