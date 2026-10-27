@@ -131,14 +131,22 @@ internal static class TouchReceiverChecks
         foreach (var (down, up, key) in new[] { (0x201u, 0x202u, 1), (0x204u, 0x205u, 2), (0x207u, 0x208u, 4), (0x20Bu, 0x20Cu, 5) })
         {
             if (input.MouseRoutingCheck(down, new(500, 500), before: () => platform.Keys.Add(key)) || !input.TouchReceiverTransparentForCheck()) throw new InvalidOperationException("A physical button was swallowed or its receiver stayed opaque.");
-            input.TimerRoutingCheck(() => platform.TickCount += 200);
+            input.TimerRoutingCheck(() => { platform.TickCount += 200; input.Heartbeat(); });
             if (!input.TouchReceiverTransparentForCheck()) throw new InvalidOperationException("Receiver rearmed during app dragging.");
             if (input.MouseRoutingCheck(up, new(500, 500), before: () => platform.Keys.Remove(key))) throw new InvalidOperationException("A physical button release was swallowed.");
-            input.TimerRoutingCheck(() => platform.TickCount += key == 2 ? 600 : 200);
+            input.TimerRoutingCheck(() => { platform.TickCount += key == 2 ? 600 : 200; input.Heartbeat(); });
             if (input.TouchReceiverTransparentForCheck()) throw new InvalidOperationException("Receiver did not rearm after a completed app click.");
         }
         input.SetAvailable(false); input.SynchronizeRoutingCheck();
         if (NativeMethods.IsWindow(handle) || WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException("Worker receiver survived pause or changed foreground.");
+        input.SetAvailable(true); input.SynchronizeRoutingCheck();
+        if (!input.SetTouchNavigation(true)) throw new InvalidOperationException("Touch receiver could not restart after pause.");
+        input.Drain(); var restarted = input.CreateHiddenTouchReceiverForCheck();
+        input.TimerRoutingCheck(() => { platform.TickCount += 500; input.Heartbeat(); });
+        input.PostTouchReceiverForCheck(0x20A, 7); input.SynchronizeRoutingCheck();
+        if (input.Drain().Single().Input.WheelDelta != 7) throw new InvalidOperationException("Restarted idle receiver lost its first wheel message.");
+        input.SetAvailable(false); input.SynchronizeRoutingCheck();
+        if (NativeMethods.IsWindow(restarted) || WindowEventListener.ForegroundWindow != foreground) throw new InvalidOperationException("Restarted receiver leaked or changed foreground.");
     }
     private static void Messages()
     {

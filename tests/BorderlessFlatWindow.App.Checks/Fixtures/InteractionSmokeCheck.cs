@@ -10,8 +10,12 @@ internal static class InteractionSmokeCheck
         var path = Path.Combine(directory, "Synthetic shortcut.lnk");
         using (var channel = new ShortcutCommandChannel(received.Enqueue, name))
         {
-            if (ShortcutCommandChannel.Send(path, name).GetAwaiter().GetResult() != ShortcutDelivery.Delivered || !received.TryDequeue(out var first) || first != path)
-                throw new InvalidOperationException("Own authenticated command channel lost its literal request.");
+            var delivery = ShortcutCommandChannel.Send(path, name).GetAwaiter().GetResult();
+            if (delivery != ShortcutDelivery.Delivered || !received.TryDequeue(out var first) || first != path)
+            {
+                File.WriteAllText(Path.Combine(directory, "shortcut-channel-failure.txt"), $"{delivery}; {channel.Diagnostics}; received={received.Count}");
+                throw new InvalidOperationException($"Own authenticated command channel lost its literal request ({delivery}; diagnostic saved locally).");
+            }
             try { using var collision = new ShortcutCommandChannel(_ => { }, name); throw new Exception("Duplicate first-pipe owner accepted."); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
             if (ShortcutCommandChannel.Send(path + ".txt", name).GetAwaiter().GetResult() != ShortcutDelivery.Unavailable || !received.IsEmpty)

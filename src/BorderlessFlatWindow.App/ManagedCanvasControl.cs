@@ -40,6 +40,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     internal event Action? WallpaperRefreshRequested;
     private readonly System.Windows.Forms.Timer verify = new() { Interval = 40 };
     private readonly System.Windows.Forms.Timer navigationTimer = new() { Interval = 16 };
+    private readonly System.Windows.Forms.Timer inputHealthTimer = new() { Interval = 250 };
+    private readonly System.Windows.Forms.Timer feedbackTimer = new() { Interval = 900 };
     private readonly System.Windows.Forms.Timer launchTimer = new() { Interval = 100 };
     private readonly CanvasLaunchCoordinator launch = new();
     private readonly Label navigationStatus = new() { AutoSize = true, Padding = new(4) };
@@ -183,6 +185,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
         candidates.ItemCheck += OnCandidateItemCheck;
         verify.Tick += (_, _) => VerifyPending();
         navigationTimer.Tick += (_, _) => NavigationFrame();
+        inputHealthTimer.Tick += (_, _) => MaintainInputHealth();
+        feedbackTimer.Tick += (_, _) => UpdateNavigationFeedback();
         launchTimer.Tick += (_, _) => ContinueLaunchStart(globalInput is not null);
         preparationTimer.Tick += (_, _) => PrepareOverviewWhileIdle();
         Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(commandDeck);
@@ -196,6 +200,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         try
         {
             globalInput = new(CreateInputWake(), inputOptions, keyBindings: preferredBindings);
+            inputHealthTimer.Start();
             ConfigurePointerScreens();
             NavigationFrame();
         }
@@ -233,7 +238,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         }
         if (reading || session?.IsBusy == true) { globalInput?.Heartbeat(); return; }
         if (touchInputOverflow) { CloseTouchNavigation(discard: true, refresh: false); Pause("触控输入积压，已暂停并恢复窗口。"); return; }
-        IReadOnlyList<TimedNavigationInput> events = (globalInput?.Drain() ?? []).Concat(touchInputs).ToArray();
+        var runtimeBefore = NavigationRuntimeState();
+        IReadOnlyList<TimedNavigationInput> events = globalInput?.Drain() ?? [];
+        if (touchInputs.Count > 0) events = events.Concat(touchInputs).ToArray();
         touchInputs.Clear();
         if (events.Count != 0) lastCanvasInput = System.Diagnostics.Stopwatch.GetTimestamp();
         navigationState = globalInput?.State;
@@ -269,13 +276,46 @@ internal sealed partial class ManagedCanvasControl : UserControl
         }
         session?.AdvanceCameraTransition(DateTimeOffset.UtcNow);
         gestures?.Tick(DateTimeOffset.UtcNow);
-        if (previousCamera != session?.Workspace.Camera.Position) lastNavigationFeedback = System.Diagnostics.Stopwatch.GetTimestamp();
+        var cameraChanged = previousCamera != session?.Workspace.Camera.Position;
+        if (cameraChanged) lastNavigationFeedback = System.Diagnostics.Stopwatch.GetTimestamp();
+        UpdateNavigationFeedback();
+        if (gestures?.NeedsFrame == true || session?.HasCameraTransition == true) navigationTimer.Start();
+        else navigationTimer.Stop();
+        // Admission, candidate construction, pin targets and overview source lists
+        // follow observations/commands. A camera-only frame does not change them.
+        if (runtimeBefore != NavigationRuntimeState()) RefreshState();
+        else
+        {
+            if (cameraChanged) { RefreshNavigationPresentation(); StatusChanged?.Invoke(); }
+            SchedulePinToggle(); ScheduleOverview(); ScheduleOverviewPreparation();
+        }
+    }
+
+    private (CanvasSessionStatus? Status, string? Message, bool Pending, int Count, Guid? Active, bool Overview) NavigationRuntimeState()
+        => (session?.Status, session?.Message, session?.HasPending == true, session?.ManagedCount ?? 0, session?.ActiveWindowId, HasOverviewWork);
+
+    private void MaintainInputHealth()
+    {
+        if (IsDisposed || Disposing) return;
+        // Independent of the 16ms pump: well below the worker's 1800ms watchdog.
+        // Do not acknowledge a notification here; only Drain consumes it. The
+        // worker retains its own retry and touch-receiver maintenance cadence.
+        globalInput?.Heartbeat();
+        if (globalInput?.HasPendingUiNotification == true && !navigationTimer.Enabled) NavigationFrame();
+    }
+
+    private void UpdateNavigationFeedback()
+    {
         var feedback = session?.IsRunning == true && !HasOverviewWork && touchNavigation is null && navigationState?.Crosshair != true
             && lastNavigationFeedback != 0 && System.Diagnostics.Stopwatch.GetElapsedTime(lastNavigationFeedback).TotalMilliseconds < 900;
-        if (feedback) { hud ??= new(); hud.Present(inputOptions, preferredBindings); } else hud?.Hide();
-        if (feedback || touchNavigation is not null || navigationState?.Active == true || gestures?.HasGesture == true || session?.HasCameraTransition == true) navigationTimer.Start();
-        else navigationTimer.Stop();
-        RefreshState();
+        feedbackTimer.Stop();
+        if (feedback)
+        {
+            hud ??= new(); if (!hud.Visible) hud.Present(inputOptions, preferredBindings);
+            feedbackTimer.Interval = Math.Max(1, (int)Math.Ceiling(900 - System.Diagnostics.Stopwatch.GetElapsedTime(lastNavigationFeedback).TotalMilliseconds));
+            feedbackTimer.Start();
+        }
+        else hud?.Hide();
     }
 
     private IEnumerable<CanvasWindow> OverviewWindows()
@@ -568,7 +608,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         var available = CanCaptureGlobalInput;
         if (globalInput is not null && (inputAvailable != available || globalInput.State.Available != available))
         { inputAvailable = available; globalInput.SetAvailable(available); }
-        if (!running) { navigationTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
+        if (!running) { navigationTimer.Stop(); feedbackTimer.Stop(); hud?.Hide(); gestures?.Cancel(); }
         overview?.UpdateWindows(OverviewWindows(), running, session?.Message ?? "");
         overview?.SetPreviewSources(OverviewPreviewSources());
         candidates.Enabled = !reading && overview is null && !externalRecoveryRunning && !desktopTransitionPending;
@@ -579,18 +619,24 @@ internal sealed partial class ManagedCanvasControl : UserControl
         commandDeck.SetRunning(running && !reading && !desktopTransitionPending && layout is not null);
         selector.Visible = selector.Parent != this;
         if (running && session!.HasPending && !desktopTransitionPending) verify.Start(); else verify.Stop();
-        if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; preview.Invalidate(); }
-        var camera = session?.Workspace.Camera;
-        var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
-        var attention = recoveryAttention ? "待恢复 · 点击“恢复”处理旧会话记录，完成后再开始画布。"
-            : displayFailure ?? notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? environmentWarning ?? preferences.Warning;
-        status.Text = attention ?? (running ? $"画布 {session?.ManagedIds.Count ?? 0} · 便签 {fixedWindows.Count} · 桌面空白处移动视角" : "开始后接管所有可用窗口 · 便签保持独立");
-        status.FitText(attention is null ? 42 : 0);
-        hints.SetToolTip(status, $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}");
+        RefreshNavigationPresentation();
         StatusChanged?.Invoke();
         SchedulePinToggle();
         ScheduleOverview();
         ScheduleOverviewPreparation();
+    }
+    private void RefreshNavigationPresentation()
+    {
+        if (preview is not null) { preview.ActiveWindowId = session?.ActiveWindowId; if (preview.Visible) preview.Invalidate(); }
+        var running = session?.IsRunning == true;
+        var attention = recoveryAttention ? "待恢复 · 点击“恢复”处理旧会话记录，完成后再开始画布。"
+            : displayFailure ?? notice ?? (session?.Status is CanvasSessionStatus.RecoveryRequired or CanvasSessionStatus.Paused ? session.Message : null) ?? environmentWarning ?? preferences.Warning;
+        var text = attention ?? (running ? $"画布 {session?.ManagedCount ?? 0} · 便签 {fixedWindows.Count} · 桌面空白处移动视角" : "开始后接管所有可用窗口 · 便签保持独立");
+        if (status.Text != text) { status.Text = text; status.FitText(attention is null ? 42 : 0); }
+        var camera = session?.Workspace.Camera;
+        var state = session?.Status switch { CanvasSessionStatus.Running => "管理中", CanvasSessionStatus.Paused => "已暂停", CanvasSessionStatus.RecoveryRequired => "待恢复", _ => "未开始" };
+        var hint = $"{state} · 离屏 {session?.ParkedCount ?? 0} · 相机 ({camera?.Position.X:0}, {camera?.Position.Y:0})\n{session?.Message}";
+        if (hints.GetToolTip(status) != hint) hints.SetToolTip(status, hint);
     }
     internal (bool Running, int Count, PointD Camera) Diagnostics() =>
         (session?.IsRunning == true, session?.Workspace.Windows.Count ?? 0, session?.Workspace.Camera.Position ?? PointD.Zero);
@@ -618,7 +664,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { CancelLaunchStart(); launchTimer.Dispose(); }
+        if (disposing) { CancelLaunchStart(); launchTimer.Dispose(); inputHealthTimer.Dispose(); feedbackTimer.Dispose(); }
         if (disposing) { DisposeInputStatus(); CloseTouchNavigation(discard: true, refresh: false); DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }

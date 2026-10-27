@@ -175,19 +175,7 @@ public sealed partial class GlobalNavigationInput : IDisposable
                 else if (message.MessageId == 0xFF && message.Window == rawPointer?.Handle)
                 { ProcessRelativePointer(message.LParam); DispatchMessage(ref message); }
                 else if (message.MessageId == 0x113)
-                {
-                    RetryInputWake();
-                    RefreshTouchReceivers();
-                    TryPendingCrosshair();
-                    CheckRelativeSource();
-                    if (!crosshair && clipOwned) ReleasePointerCapture();
-                    if ((gate.Active || touchEnabled) && InputTime - Volatile.Read(ref heartbeat) > 1800)
-                    {
-                        available = false; Leave("界面响应超时，导航已自动退出。");
-                        Queue(new(NavigationInputKind.Fault, PointD.Zero));
-                    }
-                    else if (GetPointer(out var pointer)) UpdateAutomatic(pointer);
-                }
+                    MaintainInput();
                 else if (message.Window != 0) DispatchMessage(ref message);
             }
         }
@@ -224,6 +212,20 @@ public sealed partial class GlobalNavigationInput : IDisposable
         if (escapeRegistered) ReleaseModeKeys();
         Publish(false, State.Registered, State.Hotkey, State.Registered ? message : State.Message);
         if (active) Queue(new(NavigationInputKind.Exit, PointD.Zero));
+    }
+    private void MaintainInput()
+    {
+        RetryInputWake();
+        RefreshTouchReceivers();
+        TryPendingCrosshair();
+        CheckRelativeSource();
+        if (!crosshair && clipOwned) ReleasePointerCapture();
+        if ((gate.Active || touchEnabled) && InputTime - Volatile.Read(ref heartbeat) > 1800)
+        {
+            available = false; Leave("界面响应超时，导航已自动退出。");
+            Queue(new(NavigationInputKind.Fault, PointD.Zero));
+        }
+        else if (GetPointer(out var pointer)) UpdateAutomatic(pointer);
     }
     private void ReleaseModeKeys()
     {
