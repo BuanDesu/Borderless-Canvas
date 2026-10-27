@@ -97,6 +97,9 @@ public sealed class NavigationGestureSession
     private bool left, right, dragging, directPan;
     private DateTimeOffset? wheelAt;
     public bool HasGesture => origin is not null;
+    // Held contacts/buttons retain the gesture but need no polling until new input.
+    // Wheel gestures still need their quiet-period flush/history boundary.
+    public bool NeedsFrame => pending != PointD.Zero || wheelAt is not null;
     public NavigationInputOptions Options { get; set; } = new();
     public NavigationGestureSession(Func<PointD> camera, Func<PointD, DateTimeOffset, bool> navigate, Action<PointD> recordOrigin)
     { this.camera = camera; this.navigate = navigate; this.recordOrigin = recordOrigin; }

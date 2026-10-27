@@ -32,6 +32,7 @@ internal static class NavigationRoutingChecks
         check("Pointer source handovers rebaseline instead of double-counting or jumping the camera", SourceHandover);
         check("Precision desktop wheel routes both axes and Ctrl-wheel accumulates without leaking or skipping windows", PrecisionWheel);
         check("Delivered input wakes retry after a stopped UI timer without a settings drain or additional input", DeliveredWake);
+        check("Low-frequency UI health preserves idle desktop/touch input while a truly blocked UI still faults", IdleHealth);
         check("A new canvas input session clears an earlier suspension without bypassing Escape in the current session", SessionReentry);
         check("Edge worker accelerates only on fresh outward input and stops on inward movement, location, pause and modifiers", EdgeWorker);
         check("Touch wheel mode routes both axes over applications while taps and complete left drags pass through", TouchWheelMode);
@@ -190,6 +191,25 @@ internal static class NavigationRoutingChecks
         h.Input.SetAvailable(false); h.Input.SetAvailable(true); h.Input.SynchronizeRoutingCheck(); h.Input.Drain();
         Require(h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120), "A fresh session inherited an earlier automatic navigation suspension.");
         Require(h.Input.Drain().Any(item => item.Input.Kind == NavigationInputKind.Wheel), "Fresh session input failed to reach its consumer.");
+    }
+    private static void IdleHealth()
+    {
+        foreach (var touch in new[] { false, true })
+        {
+            using var h = new Harness();
+            if (touch) Require(h.Input.SetTouchNavigation(true), "Touch health fixture failed to enter.");
+            else h.Input.MouseRoutingCheck(0x200, h.Desktop.Pointer);
+            h.Input.Drain();
+            for (var i = 0; i < 16; i++)
+            {
+                h.Input.TimerRoutingCheck(() => { h.Desktop.TickCount += 250; h.Input.Heartbeat(); });
+                Require(h.Input.State.Available && h.Input.State.Active && !h.Input.HasPendingUiNotification, "Idle health timed out or generated repeated UI notifications.");
+            }
+            Require(h.Input.MouseRoutingCheck(0x20A, h.Desktop.Pointer, 120), "First idle wheel was not captured.");
+            Require(h.Input.Drain().Single().Input.Kind == NavigationInputKind.Wheel, "First idle wheel was lost.");
+            h.Input.TimerRoutingCheck(() => h.Desktop.TickCount += 1801);
+            Require(!h.Input.State.Available && !h.Input.State.Active && h.Input.Drain().Any(item => item.Input.Kind == NavigationInputKind.Fault), "Blocked UI did not release capture and fault.");
+        }
     }
     private static void PrecisionWheel()
     {

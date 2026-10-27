@@ -17,7 +17,7 @@ public sealed partial class GlobalNavigationInput
     internal void SampleRoutingCheck(RawPointerSample sample, Action? before = null)
         => RoutingCheck(() => { before?.Invoke(); ProcessPointerSample(sample); return true; });
     internal void TimerRoutingCheck(Action? before = null)
-        => RoutingCheck(() => { before?.Invoke(); RetryInputWake(); RefreshTouchReceivers(); TryPendingCrosshair(); CheckRelativeSource(); return true; });
+        => RoutingCheck(() => { before?.Invoke(); MaintainInput(); return true; });
     internal void TouchWheelMessageRoutingCheck(uint message, int delta, bool shift = false, bool control = false)
         => RoutingCheck(() => { ReceiveTouchWheel(message, unchecked((nuint)((delta << 16) | (shift ? 4 : 0) | (control ? 8 : 0)))); return true; });
     internal nint CreateHiddenTouchReceiverForCheck() => RoutingCheck(() =>

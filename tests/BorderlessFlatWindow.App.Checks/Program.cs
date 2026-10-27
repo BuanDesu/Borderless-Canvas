@@ -12,6 +12,18 @@ internal static class Program
             System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
         using var pixelFont = new PixelFont();
+        var scheduling = Array.IndexOf(args, "--navigation-check");
+        if (scheduling >= 0)
+        {
+            if (scheduling + 1 >= args.Length) return 1;
+            MainForm.CheckNavigationScheduling(Path.GetFullPath(args[scheduling + 1])); return 0;
+        }
+        var performance = Array.IndexOf(args, "--navigation-performance");
+        if (performance >= 0)
+        {
+            if (performance + 1 >= args.Length) return 1;
+            MainForm.MeasureNavigationPerformance(Path.GetFullPath(args[performance + 1])); return 0;
+        }
         var interactionCheck = Array.IndexOf(args, "--interaction-check");
         if (interactionCheck >= 0)
         {
@@ -88,6 +100,7 @@ internal static class Program
             }
             var fixture = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-smoke", Guid.NewGuid().ToString("N")));
             Directory.CreateDirectory(fixture);
+            MainForm.CheckNavigationScheduling(Path.Combine(fixture, "navigation"));
             InteractionSmokeCheck.Run(fixture);
             bookmarkPath = Path.Combine(fixture, "bookmarks.json");
             journalPath = Path.Combine(fixture, "recovery.json");

@@ -219,6 +219,10 @@ internal sealed partial class MainForm : Form
             foreach (var transition in pageTransitions) transition.Finished += ApplyDeferredPalette;
         }
         if (!showWithoutActivation) ConfigurePopup(intro);
+        windowList.VisibleChanged += (_, _) => RenderSnapshot();
+        livePreview.VisibleChanged += (_, _) => PresentLiveMap();
+        VisibleChanged += (_, _) => PresentDiagnostics();
+        Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) PresentDiagnostics(); };
         UpdateCameraStatus();
         displays.RefreshDisplays();
         recovery.RefreshJournal();
@@ -325,10 +329,20 @@ internal sealed partial class MainForm : Form
     {
         if (snapshot is null) return;
         management.Observe(snapshot, WindowEventListener.ForegroundWindow);
+        liveMapDirty = true;
+        PresentLiveMap();
+    }
+
+    private bool liveMapDirty;
+    private void PresentDiagnostics() { PresentLiveMap(); RenderSnapshot(); }
+    private void PresentLiveMap()
+    {
+        if (!liveMapDirty || snapshot is null || !livePreview.Visible || WindowState == FormWindowState.Minimized) return;
         spatial.Synchronize(snapshot, WindowEventListener.ForegroundWindow, DateTimeOffset.UtcNow);
         livePreview.ActiveWindowId = spatial.ActiveWindowId;
         livePreview.Invalidate();
         liveStatus.Text = $"真实窗口 {liveWorkspace.Windows.Count} · {(listener?.IsRunning == true ? "WinEvent 实时监听" : "手动快照")} · {snapshot.CapturedAt.ToLocalTime():HH:mm:ss}\n点击只改变地图视角；窗口相对位置保持。金框标记前台窗口，适配按钮可找回范围外的窗口。";
+        liveMapDirty = false;
     }
 
     protected override void Dispose(bool disposing)
@@ -360,9 +374,13 @@ internal sealed partial class MainForm : Form
         if (management is not null && IsHandleCreated && !IsDisposed) HandleDesktopMessage(ref message);
     }
 
+    private IReadOnlyList<InspectedWindow>? presentedCatalogEntries;
+    private bool presentedExcluded;
     private void RenderSnapshot()
     {
-        if (snapshot is null) return;
+        if (snapshot is null || !windowList.Visible || WindowState == FormWindowState.Minimized) return;
+        catalogSummary.Text = $"可纳入 {snapshot.Entries.Count(entry => entry.Admission.IsAdmitted)} / 扫描 {snapshot.Entries.Count} · {snapshot.CapturedAt.ToLocalTime():HH:mm:ss}";
+        if (presentedCatalogEntries is not null && presentedExcluded == showExcluded.Checked && presentedCatalogEntries.SequenceEqual(snapshot.Entries)) return;
         var selected = windowList.SelectedItems.Count == 0 ? null : windowList.SelectedItems[0].Tag as Guid?;
         windowList.BeginUpdate();
         try
@@ -383,7 +401,8 @@ internal sealed partial class MainForm : Form
                 item.Selected = entry.Id is not null && entry.Id == selected;
                 windowList.Items.Add(item);
             }
-            catalogSummary.Text = $"可纳入 {snapshot.AdmittedWindows.Count} / 扫描 {snapshot.Entries.Count} · {snapshot.CapturedAt.ToLocalTime():HH:mm:ss}";
+            presentedCatalogEntries = snapshot.Entries;
+            presentedExcluded = showExcluded.Checked;
         }
         finally
         {

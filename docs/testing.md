@@ -27,3 +27,5 @@ dotnet run --project tools/BorderlessFlatWindow.Lab -c Release -- overview artif
 ```
 
 实验输出只留在忽略目录。正式 App 遇到旧检查/实验参数会在初始化桌面接管前拒绝，不会误启动画布。包验证使用的 `--runtime-check` 只预热运行时与呈现依赖，不建立管理会话或输入钩子。
+
+导航空闲和隐藏诊断的可重复测量使用 `./scripts/measure-navigation.ps1 -Label <新标签>`，输出仅保存在 `.local/performance/`；具体范围、前后结果及沙箱命名管道限制见[导航性能记录](navigation-performance.md)。单独运行新增调度回归可使用 App.Checks 的 `--navigation-check artifacts/navigation-check`；它仍属于完整 Ui 层的一部分。

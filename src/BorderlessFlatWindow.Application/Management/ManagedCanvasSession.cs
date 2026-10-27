@@ -54,6 +54,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
     public IReadOnlyList<nint> PendingHandles => managed.Values.Where(window => window.Deadline is not null).Select(window => window.Identity.Handle).ToArray();
     public IReadOnlyList<nint> ManagedHandles => managed.Values.Select(window => window.Identity.Handle).ToArray();
     public IReadOnlyList<Guid> ManagedIds => managed.Keys.ToArray();
+    public int ManagedCount => managed.Count;
     public int ParkedCount => managed.Values.Count(window => window.Parked);
     public bool NavigationSuspended { get; private set; }
     public void SuspendNavigation(bool suspended) { NavigationSuspended = suspended; if (suspended) { activation = null; CancelCameraTransition(); } }
