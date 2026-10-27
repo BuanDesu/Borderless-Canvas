@@ -33,3 +33,9 @@ GitHub [提交邮箱说明](https://docs.github.com/en/account-and-profile/how-t
 4. 通过复核后按所有者授权公开仓库，同步当前说明及维护规则，并验证匿名访问可见性。
 
 备份、旧新提交映射、输入报告、设置、恢复日志、真实桌面画面和试用产物保留在忽略目录。用户关闭邮箱展示的操作不要求提供账户截图或邮箱原文。
+
+## 2026-10-27 维护复核：main 保护限制
+
+在 `7990cc6` 基线上只读复核：仓库为 private，当前访问权限为 admin；branches API 返回 main 的 `protected:false`。branch protection 与 rulesets API 均明确返回 HTTP 403，提示当前私有仓库套餐不支持该功能。这是平台强制保护的独立 P2，未因部署文档修复而解决，也不能表述为已配置必需检查。
+
+当前继续按 `AGENTS.md` 执行精确 PR head、两项 CI（`check` 与 `Hidden UI and scene checks`）成功、仓库私有状态、noreply 元数据及推送前完整可达祖先隐私检查；这些流程约束不等于平台强制规则。是否购买支持该功能的套餐，以及届时如何要求 CI、禁止 force push/删除与约束直接推送，待所有者决定并核对对现有合并流程的影响。本次没有改变套餐、计费、保护设置或仓库可见性。旧平台隐私副本仍由 #72 跟踪。

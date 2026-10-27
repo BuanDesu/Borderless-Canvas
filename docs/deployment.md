@@ -27,6 +27,8 @@
 
 全部解压到一个新文件夹，双击 `Start.cmd`。`Start-NativeOverview.cmd` 明确启用原生总览，`Start-FormOverview.cmd` 回退窗体总览，`Probe.cmd` 打开测试窗口；相同入口兼容两种目录布局。也可直接运行对应 EXE；启动器不安装依赖、不修改系统环境变量或保存启动日志。
 
+正常启动（包括更新后首次启动）时，设置读取有效且显示、事件监听和输入就绪后，画布会自动开始，纳入符合条件的普通窗口；没有窗口或窗口全部最小化时也可保持运行。旧会话待恢复、设置损坏或显示/监听/输入初始化失败时不会自动开始，应先按界面提示处理。本次运行中明确暂停后，或锁屏、睡眠、显示变化等系统切换保护导致暂停后，程序不会自行恢复接管；确认环境正常后手动点击“开始”。
+
 ## 启动与恢复错误
 
 启动入口使用系统自带 Windows PowerShell。它先检查 EXE/配置是否存在，再调用程序自身的 .NET apphost；不通过注册表或 PATH 猜测运行时是否兼容。仅对子进程设置[关闭 apphost 依赖错误弹框](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-environment-variables#dotnet_disable_gui_errors)，使缺失依赖以退出码和提示显示；不改变应用的异常处理。
@@ -44,7 +46,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./Launch.ps1 -Mode Recov
 
 ## 更新与移除
 
-先在旧版暂停并恢复，再从托盘退出，待原实例结束后把新版解压到不同目录并启动。不要覆盖运行中的文件。设置、工作区和恢复记录仍位于 `%LOCALAPPDATA%\BorderlessFlatWindow`，新包不会包含这些数据；更新不自动开始接管。
+先在旧版暂停并恢复窗口，再从托盘退出。确认原实例已经结束后，把新版 ZIP 完整解压到一个不同的新目录，再运行新版 `Start.cmd`；不要覆盖运行中的文件。新版正常启动仍会按上述规则自动开始画布，旧版退出前的暂停不代表新版默认暂停。设置、工作区和恢复记录仍位于 `%LOCALAPPDATA%\BorderlessFlatWindow`，新包不会包含这些数据；若提示旧会话待恢复，应先完成恢复。
 
 软件快捷方式入口仅位于 `HKCU\Software\Classes\lnkfile\shell\BorderlessFlatWindow.Sticky`，带应用所有权标记，不修改默认关联。升级时新目录中的程序会更新入口路径。移除前先关闭该入口选项，再完成恢复和退出，通过文件资源管理器删除应用目录。若已删除旧目录，可用有效包关闭该选项以移除残留入口；没有服务需要卸载，详情见[便签说明](https://github.com/BuanDesu/Borderless-Flat-Window/blob/main/docs/pointer-and-sticky.md)。
 
