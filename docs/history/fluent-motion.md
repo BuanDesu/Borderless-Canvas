@@ -2,7 +2,7 @@
 
 > 历史记录：保留当时的实现与验证过程。当前规则以[架构](../architecture.md)、[检查分层](../testing.md)和[验收清单](../release-v1-readiness.md)为准。
 
-跟踪 [Issue #37](https://github.com/BuanDesu/Borderless-Flat-Window/issues/37)。用户已确认 #35 的按钮边缘、字体完整性、真实工作区内容与离屏预览；本轮继续处理过渡卡顿和布局质感。
+用户已确认 后续验收 的按钮边缘、字体完整性、真实工作区内容与离屏预览；本轮继续处理过渡卡顿和布局质感。
 
 ## 参考与取舍
 

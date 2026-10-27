@@ -92,6 +92,4 @@ cd Borderless-Canvas
 
 项目代码与原创素材采用 [MIT 许可证](LICENSE)。第三方字体与运行时保留各自的许可证，见[第三方许可](THIRD-PARTY-NOTICES.md)。
 
-本仓库经所有者授权作为公开源码仓库维护，未迁移旧仓库的 Issues、PR 或发行资产。旧私有仓库的历史引用与缓存问题仍单独跟踪，见[迁移与公开复核](docs/repository-publication-review.md)；公开源码不表示正式版验收已完成。
-
 </details>

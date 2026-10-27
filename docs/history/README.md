@@ -4,7 +4,7 @@
 
 - [早期架构快照](architecture-2026-10-19.md)
 - [原型计划](prototype-plan.md)、[原型审计](prototype-audit.md)、[早期试用验证](trial-validation.md)
-- [合并记录](integration-history.md)、[交互改进](interaction-refresh.md)
+- [功能集成与验证](integration-history.md)、[交互改进](interaction-refresh.md)
 - [糖果设计](candy-glass-design.md)、[控制台与取色](console-and-wallpaper.md)
 - [合成过渡](overview-compositor.md)、[Fluent 过渡](fluent-motion.md)、[反向响应](responsive-transitions.md)、[保留视图](retained-overview.md)
 - [读回验证](capture-readback.md)、[原生表面实验](live-overview-surface.md)、[历史负载样本](overview-load-baseline.md)

@@ -33,7 +33,7 @@
 
 最终交付目录使用 `artifacts/trial/BorderlessFlatWindow-trial-20261019-accepted`，ZIP 同名。`manifest.json` 记录实际提交、源码修改状态和 25 项载荷 SHA-256。最终构建和目录/解压 ZIP 核对报告在 ignored `artifacts/trial-accepted-package.log`、`artifacts/trial-accepted-verification.json`。SDK 会把提交写入程序集版本，因此不同文档提交生成的二进制哈希可不同，不能仅凭哈希差异判断程序源码改变。
 
-程序和恢复 EXE 已从产物直接运行；最终打包仍从提交源码执行 Release、模型/文件、UI 渲染和原生检查。数据位于 LocalAppData，不依赖仓库；需要 .NET 10 Windows Desktop Runtime x64，不需要 SDK 或 WSL。PR 尚待审查/合并，不影响本地可启动产物，任务 TODO 仍遵守各自合并后勾选规则。
+程序和恢复 EXE 已从产物直接运行；最终打包仍从提交源码执行 Release、模型/文件、UI 渲染和原生检查。数据位于 LocalAppData，不依赖仓库；需要 .NET 10 Windows Desktop Runtime x64，不需要 SDK 或 WSL。本地可启动产物不替代完整交付条件，任务状态仍按对应验收范围记录。
 
 ## 保留的范围与风险
 

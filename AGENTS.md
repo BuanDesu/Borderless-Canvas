@@ -1,6 +1,6 @@
 # Repository work rules
 
-- This repository is authorized for public source publication. Do not upload desktop images, wallpaper, real window identities, input reports, settings, recovery journals, credentials or local profile paths. Keep local diagnostics and trial outputs in the ignored `.local/` and `artifacts/` directories.
+- Keep repository content suitable for public source distribution. Do not upload desktop images, wallpaper, real window identities, input reports, settings, recovery journals, credentials or local profile paths. Keep local diagnostics and trial outputs in the ignored `.local/` and `artifacts/` directories.
 - Stage named files only. Do not read, modify, stage, move or delete unrelated untracked files.
 - Every new commit's author and committer must use a GitHub `noreply` email. Check repository-local Git identity before committing; never print a personal email while checking it.
 - Merging also creates author metadata. After verifying the exact PR head, successful CI, the intended repository identity and its authorized visibility, use `gh pr merge --merge --author-email <GitHub-noreply-email> --match-head-commit <verified-head>`. If GitHub rejects that privacy address, create a local `--no-ff` merge with explicit noreply author/committer identities after rechecking the exact remote base/head, then push normally without force. Never fall back to an interface that silently selects a personal email. Verify the resulting merge metadata, source tree and PR merged state.
