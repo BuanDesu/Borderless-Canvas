@@ -1,5 +1,7 @@
 # TODO
 
+2026-10-28：所有者授权将独立迁移并验收的新仓库命名为 Borderless Canvas 并公开源码；旧私有仓库的平台副本问题不因此关闭，见[迁移与公开复核](docs/repository-publication-review.md)。
+
 工程结构整理（2026-10-26）：
 
 - [x] 提取平台无关的启动、交互资格与触控进入代号，纳入默认模型回归。
@@ -11,7 +13,9 @@
 
 设计与验证边界见 [ADR 0003](docs/adr/0003-isolated-ui-validation.md) 和[检查分层](docs/testing.md)。完整设备/应用、长期性能和正式版条件继续按 T11–T13 跟踪。
 
-[GitHub 私有仓库](https://github.com/BuanDesu/Borderless-Flat-Window) · [全部 Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) · [里程碑](https://github.com/BuanDesu/Borderless-Flat-Window/milestones)
+[当前源码仓库](https://github.com/BuanDesu/Borderless-Canvas) · [当前问题反馈](https://github.com/BuanDesu/Borderless-Canvas/issues)
+
+下文带编号的 Issue/PR 链接来自旧私有仓库的开发记录，未迁移到本仓库，访客可能无法访问；保留它们仅用于历史追溯。当前功能缺口仍可按 T11–T13 和本文描述阅读，不要求访问旧工单。
 
 当前状态：首个原型的 T01–T10 与 FR-02 功能 PR 已按授权合并，[提交记录](docs/history/integration-history.md)可追踪。新版加入自动导航、工作区总览、同 DPI 多屏与托盘；验证范围和待人工项目见[反馈改进](docs/history/interaction-refresh.md)。T11–T13 的完整兼容、性能与发布条件尚未完成。
 
@@ -158,7 +162,7 @@ T13 配置进展：
 - [x] 经明确批准、备份与逐提交预览验证，清理 main 可达历史中 49 个合并作者身份及关联的 49 条旧 Actions 记录；重新克隆核验及精确提交 CI 通过。
 - [x] 经明确批准，删除 50 个已完全合并的旧远程分支并开启合并后自动清理；保留 main 和完整离线备份。
 - [ ] #72 平台只读 PR 引用与旧提交/缓存仍存在，需所有者向 GitHub 申请处理或记录平台限制；申请草稿仅本地保存，不能宣称完全擦除。
-- [ ] 2026-10-26 所有者选择先由平台清理旧引用，复核后再公开；当前保持私有，见[公开前复核](docs/repository-publication-review.md)。没有未合并 PR 或失败 CI；#11/#12/#13 保留实际开发和正式版验收缺口。
+- [ ] 2026-10-26 所有者曾选择先由平台清理旧引用再公开旧仓库；该旧仓库仍保持私有，见[公开前复核](docs/repository-publication-review.md)。没有未合并 PR 或失败 CI；#11/#12/#13 保留实际开发和正式版验收缺口。
 - [x] 所有者确认后已通过 GitHub 官方支持提交旧引用与缓存清理申请，核验工单正文与 Open 状态；平台处理和公开前复核继续由 #72 跟踪，提交申请不等于已清理。
 
 2026-10-25 触控板双指右键交接：

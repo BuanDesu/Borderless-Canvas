@@ -1,5 +1,8 @@
 param([Parameter(Mandatory)][string]$Directory, [switch]$Publish)
 $ErrorActionPreference = 'Stop'
+# Retained legacy implementation below targets the previous private repository.
+# Stop before reading packages, creating files, contacting GitHub or publishing tags.
+throw 'The legacy private-repository publisher is disabled in Borderless Canvas. Build packages locally with scripts/package-trial.ps1; public release publishing requires a separately reviewed workflow.'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $package = [IO.Path]::GetFullPath($Directory)
 $archive = "$package.zip"

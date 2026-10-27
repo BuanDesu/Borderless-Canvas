@@ -1,16 +1,21 @@
-# Borderless Flat Window
+# Borderless Canvas
 
 把 Windows 窗口放在一张可以上下左右移动的“大桌面”上。窗口太多时，移动视角找位置；想找某个窗口时，打开总览直接选择。
 
 桌面背景和任务栏保持不动，软件窗口保持原来的大小。
 
-## 下载和启动
+## 获取源码与本地运行
 
-1. 打开 **[下载页面 · Releases](https://github.com/BuanDesu/Borderless-Flat-Window/releases)**，选择便携试用版。
-2. 展开 **Assets（资源）**，下载 `BorderlessFlatWindow-win-x64-portable.zip`。`Source code` 是源码，不能直接当软件运行。
-3. 把 ZIP **完整解压**到一个新文件夹，双击里面的 **`Start.cmd`**。
+本仓库目前提供源码，尚未发布可下载的 Release 或便携包。请在 Windows x64 上安装 .NET 10 SDK，然后运行：
 
-目前提供 Windows x64 便携试用版，已带运行环境，无需另外安装 .NET。请保留解压出来的文件在一起。多显示器使用前，请把各屏的 Windows 缩放比例设为相同。
+```powershell
+git clone https://github.com/BuanDesu/Borderless-Canvas.git
+cd Borderless-Canvas
+.\scripts\build.ps1
+.\scripts\run.ps1
+```
+
+需要自行制作便携包时，参见[部署说明](docs/deployment.md)。下文的 `Start.cmd`、`Recover.cmd` 等入口适用于自行构建并完整解压的包。多显示器使用前，请把各屏的 Windows 缩放比例设为相同。
 
 ## 第一次使用
 
@@ -69,7 +74,7 @@
 
 **怎样更新？** 先在旧版暂停并恢复窗口，再从托盘退出。确认原实例结束后，把新版完整解压到另一个新文件夹并启动，避免覆盖正在运行的文件。新版正常启动仍会自动开始画布，旧版退出前的暂停不代表新版默认暂停；保护边界见[部署说明](docs/deployment.md)。
 
-目前是试用版，混合缩放比例多屏、更多特殊窗口和长期性能仍在完善。完整说明见[使用与恢复指南](docs/trial-guide.zh-CN.md)，问题可在 [Issues](https://github.com/BuanDesu/Borderless-Flat-Window/issues) 反馈；请先去掉窗口标题、个人路径和账号等私密信息。
+目前是试用版，混合缩放比例多屏、更多特殊窗口和长期性能仍在完善。完整说明见[使用与恢复指南](docs/trial-guide.zh-CN.md)，问题可在 [Issues](https://github.com/BuanDesu/Borderless-Canvas/issues) 反馈；请先去掉窗口标题、个人路径和账号等私密信息。
 
 <details>
 <summary>开发、许可和项目记录</summary>
@@ -87,6 +92,6 @@
 
 项目代码与原创素材采用 [MIT 许可证](LICENSE)。第三方字体与运行时保留各自的许可证，见[第三方许可](THIRD-PARTY-NOTICES.md)。
 
-仓库当前保持私有；旧引用的隐私清理进展由 [#72](https://github.com/BuanDesu/Borderless-Flat-Window/issues/72) 跟踪，见[公开前复核](docs/repository-publication-review.md)。
+本仓库经所有者授权作为公开源码仓库维护，未迁移旧仓库的 Issues、PR 或发行资产。旧私有仓库的历史引用与缓存问题仍单独跟踪，见[迁移与公开复核](docs/repository-publication-review.md)；公开源码不表示正式版验收已完成。
 
 </details>

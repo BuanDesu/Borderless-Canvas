@@ -1,12 +1,12 @@
 # 便携部署、启动与移除
 
-当前仍为 Windows x64 私有内部试用。无需安装服务、开机启动或管理员权限。正常启动默认注册当前用户的软件 `.lnk` 右键便签入口，可在“更多 → 软件快捷方式右键入口”关闭并移除。应用依旧使用本机用户数据目录；“便携”指运行时随包携带，不表示把隐私数据写进程序目录。
+本仓库提供 Windows x64 试验阶段的源码，尚无公开 Release 或便携包；可按 [README](../README.md#获取源码与本地运行) 构建运行，或按本文自行打包。无需安装服务、开机启动或管理员权限。正常启动默认注册当前用户的软件 `.lnk` 右键便签入口，可在“更多 → 软件快捷方式右键入口”关闭并移除。应用依旧使用本机用户数据目录；“便携”指运行时随包携带，不表示把隐私数据写进程序目录。
 
 版本由根目录 `Version.props` 提供。程序集、包名、`VERSION.txt` 和 manifest 的 `applicationVersion` 使用同一预发行版本，运行信息保留提交 SHA。用户包仅包含使用、部署、兼容与许可材料；UI 检查与 Lab 工具不随包发布。清单升级为 schemaVersion 2 并要求版本字段，旧 schemaVersion 1 包应使用对应标签的校验脚本。
 
 ## 两种包
 
-从已合并的干净 main 打包并完成精确提交 CI 后，可执行 `./scripts/publish-preview.ps1 -Directory <便携目录>` 创建带附件的草稿；显式加 `-Publish` 才发布为预发行版。入口要求仓库保持私有、来源/版本/标签一致、完整便携/原生检查标志，使用 noreply 标签身份，核验两个远端附件的大小和 SHA-256；不会覆盖现有不同附件。支持中断后读取现状再继续，不自动重试覆盖或删除。上传文件名保持 README 中的新手下载名称，版本由 Releases 标签和包内 VERSION/manifest 区分。
+以下命令用于在本地生成并检查试用包，不会创建 Release 或上传附件。旧 `scripts/publish-preview.ps1` 固定面向旧私有仓库，在本公开源码副本中已禁用；它不是本仓库的发布入口。公开二进制发布流程和正式版验收需要另行准备，旧标签也不代表本仓库有对应发行附件。
 
 | 模式 | 目标机器需要什么 | manifest |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./Launch.ps1 -Mode Recov
 
 先在旧版暂停并恢复窗口，再从托盘退出。确认原实例已经结束后，把新版 ZIP 完整解压到一个不同的新目录，再运行新版 `Start.cmd`；不要覆盖运行中的文件。新版正常启动仍会按上述规则自动开始画布，旧版退出前的暂停不代表新版默认暂停。设置、工作区和恢复记录仍位于 `%LOCALAPPDATA%\BorderlessFlatWindow`，新包不会包含这些数据；若提示旧会话待恢复，应先完成恢复。
 
-软件快捷方式入口仅位于 `HKCU\Software\Classes\lnkfile\shell\BorderlessFlatWindow.Sticky`，带应用所有权标记，不修改默认关联。升级时新目录中的程序会更新入口路径。移除前先关闭该入口选项，再完成恢复和退出，通过文件资源管理器删除应用目录。若已删除旧目录，可用有效包关闭该选项以移除残留入口；没有服务需要卸载，详情见[便签说明](https://github.com/BuanDesu/Borderless-Flat-Window/blob/main/docs/pointer-and-sticky.md)。
+软件快捷方式入口仅位于 `HKCU\Software\Classes\lnkfile\shell\BorderlessFlatWindow.Sticky`，带应用所有权标记，不修改默认关联。升级时新目录中的程序会更新入口路径。移除前先关闭该入口选项，再完成恢复和退出，通过文件资源管理器删除应用目录。若已删除旧目录，可用有效包关闭该选项以移除残留入口；没有服务需要卸载，详情见[便签说明](pointer-and-sticky.md)。
 
 默认保留用户数据。若也要清理数据，先检查 `pending: 0`，按需备份工作区和设置，再由用户处理对应目录；待恢复或损坏而尚未处理的日志不作为缓存清除。这里没有自动删除或卸载脚本。
 
