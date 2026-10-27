@@ -39,6 +39,7 @@ foreach ($entry in $manifest.files) {
     $path = Resolve-PayloadPath $entry.name
     if (!$names.Add($entry.name.Replace('\', '/')) -or $entry.name -eq 'manifest.json' -or $entry.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
         $entry.bytes -isnot [long] -and $entry.bytes -isnot [int] -or $entry.bytes -lt 0) { throw 'Invalid/duplicate payload metadata.' }
+    if ([IO.Path]::GetFileName($path) -eq 'AGENTS.md' -or $entry.name -match '(^|[/\\])(\.git|\.agents|\.codex|\.local|artifacts)([/\\]|$)') { throw 'Local collaboration and runtime materials must not be distributed.' }
     if ([IO.Path]::GetFileName($path) -match '^(settings|recovery|bookmarks)\.json$' -or [IO.Path]::GetExtension($path) -eq '.pdb') { throw 'Runtime user data or debug symbols must not be distributed.' }
     if ([IO.Path]::GetFileName($path) -match '^BorderlessFlatWindow\..*(Checks|Lab)\.' ) { throw 'Verification harnesses and laboratories must not be distributed.' }
     if (!(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -ne $entry.bytes -or

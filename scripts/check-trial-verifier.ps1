@@ -37,7 +37,7 @@ Save-CheckManifest $baseline
 $zipPath = "$baseline.zip"; Compress-Archive -LiteralPath $baseline -DestinationPath $zipPath
 Verify $baseline $zipPath | Out-Null
 $caseNumber = 0
-foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'harness', 'missing-version', 'source-metadata', 'schema-metadata', 'boolean-metadata', 'missing-notice', 'missing-project-license', 'duplicate', 'escape', 'dirty', 'runtime-mismatch')) {
+foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'agent-rules', 'harness', 'missing-version', 'source-metadata', 'schema-metadata', 'boolean-metadata', 'missing-notice', 'missing-project-license', 'duplicate', 'escape', 'dirty', 'runtime-mismatch')) {
     $caseNumber++; $directory = Join-Path $checkRoot "case-$caseNumber"
     Copy-Item -LiteralPath $baseline -Destination $directory -Recurse
     $manifestPath = Join-Path $directory 'manifest.json'
@@ -47,6 +47,7 @@ foreach ($kind in @('hash', 'extra', 'missing', 'pdb', 'userdata', 'harness', 'm
         'missing' { Rename-Item -LiteralPath (Join-Path $directory 'BorderlessFlatWindow.App.dll') -NewName 'missing.bin' }
         'pdb' { [IO.File]::WriteAllText((Join-Path $directory 'private.pdb'), 'symbols'); Save-CheckManifest $directory }
         'userdata' { [IO.File]::WriteAllText((Join-Path $directory 'settings.json'), '{}'); Save-CheckManifest $directory }
+        'agent-rules' { [IO.File]::WriteAllText((Join-Path $directory 'AGENTS.md'), 'Synthetic local collaboration fixture'); Save-CheckManifest $directory }
         'harness' { [IO.File]::WriteAllText((Join-Path $directory 'BorderlessFlatWindow.App.Checks.dll'), 'Synthetic fixture'); Save-CheckManifest $directory }
         'missing-version' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.applicationVersion = ''; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }
         'source-metadata' { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json; $manifest.sourceRevision = 'invalid'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath }

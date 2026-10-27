@@ -4,9 +4,17 @@
 
 桌面背景和任务栏保持不动，软件窗口保持原来的大小。
 
+## 下载和启动
+
+1. 打开 [Windows x64 便携试用版下载页](https://github.com/BuanDesu/Borderless-Canvas/releases/tag/v0.1.0-preview.5)，下载 **`BorderlessCanvas-0.1.0-preview.5-win-x64-portable.zip`** 和同名 `.sha256` 校验文件。
+2. 将 ZIP 完整解压到一个新文件夹，双击 **`Start.cmd`**。包内已带 .NET 运行环境，无需安装 SDK 或 .NET。
+3. 保留所有文件在一起。`Source code` 归档是开发源码，不能代替便携程序。
+
+这是预发行试用版；特殊窗口、多设备、混合 DPI 和长期性能仍有验收限制，详见[兼容说明](docs/compatibility.md)。
+
 ## 获取源码与本地运行
 
-本仓库目前提供源码，尚未发布可下载的 Release 或便携包。请在 Windows x64 上安装 .NET 10 SDK，然后运行：
+开发或自行构建时，请在 Windows x64 上安装 .NET 10 SDK，然后运行：
 
 ```powershell
 git clone https://github.com/BuanDesu/Borderless-Canvas.git
@@ -15,7 +23,7 @@ cd Borderless-Canvas
 .\scripts\run.ps1
 ```
 
-需要自行制作便携包时，参见[部署说明](docs/deployment.md)。下文的 `Start.cmd`、`Recover.cmd` 等入口适用于自行构建并完整解压的包。多显示器使用前，请把各屏的 Windows 缩放比例设为相同。
+需要自行制作便携包时，参见[部署说明](docs/deployment.md)。下文的 `Start.cmd`、`Recover.cmd` 等入口适用于完整解压的便携包。多显示器使用前，请把各屏的 Windows 缩放比例设为相同。
 
 ## 第一次使用
 

@@ -14,3 +14,6 @@ artifacts/
 *.pem
 *.pfx
 *.p12
+AGENTS.md
+.agents/
+.codex/
