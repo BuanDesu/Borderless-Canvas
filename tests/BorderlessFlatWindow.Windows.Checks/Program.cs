@@ -8,6 +8,17 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--workspace-restart-child")
+        {
+            ApplicationConfiguration.Initialize();
+            return WorkspaceNativeChecks.RestartChild(Path.GetFullPath(args[1]));
+        }
+        var workspace = Array.IndexOf(args, "--workspace-only");
+        if (workspace >= 0)
+        {
+            ApplicationConfiguration.Initialize();
+            return workspace + 1 < args.Length ? WorkspaceNativeChecks.Run(Path.GetFullPath(args[workspace + 1])) : 2;
+        }
         if (args.Contains("--input-routing-only", StringComparer.Ordinal)) return NavigationRoutingChecks.RunStandalone();
         if (args.Contains("--capture-fixture", StringComparer.Ordinal)) return RecoveryChecks.CaptureFixture(args);
         if (args.Contains("--serve-management-fixtures", StringComparer.Ordinal)) return ManagedCanvasChecks.Serve();

@@ -16,7 +16,7 @@ internal sealed partial class ManagedCanvasControl
     private long lastCanvasInput;
 
     private bool CanPrepareOverview => !preparationDisposed && !IsDisposed && !Disposing && IsHandleCreated && !reading && !editingArrangement && !editingSettings && !panelActionPending && !desktopTransitionPending
-        && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null && touchNavigation is null
+        && !WorkspaceRestoring && !workspaceStarting && !workspaceOperation && !preparingOverviewHost && !overviewRequested && !openingOverview && overview is null && touchNavigation is null
         && session is { IsRunning: true, IsBusy: false, HasPending: false } && layout?.SupportsCanvas == true
         && gestures?.HasGesture != true && !moreMenu.Visible
         && FindForm() is MainForm { AllowsOverviewPreparation: true } host
@@ -31,12 +31,13 @@ internal sealed partial class ManagedCanvasControl
     {
         var display = new DisplayLayout(snapshot.Monitors); var area = display.Primary.WorkArea;
         var viewports = snapshot.Monitors.Select(m => new RectD(snapshot.Camera.Position + m.WorkArea.Position - display.CanvasWorkArea.Position, m.WorkArea.Size)).ToArray();
-        if (OverviewRuntimeOptions.UseNative)
-            return new NativeOverviewPresenter(snapshot.Windows, snapshot.Camera, area, bookmarks, viewports, snapshot.Animate, snapshot.ShowInTaskbar);
-        return new FormOverviewPresenter(new(snapshot.Windows, snapshot.Camera, new(area.Left, area.Top, area.Width, area.Height),
+        IOverviewPresenter result = OverviewRuntimeOptions.UseNative
+            ? new NativeOverviewPresenter(snapshot.Windows, snapshot.Camera, area, bookmarks, viewports, snapshot.Animate, snapshot.ShowInTaskbar)
+            : new FormOverviewPresenter(new(snapshot.Windows, snapshot.Camera, new(area.Left, area.Top, area.Width, area.Height),
             bookmarks: bookmarks, viewports: snapshot.Monitors.Select(m => new RectD(
                 snapshot.Camera.Position + m.WorkArea.Position - display.CanvasWorkArea.Position, m.WorkArea.Size)),
             animate: snapshot.Animate) { ShowInTaskbar = snapshot.ShowInTaskbar });
+        result.SetWorkspaceActions(WorkspaceCommands()); return result;
     }
 
     private void ScheduleOverviewPreparation()

@@ -41,7 +41,7 @@ foreach ($entry in $manifest.files) {
         $entry.bytes -isnot [long] -and $entry.bytes -isnot [int] -or $entry.bytes -lt 0) { throw 'Invalid/duplicate payload metadata.' }
     if ([IO.Path]::GetFileName($path) -eq 'AGENTS.md' -or $entry.name -match '(^|[/\\])(\.git|\.agents|\.codex|\.local|artifacts)([/\\]|$)') { throw 'Local collaboration and runtime materials must not be distributed.' }
     if ([IO.Path]::GetFileName($path) -match '^(settings|recovery|bookmarks)\.json$' -or [IO.Path]::GetExtension($path) -eq '.pdb') { throw 'Runtime user data or debug symbols must not be distributed.' }
-    if ([IO.Path]::GetFileName($path) -match '^BorderlessFlatWindow\..*(Checks|Lab)\.' ) { throw 'Verification harnesses and laboratories must not be distributed.' }
+    if ([IO.Path]::GetFileName($path) -match '^BorderlessFlatWindow\..*(Checks|Lab|WorkspaceSource)\.' ) { throw 'Verification harnesses and laboratories must not be distributed.' }
     if (!(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -ne $entry.bytes -or
         (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'Payload length/hash mismatch.' }
     if ($RejectLocalBuildPaths) {
@@ -64,7 +64,7 @@ foreach ($entry in $manifest.files) {
 if ($paths.Count -ne $names.Count + 1) { throw 'Package contains unlisted/missing files.' }
 foreach ($required in @('BorderlessFlatWindow.App.exe', 'Probe.cmd',
     'Launch.ps1', 'Start.cmd', 'Recover.cmd', 'Inspect-Recovery.cmd', 'Start-NativeOverview.cmd', 'Start-FormOverview.cmd',
-    'deployment.md', 'compatibility.md', 'VERSION.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt',
+    'deployment.md', 'compatibility.md', 'workspace-layouts.md', 'VERSION.txt', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'Assets/Licenses/FusionPixel/OFL.txt', 'licenses/dotnet-distribution/LICENSE.txt',
     'licenses/dotnet-distribution/ThirdPartyNotices.txt', 'licenses/dotnet-distribution/MIT-LICENSE.TXT')) {
     if (!$names.Contains($required)) { throw "Missing entry point/notice: $required" }
 }

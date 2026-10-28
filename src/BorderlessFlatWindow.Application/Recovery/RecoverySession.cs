@@ -120,6 +120,15 @@ public sealed class RecoverySession : IDisposable
     {
         next.Validate(); store.Save(next); Journal = next;
     }
+    public RecoveryResult RestoreEntry(Guid id)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var entry = Journal.Entries.FirstOrDefault(e => e.Id == id);
+        if (entry is null) return new(id, RecoveryOutcome.ReleasedUnarmed, "No remaining ownership.");
+        var result = windows.Restore(entry, Journal.MarkerName);
+        if (result.IsTerminal) Commit(Journal.WithEntries(Journal.Entries.Where(e => e.Id != id)));
+        return result;
+    }
 
     public void Dispose()
     {

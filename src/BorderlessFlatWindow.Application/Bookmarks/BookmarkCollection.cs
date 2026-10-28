@@ -22,6 +22,7 @@ public sealed class BookmarkCollection
     {
         ArgumentNullException.ThrowIfNull(entry);
         if (entry.Id == Guid.Empty || NormalizeName(entry.Name) != entry.Name) throw new ArgumentException("标签的 ID 或名称无效。");
+        entry.Layout?.Validate();
     }
     public void Replace(IEnumerable<LocationBookmark> source)
     {
@@ -44,7 +45,7 @@ public sealed class BookmarkCollection
 
 public sealed record BookmarkDocument(int Version, long Revision, IReadOnlyList<LocationBookmark> Entries)
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
     public void Validate()
     {
         if (Version != CurrentVersion || Revision < 0 || Entries is null) throw new ArgumentException("标签文件版本、修订号或条目无效。");

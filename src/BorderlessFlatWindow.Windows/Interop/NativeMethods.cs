@@ -6,6 +6,8 @@ namespace BorderlessFlatWindow.Windows.Interop;
 
 internal static class NativeMethods
 {
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShowWindowAsync(nint window, int command);
     [DllImport("kernel32.dll")]
     internal static extern uint GetCurrentThreadId();
     [DllImport("user32.dll", SetLastError = true)]

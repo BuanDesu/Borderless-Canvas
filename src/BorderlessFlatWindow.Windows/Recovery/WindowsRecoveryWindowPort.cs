@@ -20,13 +20,21 @@ public sealed class WindowsRecoveryWindowPort : IRecoveryWindowPort
         CheckThread();
         var observation = source.ReadWindow(identity.Handle);
         var admission = policy.Evaluate(observation);
-        if (observation.Identity != identity || !admission.IsAdmitted)
+        if (observation.Identity != identity || !admission.IsAdmitted && admission.Reason != WindowExclusionReason.Minimized)
             throw new InvalidOperationException($"Window is no longer eligible for management: {admission.Reason}; identityMatches={observation.Identity == identity}.");
         using var pixels = new PhysicalPixelScope();
         var placement = ReadPlacement(identity.Handle);
         var bounds = observation.Bounds!.Value;
         var physical = new PixelRect(checked((int)bounds.Position.X), checked((int)bounds.Position.Y),
             checked((int)bounds.Right), checked((int)bounds.Bottom));
+        if (observation.IsMinimized)
+        {
+            var monitor = NativeMethods.MonitorFromWindow(identity.Handle, 2);
+            var info = new NativeMethods.NativeMonitorInfo { Size = (uint)Marshal.SizeOf<NativeMethods.NativeMonitorInfo>(), DeviceName = "" };
+            if (monitor == 0 || !NativeMethods.GetMonitorInfo(monitor, ref info)) throw new InvalidOperationException("Cannot capture minimized normal bounds.");
+            var x = info.WorkArea.Left - info.Bounds.Left; var y = info.WorkArea.Top - info.Bounds.Top;
+            physical = new(checked(placement.Left + x), checked(placement.Top + y), checked(placement.Right + x), checked(placement.Bottom + y));
+        }
         if (!placement.IsValid || ReadIdentity(identity.Handle) != identity)
             throw new InvalidOperationException("Cannot capture a stable original window state.");
         return new(placement, physical);

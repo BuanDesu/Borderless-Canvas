@@ -64,11 +64,11 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private CanvasInteractionState InteractionState => new(reading, session?.IsBusy == true, editingArrangement || editingSettings,
         desktopTransitionPending, FindForm() is MainForm { AllowsCanvasCommands: false }, panelActionPending,
         externalRecoveryRunning, recoveryAttention, layout is not null);
-    internal bool CanUsePanelCommands => InteractionState.CanUsePanelCommands;
+    internal bool CanUsePanelCommands => InteractionState.CanUsePanelCommands && !WorkspaceRestoring && !workspaceStarting && !workspaceOperation;
     // Reads and native transactions can pump UI messages. Queue input through these
     // short operations; only an explicit interaction/safety boundary revokes it.
-    private bool GlobalInputBlocked => InteractionState.GlobalInputBlocked;
-    private bool CanCaptureGlobalInput => InteractionState.CanCaptureInput(session?.IsRunning == true);
+    private bool GlobalInputBlocked => InteractionState.GlobalInputBlocked || WorkspaceRestoring || workspaceStarting || workspaceOperation;
+    private bool CanCaptureGlobalInput => InteractionState.CanCaptureInput(session?.IsRunning == true) && !WorkspaceRestoring && !workspaceStarting && !workspaceOperation;
     internal bool CanApplyDesktopTransition => InteractionState.CanApplyDesktopTransition(HasOverviewWork);
     internal bool DesktopTransitionPending => desktopTransitionPending;
     internal bool CanStartForLifecycleCheck => start.Enabled && !recoveryAttention;
@@ -91,7 +91,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     {
         if (desktopTransitionPending == pending) return;
         desktopTransitionPending = pending;
-        if (pending) { EndNavigationForEditing(); gestures?.Cancel(); verify.Stop(); CancelOverview(); }
+        if (pending) { CancelWorkspaceRestore(); EndNavigationForEditing(); gestures?.Cancel(); verify.Stop(); CancelOverview(); }
         RefreshState();
     }
     internal void InvalidateDisplay(string reason)
@@ -108,7 +108,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         RefreshState();
     }
     internal void SetExternalRecoveryRunning(bool running)
-    { if (externalRecoveryRunning == running) return; externalRecoveryRunning = running; RefreshState(); }
+    { if (externalRecoveryRunning == running) return; if (running) CancelWorkspaceRestore(); externalRecoveryRunning = running; RefreshState(); }
     internal void SetRecoveryAttention(bool attention)
     {
         attention &= session?.IsRunning != true;
@@ -192,6 +192,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         Controls.Add(map); Controls.Add(selector); Controls.Add(status); Controls.Add(commandDeck);
         InitializePinControls();
         InitializeFixedLaunchTimer();
+        InitializeWorkspaceRestore();
     }
 
     internal void InitializeGlobalInput()
@@ -224,6 +225,14 @@ internal sealed partial class ManagedCanvasControl : UserControl
     private void NavigationFrame()
     {
         if (IsDisposed) return;
+        if (workspaceStarting || workspaceOperation || WorkspaceRestoring)
+        {
+            globalInput?.Heartbeat();
+            var fault = globalInput?.Drain().Any(e => e.Input.Kind == NavigationInputKind.Fault) == true;
+            touchInputs.Clear(); gestures?.Cancel(); navigationTimer.Stop();
+            if (fault) Pause("工作区复原期间输入异常，已暂停恢复。");
+            return;
+        }
         // The camera is suspended in overview. Keep the input watchdog alive, and defer
         // catalog/UI reconciliation until the short compositor transition has finished.
         if (IsOverviewTransitioning)
@@ -326,6 +335,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
     }
     private void RequestOverview(long capturedTimestamp = 0)
     {
+        CancelWorkspaceRestore();
         CloseTouchNavigation();
         if (editingArrangement || editingSettings || panelActionPending || externalRecoveryRunning || desktopTransitionPending || layout is null) return;
         if (preparationDisposed) return;
@@ -433,7 +443,9 @@ internal sealed partial class ManagedCanvasControl : UserControl
         try
         {
             if (IsDisposed || Disposing) return;
-            if (!desktopTransitionPending && dialog.ConfirmedCameraPosition is { } position && ReferenceEquals(session, managed) && managed.IsRunning)
+            if (!desktopTransitionPending && dialog.ConfirmedWorkspaceId is { } workspace && ReferenceEquals(session, managed) && managed.IsRunning)
+            { OpenWorkspace(workspace); }
+            else if (!desktopTransitionPending && dialog.ConfirmedCameraPosition is { } position && ReferenceEquals(session, managed) && managed.IsRunning)
             {
                 if (!managed.NavigateWorkspace(position, DateTimeOffset.UtcNow, WindowEventListener.ForegroundWindow,
                     animate: overviewAnimation.Checked && System.Windows.SystemParameters.ClientAreaAnimation)) notice = managed.Message;
@@ -595,7 +607,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         button.Click += (_, _) => Act(action); toolbar.Controls.Add(button);
     }
     internal void Pause(string reason = "已暂停并恢复原始位置；再次开始可恢复画布布局。")
-    { CancelLaunchStart(); CloseTouchNavigation(discard: true, refresh: false); InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
+    { CancelWorkspaceRestore(); CancelLaunchStart(); CloseTouchNavigation(discard: true, refresh: false); InvalidateOverviewPreparation(); notice = null; overviewRequested = false; overview?.CancelOverview(); gestures?.Cancel(); verify.Stop(); session?.Pause(reason); RefreshState(); }
     private void RefreshState()
     {
         ConfigurePointerScreens();
@@ -644,6 +656,8 @@ internal sealed partial class ManagedCanvasControl : UserControl
     { CloseTouchNavigation(discard: true); gestures?.Accept(new(NavigationInputKind.Exit, PointD.Zero), DateTimeOffset.UtcNow); globalInput?.Exit(); hud?.Hide(); }
     internal string GoToBookmark(Guid id)
     {
+        if (bookmarks.Collection.Items.FirstOrDefault(b => b.Id == id)?.Layout is not null)
+        { OpenWorkspace(id); return notice ?? "正在复原工作区。"; }
         if (!CanJumpToBookmark) return "请先在窗口画布页开始管理，再跳转位置标签。";
         var bookmark = bookmarks.Collection.Items.FirstOrDefault(entry => entry.Id == id);
         if (bookmark is null) return "标签已不存在。";
@@ -664,7 +678,7 @@ internal sealed partial class ManagedCanvasControl : UserControl
         or Win32Exception or ArgumentException or OverflowException;
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { CancelLaunchStart(); launchTimer.Dispose(); inputHealthTimer.Dispose(); feedbackTimer.Dispose(); }
+        if (disposing) { DisposeWorkspaceRestore(); CancelLaunchStart(); launchTimer.Dispose(); inputHealthTimer.Dispose(); feedbackTimer.Dispose(); }
         if (disposing) { DisposeInputStatus(); CloseTouchNavigation(discard: true, refresh: false); DisposePinControls(); DisposeOverviewPreparation(); overviewRequested = false; overview?.CancelOverview(); moreMenu.Dispose(); hints.Dispose(); admissionTimer.Dispose(); navigationTimer.Dispose(); globalInput?.Dispose(); crosshairOverlay?.Dispose(); hud?.Dispose(); gestures?.Cancel(); verify.Dispose(); session?.Dispose(); }
         base.Dispose(disposing);
     }

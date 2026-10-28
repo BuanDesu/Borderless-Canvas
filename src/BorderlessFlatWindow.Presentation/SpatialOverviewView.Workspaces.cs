@@ -31,13 +31,15 @@ public sealed partial class SpatialOverviewView
             var stand = new Border { Width = 58, Height = 5, CornerRadius = new(3), Background = Gradient(Color.FromRgb(229, 214, 255), accents[0]), Margin = new(0, 3, 0, 2) };
             column.Children.Add(casing); column.Children.Add(stand);
             column.Children.Add(new TextBlock { Text = workspace.Name, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 13, Foreground = summary.Foreground, Margin = new(2, 2, 2, 0), ToolTip = workspace.Name });
+            column.Children.Add(new TextBlock { Text = workspace.Members is { } count ? $"{count} 个窗口 · 打开并复原" : "仅位置 · 可更新布局", TextAlignment = TextAlignment.Center, FontSize = 11, Foreground = summary.Foreground });
             column.MouseRightButtonUp += (_, e) =>
             {
                 if (workspace.Id is not { } id) return;
                 var p = e.GetPosition(root); WorkspaceMenuRequested?.Invoke(id, new((int)(p.X * scale), (int)(p.Y * scale))); e.Handled = true;
             };
-            var card = new SceneCard(() => WorkspaceRequested?.Invoke(workspace.Position)) { Child = column };
-            card.MouseLeftButtonDown += (_, e) => { WorkspaceRequested?.Invoke(workspace.Position); e.Handled = true; };
+            void Open() { if (workspace.Id is { } id && WorkspaceOpenRequested is not null) WorkspaceOpenRequested.Invoke(id); else WorkspaceRequested?.Invoke(workspace.Position); }
+            var card = new SceneCard(Open) { Child = column };
+            card.MouseLeftButtonDown += (_, e) => { Open(); e.Handled = true; };
             System.Windows.Automation.AutomationProperties.SetName(card, "工作区 " + workspace.Name);
             workspaceScreens.Add((workspace, screen)); cards.Children.Add(card);
         }

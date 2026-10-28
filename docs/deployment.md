@@ -1,6 +1,6 @@
 # 便携部署、启动与移除
 
-Windows x64 便携预发行包可从[公开下载页](https://github.com/BuanDesu/Borderless-Canvas/releases/tag/v0.1.0-preview.5)获取，也可按[源码构建说明](https://github.com/BuanDesu/Borderless-Canvas#获取源码与本地运行)运行或自行打包。无需安装服务、开机启动或管理员权限。正常启动默认注册当前用户的软件 `.lnk` 右键便签入口，可在“更多 → 软件快捷方式右键入口”关闭并移除。应用依旧使用本机用户数据目录；“便携”指运行时随包携带，不表示把隐私数据写进程序目录。
+Windows x64 便携预发行包可从[公开下载页](https://github.com/BuanDesu/Borderless-Canvas/releases/tag/v0.1.0-preview.6)获取，也可按[源码构建说明](https://github.com/BuanDesu/Borderless-Canvas#获取源码与本地运行)运行或自行打包。无需安装服务、开机启动或管理员权限。正常启动默认注册当前用户的软件 `.lnk` 右键便签入口，可在“更多 → 软件快捷方式右键入口”关闭并移除。应用依旧使用本机用户数据目录；“便携”指运行时随包携带，不表示把隐私数据写进程序目录。
 
 版本由根目录 `Version.props` 提供。程序集、包名、`VERSION.txt` 和 manifest 的 `applicationVersion` 使用同一预发行版本，运行信息保留提交 SHA。用户包仅包含使用、部署、兼容与许可材料；UI 检查与 Lab 工具不随包发布。清单升级为 schemaVersion 2 并要求版本字段，旧 schemaVersion 1 包应使用对应标签的校验脚本。
 

@@ -32,7 +32,7 @@ public sealed class NativeWindowMotionPort : IWindowMotionPort
         if (translations.Count == 0) return new(true, "No movable targets; await lifecycle observation.");
         foreach (var item in translations)
         {
-            var reason = validator.Validate(recovery, item.RecoveryId, item.Target);
+            var reason = validator.Validate(recovery, item.RecoveryId, item.Target, item.Resize);
             if (reason is not null) return new(false, reason);
         }
         var handles = recovery.Journal.Entries.ToDictionary(entry => entry.Id, entry => entry.Identity.Handle);
@@ -41,7 +41,7 @@ public sealed class NativeWindowMotionPort : IWindowMotionPort
             // DeferWindowPos rejects ASYNCWINDOWPOS. Other threads must use documented nonblocking SetWindowPos requests.
             foreach (var item in translations)
             {
-                var receipt = validator.RequestMove(recovery, item.RecoveryId, item.Target);
+                var receipt = validator.RequestMove(recovery, item.RecoveryId, item.Target, item.Resize);
                 if (!receipt.Accepted) return new(false, receipt.Detail);
             }
             return new(true, "Asynchronous cross-thread movement batch submitted.");
@@ -52,7 +52,7 @@ public sealed class NativeWindowMotionPort : IWindowMotionPort
         foreach (var item in translations)
         {
             batch = NativeMethods.DeferWindowPos(batch, handles[item.RecoveryId], 0, item.Target.Left, item.Target.Top,
-                0, 0, 0x0200 | 0x0010 | 0x0004 | 0x0001);
+                item.Resize ? item.Target.Width : 0, item.Resize ? item.Target.Height : 0, 0x0200u | 0x0010 | 0x0004 | (item.Resize ? 0u : 0x0001));
             if (batch == 0) return new(false, $"DeferWindowPos failed: {Marshal.GetLastPInvokeError()}.");
         }
         return NativeMethods.EndDeferWindowPos(batch) ? new(true, "Native movement batch submitted.")
@@ -63,5 +63,14 @@ public sealed class NativeWindowMotionPort : IWindowMotionPort
         if (!recovery.CanMove(recoveryId)) return false;
         var window = recovery.Journal.Entries.Single(entry => entry.Id == recoveryId).Identity.Handle;
         return NativeMethods.SetForegroundWindow(window) && NativeMethods.GetForegroundWindow() == window;
+    }
+    public bool RequestRestore(RecoverySession recovery, Guid recoveryId)
+    {
+        if (!recovery.CanMove(recoveryId)) return false;
+        var entry = recovery.Journal.Entries.Single(e => e.Id == recoveryId);
+        var window = entry.Identity.Handle;
+        if (!NativeWindowIdentityGuard.IsCurrent(entry.Identity) || !NativeMethods.IsWindowVisible(window)
+            || !NativeMethods.IsIconic(window) || NativeMethods.IsZoomed(window) || (NativeMethods.GetWindowStyle(window, -20).ToInt64() & 8) != 0) return false;
+        return recovery.CanMove(recoveryId) && NativeMethods.ShowWindowAsync(window, 4); // SW_SHOWNOACTIVATE
     }
 }

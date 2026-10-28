@@ -22,6 +22,8 @@ internal interface IOverviewPresenter : IDisposable
     double IdlePreparationMilliseconds { get; set; }
     CanvasWindow? ConfirmedTarget { get; }
     PointD? ConfirmedCameraPosition { get; }
+    Guid? ConfirmedWorkspaceId => null;
+    void SetWorkspaceActions(WorkspaceActions actions) { }
     double PrepareHiddenHost();
     void SetInitialSelection(Guid? selected);
     void SetPreviewSources(IEnumerable<OverviewPreviewSource> sources);
@@ -65,6 +67,8 @@ internal sealed class FormOverviewPresenter : IOverviewPresenter
     public double IdlePreparationMilliseconds { get => form.IdlePreparationMilliseconds; set => form.IdlePreparationMilliseconds = value; }
     public CanvasWindow? ConfirmedTarget => form.ConfirmedTarget;
     public PointD? ConfirmedCameraPosition => form.ConfirmedCameraPosition;
+    public Guid? ConfirmedWorkspaceId => form.ConfirmedWorkspaceId;
+    public void SetWorkspaceActions(WorkspaceActions actions) => form.WorkspaceActions = actions;
     public double PrepareHiddenHost() => form.PrepareHiddenHost();
     public void SetInitialSelection(Guid? selected) => form.SetInitialSelection(selected);
     public void SetPreviewSources(IEnumerable<OverviewPreviewSource> sources) => form.SetPreviewSources(sources);

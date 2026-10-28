@@ -63,6 +63,9 @@ Copy-Item -LiteralPath (Join-Path $package 'tools/recovery') -Destination (Join-
 $checker = Join-Path $harness 'BorderlessFlatWindow.App.Checks.exe'
 $result = Run-PortableChild $checker @('--native-overview-check', (Join-Path $output 'overview.json'))
 if ($result.Code -ne 0) { throw "Published-dependency overview fixture failed: $($result.Error)" }
+$workspaceOutput = Join-Path $output 'workspace-ui'
+$result = Run-PortableChild $checker @('--workspace-check', $workspaceOutput)
+if ($result.Code -ne 0) { throw 'Published-dependency workspace UI fixture failed.' }
 $result = Run-PortableChild $checker @('--trial-recovery-check', $recoveryOutput)
 if ($result.Code -ne 0 -or !$result.Output.Contains('PASS Actual independent recovery process')) { throw "Published GUI recovery bridge failed: $($result.Error)" }
 $before = Get-FileHash -LiteralPath (Join-Path $recoveryOutput 'recovery.json')
@@ -74,6 +77,6 @@ foreach ($mode in @('Inspect', 'Recover')) {
     $result = Run-PortableChild $shell @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $package 'Launch.ps1'),'-Mode',$mode,'-JournalPath',$journal)
     if ($result.Code -ne 0) { throw "Published isolated recovery launcher failed: $($result.Error)" }
 }
-[pscustomobject]@{ RuntimeVersion=$config.runtimeOptions.includedFrameworks[0].version; PrivateRuntimeObserved=$true; SourceLinkedUiHarness=$true; PublishedDependencies=$true; NativeOverview=$true; IndependentRecovery=$true; ExistingFixturePreserved=$true; Launchers=$true } |
+[pscustomobject]@{ RuntimeVersion=$config.runtimeOptions.includedFrameworks[0].version; PrivateRuntimeObserved=$true; SourceLinkedUiHarness=$true; PublishedDependencies=$true; NativeOverview=$true; WorkspaceIntegration=$true; IndependentRecovery=$true; ExistingFixturePreserved=$true; Launchers=$true } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'summary.json') -Encoding utf8
 Write-Output 'PASS Actual portable App loads its own CoreCLR/host/WPF; a disposable source-linked UI harness verifies published dependencies and the real recovery executable; fixture preservation and launchers pass.'

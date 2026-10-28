@@ -11,7 +11,7 @@ public sealed record WindowMoveReceipt(bool Accepted, PixelRect? ObservedBounds,
 /// <summary>Accepts only IDs from a live recovery session. A queued request is not a verified placement.</summary>
 public sealed class RegisteredWindowMover
 {
-    internal string? Validate(RecoverySession session, Guid entryId, PixelRect target)
+    internal string? Validate(RecoverySession session, Guid entryId, PixelRect target, bool resize = false)
     {
         if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
             throw new InvalidOperationException("Window movement requires an STA thread.");
@@ -27,20 +27,20 @@ public sealed class RegisteredWindowMover
             || NativeMethods.GetAncestor(window, 2) != window || (extendedStyle & 8) != 0)
             return "Only restored, visible, non-topmost top-level windows can be moved.";
         if (!NativeMethods.GetWindowRect(window, out var current)) return "Physical bounds unavailable.";
-        if ((long)current.Right - current.Left != target.Width || (long)current.Bottom - current.Top != target.Height)
+        if (!resize && ((long)current.Right - current.Left != target.Width || (long)current.Bottom - current.Top != target.Height))
             return "Native size changed; movement must be reconciled before continuing.";
         if (!session.CanMove(entryId)) return "Window ownership changed before positioning.";
         return null;
     }
 
-    public WindowMoveReceipt RequestMove(RecoverySession session, Guid entryId, PixelRect target)
+    public WindowMoveReceipt RequestMove(RecoverySession session, Guid entryId, PixelRect target, bool resize = false)
     {
-        var error = Validate(session, entryId, target);
+        var error = Validate(session, entryId, target, resize);
         if (error is not null) return new(false, null, error);
         var window = session.Journal.Entries.Single(entry => entry.Id == entryId).Identity.Handle;
         using var pixels = new PhysicalPixelScope();
-        const uint flags = 0x4000 | 0x0200 | 0x0010 | 0x0004 | 0x0001; // ASYNC, NOOWNERZORDER, NOACTIVATE, NOZORDER, NOSIZE
-        if (!NativeMethods.SetWindowPos(window, 0, target.Left, target.Top, 0, 0, flags))
+        var flags = 0x4000u | 0x0200 | 0x0010 | 0x0004 | (resize ? 0u : 0x0001); // ASYNC, NOOWNERZORDER, NOACTIVATE, NOZORDER
+        if (!NativeMethods.SetWindowPos(window, 0, target.Left, target.Top, resize ? target.Width : 0, resize ? target.Height : 0, flags))
             return new(false, null, $"SetWindowPos failed: {Marshal.GetLastPInvokeError()}.");
         PixelRect? observed = null;
         if (NativeMethods.GetWindowRect(window, out var actual) && actual.Right > actual.Left && actual.Bottom > actual.Top)

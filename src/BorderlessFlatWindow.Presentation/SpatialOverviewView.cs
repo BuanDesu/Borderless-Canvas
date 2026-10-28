@@ -23,7 +23,7 @@ using Keys = System.Windows.Forms.Keys;
 
 namespace BorderlessFlatWindow.Presentation;
 
-public sealed record SceneWorkspace(Guid? Id, string Name, PointD Position);
+public sealed record SceneWorkspace(Guid? Id, string Name, PointD Position, int? Members = null);
 public sealed record ScenePreview(Guid Id, Guid Window, PixelRect? Bounds, PreviewState? Fallback = null, RectD? Fraction = null, Guid? Workspace = null);
 
 /// <summary>One retained WPF visual tree. No WinForms child layout or whole-page screenshots.</summary>
@@ -59,6 +59,7 @@ public sealed partial class SpatialOverviewView : Grid, IDisposable
     public event Action? GeometryChanged;
     public event Action? ConfirmRequested;
     public event Action<PointD>? WorkspaceRequested;
+    public event Action<Guid>? WorkspaceOpenRequested;
     public event Action<Guid, System.Drawing.Point>? WorkspaceMenuRequested;
     public event Action? SaveRequested;
     public event Action? ManageRequested;
@@ -95,7 +96,7 @@ public sealed partial class SpatialOverviewView : Grid, IDisposable
         var toolbar = new Grid(); toolbar.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); toolbar.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); toolbar.ColumnDefinitions.Add(new() { Width = new(290) }); toolbar.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         var left = new StackPanel { Orientation = Orientation.Horizontal };
         left.Children.Add(new TextBlock { Text = "工作区", FontSize = 15, Foreground = summary.Foreground, VerticalAlignment = VerticalAlignment.Center, Margin = new(0, 0, 10, 0) });
-        left.Children.Add(ActionButton("+", "保存当前视角", () => SaveRequested?.Invoke()));
+        left.Children.Add(ActionButton("+", "保存窗口布局", () => SaveRequested?.Invoke()));
         left.Children.Add(ActionButton("⋯", "管理工作区", () => ManageRequested?.Invoke())); toolbar.Children.Add(left);
         Grid.SetColumn(summary, 1); summary.Margin = new(16, 0, 16, 0); toolbar.Children.Add(summary);
         var searchGlass = Glass(12, Color.FromArgb(185, 255, 255, 255)); searchGlass.Margin = new(0, 2, 6, 2);
@@ -231,7 +232,7 @@ public sealed partial class SpatialOverviewView : Grid, IDisposable
             foreach (var (_, screen) in workspaceScreens) ((Image)screen.Child).Source = null;
             Children.Clear(); root.Children.Clear(); map.Children.Clear(); cards.Children.Clear(); mapCards.Clear(); workspaceScreens.Clear();
             wallpaper = null; Frame = null;
-            GeometryChanged = null; ConfirmRequested = null; WorkspaceRequested = null; WorkspaceMenuRequested = null;
+            GeometryChanged = null; ConfirmRequested = null; WorkspaceRequested = null; WorkspaceOpenRequested = null; WorkspaceMenuRequested = null;
             SaveRequested = null; ManageRequested = null; OptionsRequested = null; CancelRequested = null; Command = null;
         }
     }

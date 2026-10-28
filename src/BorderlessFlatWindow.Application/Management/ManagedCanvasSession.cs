@@ -367,7 +367,7 @@ public sealed partial class ManagedCanvasSession : IDisposable
                 if (state.Suspended)
                 {
                     state.Suspended = false; state.Observed = actual; state.Desired = null;
-                    if (!ApplyCamera(Workspace.Camera.Position, now, recordHistory: false)) return;
+                    if (!workspaceRestoring && !ApplyCamera(Workspace.Camera.Position, now, recordHistory: false)) return;
                 }
                 var world = Workspace.Windows.Single(window => window.Id == state.Id);
                 if (state.Deadline is not null)
@@ -492,7 +492,11 @@ public sealed partial class ManagedCanvasSession : IDisposable
     private void ThrowIfClosing()
     { if (disposeRequested) throw new InvalidOperationException("会话正在退出，已取消接管。"); }
     private void ExitBusy()
-    { busy = false; if (disposeRequested) Dispose(); }
+    {
+        busy = false;
+        if (workspaceEndRequested) { workspaceEndRequested = false; CancelWorkspacePrepared(); SuspendNavigation(false); }
+        if (disposeRequested) Dispose();
+    }
     public void Dispose()
     {
         if (disposed) return;

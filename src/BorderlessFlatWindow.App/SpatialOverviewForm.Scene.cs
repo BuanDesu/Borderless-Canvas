@@ -22,7 +22,13 @@ internal sealed partial class SpatialOverviewForm
         scene.CancelRequested += CancelOverview;
         scene.Command += HandleCommand;
         scene.WorkspaceRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
-        scene.SaveRequested += () => { if (bookmarks?.CanWrite != true) return; var name = AskSceneName("保存工作区", "工作区"); if (name is not null) { bookmarks.Add(name, camera.Position); RefreshSceneWorkspaces(); } };
+        scene.WorkspaceOpenRequested += id => { if (!canConfirm) return; ConfirmedWorkspaceId = id; DialogResult = DialogResult.OK; Close(); };
+        scene.SaveRequested += () =>
+        {
+            if (bookmarks?.CanWrite != true) return;
+            var name = AskSceneName("保存窗口布局", "工作区");
+            if (name is not null) { if (WorkspaceActions is not null) WorkspaceActions.Save(this, name, camera.Position); else bookmarks.Add(name, camera.Position); RefreshSceneWorkspaces(); }
+        };
         scene.ManageRequested += ManageSceneWorkspaces;
         scene.OptionsRequested += () => options.Show(this, PointToClient(Cursor.Position));
         scene.WorkspaceMenuRequested += SceneWorkspaceMenu;
@@ -31,7 +37,7 @@ internal sealed partial class SpatialOverviewForm
     }
     private void RefreshSceneWorkspaces()
     {
-        scene?.SetWorkspaces(sceneBookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition)) ?? []);
+        scene?.SetWorkspaces(sceneBookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition, b.Layout?.Windows.Count)) ?? []);
         if (sceneBookmarks is { CanWrite: false }) scene?.SetStatus(sceneBookmarks.Message);
     }
     private void ManageSceneWorkspaces()
@@ -45,6 +51,12 @@ internal sealed partial class SpatialOverviewForm
     {
         var entry = sceneBookmarks?.Collection.Items.FirstOrDefault(b => b.Id == id); if (entry is null) return;
         var menu = new ContextMenuStrip();
+        menu.Items.Add("打开并复原", null, (_, _) => { ConfirmedWorkspaceId = id; DialogResult = DialogResult.OK; Close(); });
+        if (WorkspaceActions is not null)
+        {
+            menu.Items.Add("更新布局（当前视区）", null, (_, _) => { WorkspaceActions.Save(this, entry.Name, model.StartCamera.Position, id); RefreshSceneWorkspaces(); });
+            menu.Items.Add("查看成员 / 启动项", null, (_, _) => { using var editor = WorkspaceActions.MemberEditor(id); editor.ShowDialog(this); RefreshSceneWorkspaces(); });
+        }
         menu.Items.Add("重命名", null, (_, _) => { var name = AskSceneName("重命名工作区", entry.Name); if (name is not null) { sceneBookmarks!.Rename(id, name); RefreshSceneWorkspaces(); } });
         menu.Items.Add("删除工作区", null, (_, _) => { sceneBookmarks!.Remove(id); RefreshSceneWorkspaces(); });
         foreach (ToolStripItem item in menu.Items) item.Enabled = sceneBookmarks!.CanWrite;
@@ -133,7 +145,7 @@ internal sealed partial class SpatialOverviewForm
         if (exiting) return true;
         // Selection has committed. Return control immediately; never leave a confirmed
         // session swallowing Tab while it plays a return-to-the-old-window animation.
-        if (ConfirmedTarget is not null || ConfirmedCameraPosition is not null || !Visible || !animateEntrance
+        if (ConfirmedTarget is not null || ConfirmedCameraPosition is not null || ConfirmedWorkspaceId is not null || !Visible || !animateEntrance
             || CompositionSurface.RenderingTier == 0 || !SystemParametersInfo(0x1042, 0, out var enabled, 0) || enabled == 0) return false;
         var returning = compositorFocus && canConfirm && entranceSource is { } source && previewSources.ContainsKey(source.Id);
         if (!entering && returning) returning = RefreshReturnImage();

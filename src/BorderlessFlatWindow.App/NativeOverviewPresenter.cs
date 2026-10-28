@@ -57,6 +57,9 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     public double IdlePreparationMilliseconds { get; set; }
     public CanvasWindow? ConfirmedTarget { get; private set; }
     public PointD? ConfirmedCameraPosition { get; private set; }
+    public Guid? ConfirmedWorkspaceId { get; private set; }
+    private WorkspaceActions? workspaceActions;
+    public void SetWorkspaceActions(WorkspaceActions actions) => workspaceActions = actions;
     internal int LivePreviewCount => previews?.ResourceCount ?? 0;
     internal double Position => progress;
     internal bool NativeBackdropAccepted => surface.NativeBackdropAccepted;
@@ -87,6 +90,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
         view.GeometryChanged += RefreshPreviews; view.Frame += Advance;
         view.ConfirmRequested += Confirm; view.CancelRequested += RequestClose; view.Command += HandleCommand;
         view.WorkspaceRequested += position => { if (!canConfirm || disposed || modalDepth > 0) return; ConfirmedCameraPosition = position; CloseNow(); };
+        view.WorkspaceOpenRequested += id => { if (!canConfirm || disposed || modalDepth > 0) return; ConfirmedWorkspaceId = id; CloseNow(); };
         view.SaveRequested += SaveWorkspace; view.ManageRequested += ManageWorkspaces; view.OptionsRequested += () => ShowMenu(options, Cursor.Position, true);
         view.WorkspaceMenuRequested += WorkspaceMenu;
         surface.Shown += (_, _) => OnShown();
@@ -263,10 +267,19 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     }
     private void RefreshWorkspaces()
     {
-        view.SetWorkspaces(bookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition)) ?? []);
+        view.SetWorkspaces(bookmarks?.Collection.Items.Select(b => new SceneWorkspace(b.Id, b.Name, b.CameraPosition, b.Layout?.Windows.Count)) ?? []);
         if (bookmarks is { CanWrite: false }) view.SetStatus(bookmarks.Message);
     }
-    private void SaveWorkspace() { if (bookmarks?.CanWrite != true) return; var name = AskName("保存工作区", "工作区"); if (name is not null && !disposed) { bookmarks.Add(name, model.StartCamera.Position); RefreshWorkspaces(); } }
+    private void SaveWorkspace()
+    {
+        if (bookmarks?.CanWrite != true) return;
+        var name = AskName("保存窗口布局", "工作区");
+        if (name is null || disposed) return;
+        if (workspaceActions is not null) RunWorkspaceAction(() => workspaceActions.Save(new WindowOwner(Handle), name, model.StartCamera.Position));
+        else bookmarks.Add(name, model.StartCamera.Position);
+        if (!disposed) RefreshWorkspaces();
+    }
+    private void RunWorkspaceAction(Action action) { modalDepth++; try { action(); } finally { modalDepth--; } }
     private void ManageWorkspaces()
     {
         if (bookmarks is null) return;
@@ -290,6 +303,12 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
     {
         var entry = bookmarks?.Collection.Items.FirstOrDefault(item => item.Id == id); if (entry is null) return;
         var menu = new ContextMenuStrip();
+        menu.Items.Add("打开并复原", null, (_, _) => { ConfirmedWorkspaceId = id; CloseNow(); });
+        if (workspaceActions is not null)
+        {
+            menu.Items.Add("更新布局（当前视区）", null, (_, _) => { RunWorkspaceAction(() => workspaceActions.Save(new WindowOwner(Handle), entry.Name, model.StartCamera.Position, id)); if (!disposed) RefreshWorkspaces(); });
+            menu.Items.Add("查看成员 / 启动项", null, (_, _) => { using var editor = workspaceActions.MemberEditor(id); ShowOwnedDialog(editor); if (!disposed) RefreshWorkspaces(); });
+        }
         menu.Items.Add("重命名", null, (_, _) => { var name = AskName("重命名工作区", entry.Name); if (name is not null && !disposed) { bookmarks!.Rename(id, name); RefreshWorkspaces(); } });
         menu.Items.Add("删除工作区", null, (_, _) => { bookmarks!.Remove(id); if (!disposed) RefreshWorkspaces(); });
         foreach (ToolStripItem item in menu.Items) item.Enabled = bookmarks!.CanWrite;
@@ -310,7 +329,7 @@ internal sealed class NativeOverviewPresenter : IOverviewPresenter
         if (disposed) return;
         disposed = true; previews?.Dispose(); previews = null; synchronizedLayout = null;
         options.Dispose(); foreach (var menu in menus.ToArray()) menu.Dispose(); menus.Clear();
-        if (ConfirmedTarget is null && ConfirmedCameraPosition is null) model.Cancel();
+        if (ConfirmedTarget is null && ConfirmedCameraPosition is null && ConfirmedWorkspaceId is null) model.Cancel();
         WriteMetrics(); FrameObserved = null;
         Closed?.Invoke(this, EventArgs.Empty); Shown = null; Activated = null; Closed = null;
     }

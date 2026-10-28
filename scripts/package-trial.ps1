@@ -70,6 +70,9 @@ try {
     foreach ($document in @('deployment.md', 'compatibility.md')) {
         Copy-Item -LiteralPath (Join-Path $taskRoot "docs/$document") -Destination $destination
     }
+    $workspaceGuide = [IO.File]::ReadAllText((Join-Path $taskRoot 'docs/workspace-layouts.md'))
+    $workspaceGuide = ($workspaceGuide -split '(?m)^## 本地验证', 2)[0].TrimEnd() + [Environment]::NewLine
+    [IO.File]::WriteAllText((Join-Path $destination 'workspace-layouts.md'), $workspaceGuide, [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $destination 'VERSION.txt'), $applicationVersion + [Environment]::NewLine)
     Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD-PARTY-NOTICES.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $taskRoot 'LICENSE') -Destination $destination
