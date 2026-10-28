@@ -19,6 +19,7 @@ public sealed class SpatialOverviewScene : ElementHost
     public event Action? GeometryChanged { add => view.GeometryChanged += value; remove => view.GeometryChanged -= value; }
     public event Action? ConfirmRequested { add => view.ConfirmRequested += value; remove => view.ConfirmRequested -= value; }
     public event Action<PointD>? WorkspaceRequested { add => view.WorkspaceRequested += value; remove => view.WorkspaceRequested -= value; }
+    public event Action<Guid>? WorkspaceOpenRequested { add => view.WorkspaceOpenRequested += value; remove => view.WorkspaceOpenRequested -= value; }
     public event Action<Guid, Point>? WorkspaceMenuRequested { add => view.WorkspaceMenuRequested += value; remove => view.WorkspaceMenuRequested -= value; }
     public event Action? SaveRequested { add => view.SaveRequested += value; remove => view.SaveRequested -= value; }
     public event Action? ManageRequested { add => view.ManageRequested += value; remove => view.ManageRequested -= value; }

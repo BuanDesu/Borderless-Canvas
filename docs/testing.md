@@ -29,3 +29,7 @@ dotnet run --project tools/BorderlessFlatWindow.Lab -c Release -- overview artif
 实验输出只留在忽略目录。正式 App 遇到旧检查/实验参数会在初始化桌面接管前拒绝，不会误启动画布。包验证使用的 `--runtime-check` 只预热运行时与呈现依赖，不建立管理会话或输入钩子。
 
 导航空闲和隐藏诊断的可重复测量使用 `./scripts/measure-navigation.ps1 -Label <新标签>`，输出仅保存在 `.local/performance/`；具体范围、前后结果及沙箱命名管道限制见[导航性能记录](navigation-performance.md)。单独运行新增调度回归可使用 App.Checks 的 `--navigation-check artifacts/navigation-check`；它仍属于完整 Ui 层的一部分。
+
+工作区窗口复原另有[自有 A/B 程序检查](workspace-layouts.md)，入口为 Windows.Checks 的 `--workspace-only <新的 ignored 目录>`。`WorkspaceSource` 仅为开发夹具，不进入发行载荷；它在两分钟内自动退出，检查器正常结束时关闭自己的子进程。完整 Ui 层使用可注入启动端口，不打开用户软件。
+
+工作区控制器和成员编辑器可单独运行：完整构建后，使用 `dotnet run --project tests/BorderlessFlatWindow.App.Checks -c Release --no-build -- --workspace-check <新的 ignored 目录>`。该合成夹具覆盖原样参数编辑、关闭自动启动、移除成员/删除工作区不关闭窗口、导航阻断与系统切换取消；它也包含在完整 Ui 层中。

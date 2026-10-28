@@ -85,6 +85,7 @@ internal sealed partial class ManagedCanvasControl
     }
     private void UpdateAdmissionState()
     {
+        if (WorkspaceRestoring) { admissionTimer.Stop(); addWindows.Enabled = false; return; }
         var canAdd = session?.IsRunning == true && !reading && !session.IsBusy && !session.HasPending && overview is null && !openingOverview;
         addWindows.Visible = session?.IsRunning == true;
         addWindows.Enabled = canAdd && candidates.CheckedItems.OfType<Candidate>().Any(item => !item.Managed && item.Supported);
@@ -113,6 +114,7 @@ internal sealed partial class ManagedCanvasControl
     }
     private void AddAutomaticWindows()
     {
+        if (WorkspaceRestoring) { admissionTimer.Stop(); return; }
         if (!automaticAdmission.Checked || session?.IsRunning != true) { admissionTimer.Stop(); return; }
         if (reading || editingSettings || desktopTransitionPending || session.IsBusy || session.HasPending || overview is not null || openingOverview
             || gestures?.HasGesture == true || navigationState is { Crosshair: true }) return;

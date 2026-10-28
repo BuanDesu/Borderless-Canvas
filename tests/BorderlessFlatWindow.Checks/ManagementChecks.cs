@@ -46,6 +46,7 @@ internal static partial class ManagementChecks
         foreach (var item in ArrangementCases()) yield return item;
         foreach (var item in PointerAndPinCases()) yield return item;
         foreach (var item in LifetimeCases()) yield return item;
+        foreach (var item in WorkspaceCases()) yield return item;
     }
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 0, 0, 0, TimeSpan.FromHours(8));
     private static RectD Rect(double x, double y, double width = 640, double height = 480) => new(new PointD(x, y), new SizeD(width, height));
@@ -105,12 +106,19 @@ internal static partial class ManagementChecks
             return new(true, "Controlled acceptance.");
         }
         public bool RequestActivation(RecoverySession recovery, Guid id) { Activations++; return AllowActivation; }
+        public bool RequestRestore(RecoverySession recovery, Guid id)
+        {
+            Require(recovery.CanMove(id), "Restore lacks durable ownership.");
+            var entry = recovery.Journal.Entries.Single(e => e.Id == id);
+            Native[entry.Identity.Handle] = Native[entry.Identity.Handle] with { IsMinimized = false };
+            return true;
+        }
         public OriginalWindowState Capture(NativeWindowIdentity identity)
         {
             DuringCapture?.Invoke(identity.Handle);
             if (CaptureFailure == identity.Handle) throw new InvalidOperationException("Late fixture refused capture.");
             var bounds = Native[identity.Handle].Bounds!.Value;
-            return new(new(0, 1, -1, -1, -1, -1, (int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom),
+            return new(new(0, Native[identity.Handle].IsMinimized ? 2u : 1u, -1, -1, -1, -1, (int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom),
                 new((int)bounds.Position.X, (int)bounds.Position.Y, (int)bounds.Right, (int)bounds.Bottom));
         }
         public void Mark(RecoveryEntry entry, string name)
@@ -123,7 +131,7 @@ internal static partial class ManagementChecks
             Restorations++;
             if (FailRestore) return new(entry.Id, RecoveryOutcome.Failed, "Controlled restore failure.");
             if (!Matches(entry, name)) return new(entry.Id, RecoveryOutcome.SkippedClosedOrReused, "Missing fixture.");
-            Native[entry.Identity.Handle] = Native[entry.Identity.Handle] with { Bounds = entry.Original.PhysicalBounds.ToRectD() };
+            Native[entry.Identity.Handle] = Native[entry.Identity.Handle] with { Bounds = entry.Original.PhysicalBounds.ToRectD(), IsMinimized = entry.Original.Placement.ShowCommand == 2 };
             markers.Remove(entry.Id); return new(entry.Id, RecoveryOutcome.Restored, "Restored fixture.");
         }
         private sealed class Store(Harness owner) : IRecoveryJournalStore

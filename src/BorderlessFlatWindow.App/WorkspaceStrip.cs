@@ -30,6 +30,10 @@ internal sealed class WorkspaceStrip : UserControl
         wallpaper?.Dispose(); wallpaper = next; cards.Invalidate(true); AppearanceChanged?.Invoke();
     }
     internal event Action<PointD>? JumpRequested;
+    internal event Action<Guid>? OpenRequested;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal WorkspaceActions? Actions { private get => actions; set { actions = value; Render(); } }
+    private WorkspaceActions? actions;
     internal WorkspaceStrip(BookmarkLibrary? library, PointD camera, Func<IReadOnlyList<CanvasWindow>> windows, SizeD viewport, Control tools, RectD[]? viewports = null)
     {
         this.library = library; this.camera = camera; this.windows = windows; this.viewport = viewport;
@@ -44,12 +48,12 @@ internal sealed class WorkspaceStrip : UserControl
         header.ColumnStyles.Add(new(SizeType.Absolute, 90)); header.ColumnStyles.Add(new(SizeType.Absolute, 48));
         header.ColumnStyles.Add(new(SizeType.Absolute, 48)); header.ColumnStyles.Add(new(SizeType.Percent, 100));
         header.Controls.Add(new Label { Text = "工作区", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-        var add = new ChromeButton { Text = "+", AccessibleName = "保存当前视角", Size = new(44, 44), Enabled = library?.CanWrite == true };
+        var add = new ChromeButton { Text = "+", AccessibleName = "保存窗口布局", Size = new(44, 44), Enabled = library?.CanWrite == true };
         add.Click += (_, _) =>
         {
             var name = AskName("保存工作区", "工作区");
             if (name is null) return;
-            library!.Add(name, camera); Render(true);
+            if (Actions is not null) Actions.Save(TopLevelControl ?? this, name, camera); else library!.Add(name, camera); Render(true);
         };
         var manage = new ChromeButton { Text = "⋯", AccessibleName = "管理工作区", Size = new(44, 44), Enabled = library is not null };
         manage.Click += (_, _) =>
@@ -67,7 +71,7 @@ internal sealed class WorkspaceStrip : UserControl
             dialog.TopMost = (TopLevelControl as Form)?.TopMost == true;
             dialog.ShowDialog(TopLevelControl as Form); Render(true);
         };
-        hints.SetToolTip(add, "将当前视角保存为工作区"); hints.SetToolTip(manage, "搜索、编辑与存储");
+        hints.SetToolTip(add, "保存当前视区的窗口布局"); hints.SetToolTip(manage, "搜索、编辑与存储");
         header.Controls.Add(add, 1, 0); header.Controls.Add(manage, 2, 0); header.Controls.Add(tools, 3, 0);
         tools.Dock = DockStyle.Fill;
         Controls.Add(cards); Controls.Add(message); Controls.Add(header); Padding = new(12, 12, 12, 10);
@@ -113,7 +117,7 @@ internal sealed class WorkspaceStrip : UserControl
         positions.Clear(); previewIds.Clear();
         if (library is not null) foreach (var bookmark in library.Collection.Items)
             AddCard(bookmark.Name, bookmark.CameraPosition, bookmark.Id);
-        message.Text = library is not null && (showStorageMessage || !library.CanWrite) ? library.Message : "工作区记录视角；窗口始终位于同一画布。右击卡片可重命名或删除。";
+        message.Text = library is not null && (showStorageMessage || !library.CanWrite) ? library.Message : "工作区保存窗口布局；右击卡片可更新布局、查看成员或调整启动项。";
         message.Visible = library is { CanWrite: false };
         SizeCards();
     }
@@ -122,10 +126,16 @@ internal sealed class WorkspaceStrip : UserControl
         var button = new ChromeButton { Text = name, Size = new(164, 142), Margin = new(12, 3, 12, 6), AccessibleName = "工作区 " + name };
         positions.Add(button, position);
         hints.SetToolTip(button, $"{name} · ({position.X:0}, {position.Y:0})\n右键重命名或删除");
-        button.Click += (_, _) => JumpRequested?.Invoke(position);
+        button.Click += (_, _) => { if (id is { } saved && Actions is not null) OpenRequested?.Invoke(saved); else JumpRequested?.Invoke(position); };
         if (id is { } bookmarkId && library is not null)
         {
             var menu = new ContextMenuStrip();
+            menu.Items.Add("打开并复原", null, (_, _) => OpenRequested?.Invoke(bookmarkId));
+            if (Actions is not null)
+            {
+                menu.Items.Add("更新布局（当前视区）", null, (_, _) => { Actions.Save(TopLevelControl ?? this, name, camera, bookmarkId); Render(true); });
+                menu.Items.Add("查看成员 / 启动项", null, (_, _) => { using var editor = Actions.MemberEditor(bookmarkId); editor.ShowDialog(TopLevelControl as Form); Render(true); });
+            }
             menu.Items.Add("重命名", null, (_, _) => { var renamed = AskName("重命名工作区", name); if (renamed is not null) { library.Rename(bookmarkId, renamed); Render(true); } });
             menu.Items.Add("删除工作区", null, (_, _) => { library.Remove(bookmarkId); Render(true); });
             foreach (ToolStripItem item in menu.Items) item.Enabled = library.CanWrite;

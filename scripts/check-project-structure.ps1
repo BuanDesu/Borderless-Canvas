@@ -6,7 +6,7 @@ $graph = @{}
 foreach ($project in $projects) {
     $xml = [xml](Get-Content -Raw -LiteralPath $project.FullName)
     $references = @($xml.SelectNodes('//ProjectReference') | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Include) })
-    if (@($references | Where-Object { $_ -match '\.(Checks|Lab|Probe)$' }).Count) { throw "Production dependency reaches a development tool: $($project.BaseName)" }
+    if (@($references | Where-Object { $_ -match '\.(Checks|Lab|Probe|WorkspaceSource)$' }).Count) { throw "Production dependency reaches a development tool: $($project.BaseName)" }
     $graph[$project.BaseName] = $references
 }
 if ($graph['BorderlessFlatWindow.Core'].Count -ne 0 -or ($graph['BorderlessFlatWindow.Application'] -join ',') -ne 'BorderlessFlatWindow.Core') { throw 'Portable layer dependency direction changed.' }

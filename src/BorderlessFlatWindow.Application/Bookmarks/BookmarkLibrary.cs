@@ -55,6 +55,26 @@ public sealed class BookmarkLibrary(Func<IBookmarkStore> createStore) : IDisposa
         if (!Collection.Items.Any(entry => entry.Id == id)) { Message = "标签已不存在。"; return false; }
         return Commit(Collection.Items.Where(entry => entry.Id != id), "标签已删除；窗口和视角保持不变。");
     }
+    public LocationBookmark? SaveWorkspace(string name, PointD position, WorkspaceSnapshot snapshot, Guid? replace = null)
+    {
+        try
+        {
+            snapshot.Validate();
+            snapshot = snapshot with { Windows = Array.AsReadOnly(snapshot.Windows.Select(m => m with
+                { Launch = m.Launch is null ? null : m.Launch with { Arguments = Array.AsReadOnly(m.Launch.Arguments.ToArray()) } }).ToArray()) };
+            if (replace is { } id && !Collection.Items.Any(e => e.Id == id)) { Message = "工作区已不存在。"; return null; }
+            var entry = new LocationBookmark(replace ?? Guid.NewGuid(), BookmarkCollection.NormalizeName(name), position, snapshot);
+            var next = replace is { } existing ? Collection.Items.Select(e => e.Id == existing ? entry : e) : Collection.Items.Append(entry);
+            return Commit(next, $"已保存 {snapshot.Windows.Count} 个窗口的布局；关闭软件不会删除快照。") ? entry : null;
+        }
+        catch (ArgumentException error) { Message = error.Message; return null; }
+    }
+    public bool UpdateWorkspaceMembers(Guid id, IReadOnlyList<WorkspaceMember> members)
+    {
+        var entry = Collection.Items.FirstOrDefault(e => e.Id == id);
+        if (entry?.Layout is null) { Message = "请先保存窗口布局。"; return false; }
+        return SaveWorkspace(entry.Name, entry.CameraPosition, entry.Layout with { Windows = Array.AsReadOnly(members.ToArray()) }, id) is not null;
+    }
     private bool Commit(IEnumerable<LocationBookmark> entries, string success)
     {
         ObjectDisposedException.ThrowIf(disposed, this);

@@ -19,6 +19,11 @@ try {
         if (!$NativeChecks) { $windowsArguments += @('--', '--storage-only') }
         dotnet @windowsArguments
         if ($LASTEXITCODE -ne 0) { throw "Windows checks failed: $LASTEXITCODE" }
+        if ($NativeChecks) {
+            $workspaceOutput = Join-Path $taskRoot ('.local/workspace-native/' + [Guid]::NewGuid().ToString('N'))
+            dotnet run --project tests/BorderlessFlatWindow.Windows.Checks --configuration $Configuration --no-build -- --workspace-only $workspaceOutput
+            if ($LASTEXITCODE -ne 0) { throw 'Owned workspace native checks failed.' }
+        }
         Write-Output 'PASS layer=core: models, storage, isolated input, launchers and package verifier. Physical desktop acceptance is separate.'
     }
     if ($Layer -eq 'Ui' -or $SmokeUi) {
@@ -26,6 +31,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Hidden UI checks failed: $LASTEXITCODE" }
         dotnet run --project tests/BorderlessFlatWindow.App.Checks --configuration $Configuration --no-build -- --scene-check (Join-Path $taskRoot 'artifacts/overview-scene-check.json')
         if ($LASTEXITCODE -ne 0) { throw "Scene checks failed: $LASTEXITCODE" }
+        $workspaceOutput = Join-Path $taskRoot ('.local/workspace-ui/' + [Guid]::NewGuid().ToString('N'))
+        dotnet run --project tests/BorderlessFlatWindow.App.Checks --configuration $Configuration --no-build -- --workspace-check $workspaceOutput
+        if ($LASTEXITCODE -ne 0) { throw 'Workspace UI integration checks failed.' }
         Write-Output 'PASS layer=ui: source-linked hidden UI and synthetic scene checks; no global input hooks or real window management.'
     }
     if ($NativeOverviewChecks) {

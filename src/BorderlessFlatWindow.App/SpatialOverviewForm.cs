@@ -46,6 +46,14 @@ internal sealed partial class SpatialOverviewForm : Form
     }
     internal CanvasWindow? ConfirmedTarget { get; private set; }
     internal PointD? ConfirmedCameraPosition { get; private set; }
+    internal Guid? ConfirmedWorkspaceId { get; private set; }
+    private WorkspaceActions? workspaceActions;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal WorkspaceActions? WorkspaceActions
+    {
+        get => workspaceActions;
+        set { workspaceActions = value; if (legacyWorkspaces is not null) legacyWorkspaces.Actions = value; }
+    }
     private readonly WorkspaceStrip? legacyWorkspaces;
     private WorkspaceStrip workspaces => legacyWorkspaces ?? throw new InvalidOperationException("Legacy workspace strip is synthetic-only.");
     private Bitmap? backdrop;
@@ -89,6 +97,7 @@ internal sealed partial class SpatialOverviewForm : Form
         search.TextChanged += (_, _) => { model.Search(search.Text); RefreshSelection(); };
         legacyWorkspaces = new(bookmarks, camera.Position, () => model.Windows, camera.ViewportSize, searchContainer, monitorViewports) { Dock = DockStyle.Bottom, Height = Math.Clamp(bounds.Height / 5, (int)(210 * DeviceDpi / 96f), (int)(320 * DeviceDpi / 96f)) };
         workspaces.JumpRequested += position => { if (!canConfirm) return; ConfirmedCameraPosition = position; DialogResult = DialogResult.OK; Close(); };
+        workspaces.OpenRequested += id => { if (!canConfirm) return; ConfirmedWorkspaceId = id; DialogResult = DialogResult.OK; Close(); };
         workspaces.GeometryChanged += () => { sceneDirty = true; RefreshPreviews(); };
         workspaces.AppearanceChanged += () => sceneDirty = true;
         Controls.Add(map); Controls.Add(workspaces);

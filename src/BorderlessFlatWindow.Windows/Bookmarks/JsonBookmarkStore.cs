@@ -47,9 +47,10 @@ public sealed class JsonBookmarkStore : IBookmarkStore
         try
         {
             var dto = JsonSerializer.Deserialize<DocumentDto>(bytes, Options) ?? throw new InvalidDataException("标签文件为空。");
-            if (dto.Version != BookmarkDocument.CurrentVersion || dto.Revision is null || dto.Entries is null) throw new InvalidDataException("标签文件版本未知或字段缺失。");
-            var entries = dto.Entries.Select(entry => new LocationBookmark(entry.Id ?? Guid.Empty, entry.Name!, new PointD(entry.X!.Value, entry.Y!.Value))).ToArray();
-            var document = new BookmarkDocument(dto.Version.Value, dto.Revision.Value, Array.AsReadOnly(entries));
+            if (dto.Version is not (1 or BookmarkDocument.CurrentVersion) || dto.Revision is null || dto.Entries is null
+                || dto.Version == 1 && dto.Entries.Any(e => e?.Layout is not null)) throw new InvalidDataException("标签文件版本未知或字段缺失。");
+            var entries = dto.Entries.Select(entry => new LocationBookmark(entry.Id ?? Guid.Empty, entry.Name!, new PointD(entry.X!.Value, entry.Y!.Value), FromDto(entry.Layout))).ToArray();
+            var document = new BookmarkDocument(BookmarkDocument.CurrentVersion, dto.Revision.Value, Array.AsReadOnly(entries));
             document.Validate(); return document;
         }
         catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException or NullReferenceException)
@@ -77,7 +78,7 @@ public sealed class JsonBookmarkStore : IBookmarkStore
     {
         ObjectDisposedException.ThrowIf(disposed, this); document.Validate(); EnsureUnchanged();
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new DocumentDto(document.Version, document.Revision,
-            document.Entries.Select(entry => new EntryDto(entry.Id, entry.Name, entry.CameraPosition.X, entry.CameraPosition.Y)).ToArray()), Options);
+            document.Entries.Select(entry => new EntryDto(entry.Id, entry.Name, entry.CameraPosition.X, entry.CameraPosition.Y, ToDto(entry.Layout))).ToArray()), Options);
         if (bytes.Length > MaxBytes) throw new InvalidDataException("标签数据超过 16 MiB 存储限制。");
         var temporary = FilePath + $".{Guid.NewGuid():N}.tmp";
         try
@@ -96,5 +97,15 @@ public sealed class JsonBookmarkStore : IBookmarkStore
     }
     public void Dispose() { if (disposed) return; disposed = true; lease.Dispose(); }
     private sealed record DocumentDto(int? Version, long? Revision, EntryDto[]? Entries);
-    private sealed record EntryDto(Guid? Id, string? Name, double? X, double? Y);
+    private static LayoutDto? ToDto(WorkspaceSnapshot? value) => value is null ? null : new(value.SourceSession, value.Dpi,
+        value.Windows.Select(w => new MemberDto(w.Id, w.SourceWindow, w.Label, w.Executable, w.WindowClass, w.Bounds.Position.X, w.Bounds.Position.Y,
+            w.Bounds.Size.Width, w.Bounds.Size.Height, w.Launch is null ? null : new(w.Launch.Executable, w.Launch.Arguments.ToArray()))).ToArray());
+    private static WorkspaceSnapshot? FromDto(LayoutDto? value) => value is null ? null : new(value.SourceSession!.Value, value.Dpi!.Value,
+        Array.AsReadOnly(value.Windows!.Select(w => new WorkspaceMember(w.Id!.Value, w.SourceWindow!.Value, w.Label!, w.Executable, w.WindowClass!,
+            new(new(w.X!.Value, w.Y!.Value), new(w.Width!.Value, w.Height!.Value)), w.Launch is null ? null : new(w.Launch.Executable!, Array.AsReadOnly(w.Launch.Arguments!)))).ToArray()));
+    private sealed record EntryDto(Guid? Id, string? Name, double? X, double? Y, LayoutDto? Layout = null);
+    private sealed record LayoutDto(Guid? SourceSession, uint? Dpi, MemberDto[]? Windows);
+    private sealed record LaunchDto(string? Executable, string[]? Arguments);
+    private sealed record MemberDto(Guid? Id, Guid? SourceWindow, string? Label, string? Executable, string? WindowClass,
+        double? X, double? Y, double? Width, double? Height, LaunchDto? Launch);
 }

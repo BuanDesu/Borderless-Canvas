@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using BorderlessFlatWindow.Application.Bookmarks;
 using BorderlessFlatWindow.Core.Canvas;
+using BorderlessFlatWindow.Core.Geometry;
 using BorderlessFlatWindow.Windows.Bookmarks;
 
 namespace BorderlessFlatWindow.Windows.Checks;
@@ -19,6 +20,9 @@ internal static class BookmarkStorageChecks
             ("Oversized bookmark data is rejected but can be backed up and reset without loading all entries", Oversized),
             ("External label changes cannot be silently overwritten by a stale library", ExternalEdit),
             ("Invalid bookmark writes never alter the current complete file", InvalidWrite)
+            ,("Legacy position-only bookmark data loads without rewriting or inventing window members", LegacyWorkspace)
+            ,("Workspace members and structured launches survive JSON storage and manager restart", WorkspaceRoundTrip)
+            ,("Malformed workspace layouts preserve exact bytes and disable edits", WorkspaceMalformed)
         };
         var failures = 0;
         foreach (var (name, run) in cases)
@@ -37,7 +41,7 @@ internal static class BookmarkStorageChecks
         var path = NewPath("roundtrip"); var document = Document(256);
         using (var store = new JsonBookmarkStore(path)) { Require(store.Load() is null, "New file was not empty."); store.Save(document); }
         using var reopened = new JsonBookmarkStore(path); var loaded = reopened.Load()!;
-        Require(loaded.Version == 1 && loaded.Revision == 12 && loaded.Entries.SequenceEqual(document.Entries), "JSON changed labels or order.");
+        Require(loaded.Version == BookmarkDocument.CurrentVersion && loaded.Revision == 12 && loaded.Entries.SequenceEqual(document.Entries), "JSON changed labels or order.");
     }
     private static void Lease()
     {
@@ -111,6 +115,55 @@ internal static class BookmarkStorageChecks
         foreach (var invalid in new[] { document with { Version = 99 }, document with { Revision = -1 },
             document with { Entries = [document.Entries[0], document.Entries[0]] }, document with { Entries = [document.Entries[0] with { Name = "a\nb" }] } })
         { Throws<ArgumentException>(() => store.Save(invalid)); Require(File.ReadAllBytes(path).SequenceEqual(bytes), "Invalid write changed old bytes."); }
+    }
+    private static WorkspaceSnapshot Layout()
+    {
+        var executable = "C:\\Synthetic\\Editor.exe";
+        return new(Guid.NewGuid(), 144, [new(Guid.NewGuid(), Guid.NewGuid(), "Synthetic document", executable, "SyntheticWindow",
+            new(new(-1234.5, 200.25), new(640, 480)), new(executable, ["C:\\Synthetic\\two words.txt", "literal\"quote", "&literal"]))]);
+    }
+    private static void LegacyWorkspace()
+    {
+        var path = NewPath("legacy-workspace"); var id = Guid.NewGuid();
+        var old = "{\"Version\":1,\"Revision\":17,\"Entries\":[{\"Id\":\"" + id + "\",\"Name\":\"Legacy\",\"X\":-900.5,\"Y\":200.25}]}";
+        File.WriteAllText(path, old);
+        using var library = new BookmarkLibrary(() => new JsonBookmarkStore(path));
+        Require(library.Reload() && File.ReadAllText(path) == old && library.Collection.Items.Single() is { Layout: null } entry
+            && entry.Id == id && entry.CameraPosition == new PointD(-900.5, 200.25), "Legacy data changed or gained invented members.");
+        Require(library.Rename(id, "Renamed") && JsonNode.Parse(File.ReadAllText(path))!["Version"]!.GetValue<int>() == BookmarkDocument.CurrentVersion
+            && library.Collection.Items.Single().Id == id, "Explicit legacy edit lost identity or failed migration.");
+    }
+    private static void WorkspaceRoundTrip()
+    {
+        var path = NewPath("workspace-roundtrip"); var layout = Layout(); Guid id;
+        using (var library = new BookmarkLibrary(() => new JsonBookmarkStore(path)))
+        { library.Reload(); id = library.SaveWorkspace("Saved", new(-900, 200), layout)!.Id; }
+        using var reopened = new BookmarkLibrary(() => new JsonBookmarkStore(path));
+        Require(reopened.Reload(), reopened.Message); var entry = reopened.Collection.Items.Single(); var member = entry.Layout!.Windows.Single();
+        Require(entry.Id == id && entry.CameraPosition == new PointD(-900, 200) && entry.Layout.Dpi == 144 && entry.Layout.SourceSession == layout.SourceSession
+            && member.Id == layout.Windows[0].Id && member.Bounds == layout.Windows[0].Bounds && member.Launch!.Arguments.SequenceEqual(layout.Windows[0].Launch!.Arguments), "Workspace roundtrip lost layout or literal arguments.");
+        Require(!File.ReadAllText(path).Contains("Handle", StringComparison.Ordinal) && !File.ReadAllText(path).Contains("ProcessId", StringComparison.Ordinal), "Runtime native identity was persisted.");
+    }
+    private static void WorkspaceMalformed()
+    {
+        var path = NewPath("workspace-malformed");
+        using (var library = new BookmarkLibrary(() => new JsonBookmarkStore(path))) { library.Reload(); library.SaveWorkspace("Saved", PointD.Zero, Layout()); }
+        var valid = File.ReadAllText(path);
+        foreach (var mutate in new Action<JsonNode>[]
+        {
+            n => n["Entries"]![0]!["Layout"]!["Dpi"] = 0,
+            n => n["Entries"]![0]!["Layout"]!["SourceSession"] = null,
+            n => n["Entries"]![0]!["Layout"]!["Windows"] = null,
+            n => n["Entries"]![0]!["Layout"]!["Windows"]![0]!["Width"] = 0,
+            n => n["Entries"]![0]!["Layout"]!["Windows"]![0]!["Launch"]!["Executable"] = "cmd /c invented",
+            n => ((JsonArray)n["Entries"]![0]!["Layout"]!["Windows"]!).Add(n["Entries"]![0]!["Layout"]!["Windows"]![0]!.DeepClone()),
+            n => n["Entries"]![0]!["Layout"]!["Unexpected"] = true
+        })
+        {
+            var changed = JsonNode.Parse(valid)!; mutate(changed); var text = changed.ToJsonString(); File.WriteAllText(path, text);
+            using var library = new BookmarkLibrary(() => new JsonBookmarkStore(path));
+            Require(!library.Reload() && !library.CanWrite && File.ReadAllText(path) == text, "Malformed workspace was overwritten or accepted.");
+        }
     }
     private static void Throws<T>(Action run) where T : Exception { try { run(); } catch (T) { return; } throw new InvalidOperationException($"Expected {typeof(T).Name}"); }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
